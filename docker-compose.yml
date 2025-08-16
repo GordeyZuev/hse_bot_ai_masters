@@ -1,0 +1,61 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: hse_bot_postgres
+    environment:
+      POSTGRES_DB: hse_bot_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - hse_bot_network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: hse_bot_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - hse_bot_network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # HSE Bot Application
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hse_bot_app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@postgres:5432/hse_bot_db
+      - REDIS_URL=redis://redis:6379/0
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - hse_bot_network
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  hse_bot_network:
+    driver: bridge

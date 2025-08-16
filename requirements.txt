@@ -1,0 +1,40 @@
+# Telegram Bot
+aiogram==3.13.1
+aiohttp==3.10.10
+
+# Database
+asyncpg>=0.30.0
+sqlalchemy[asyncio]==2.0.36
+alembic==1.14.0
+
+# Google Sheets
+gspread-asyncio==1.9.0
+google-auth==2.36.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+
+# Task Scheduling
+apscheduler==3.10.4
+
+# Caching and Queue
+redis==5.2.0
+aioredis==2.0.1
+
+# Configuration and Environment
+python-dotenv==1.0.1
+pydantic>=2.4.1,<2.10
+pydantic-settings==2.6.1
+
+# Logging and Monitoring
+loguru==0.7.2
+colorama==0.4.6
+
+# Development and Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+black==24.10.0
+flake8==7.1.1
+
+# Utilities
+python-dateutil==2.9.0.post0
+pytz==2024.2

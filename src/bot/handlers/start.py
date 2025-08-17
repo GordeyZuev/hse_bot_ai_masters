@@ -1,93 +1,52 @@
-"""
-Хендлеры для команды /start и регистрации пользователей.
-"""
 from aiogram import Router, F
-from aiogram.filters import CommandStart
 from aiogram.types import Message
+from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from src.db import UserCRUD, NotificationSettingsCRUD, get_db_session
-from src.utils import bot_logger
+from src.utils import get_logger
 
-
+logger = get_logger()
 router = Router()
 
-
 @router.message(CommandStart())
-async def start_handler(message: Message):
-    """
-    Обработчик команды /start.
-    Регистрирует нового пользователя или приветствует существующего.
-    """
-    user = message.from_user
-    
+async def cmd_start(message: Message, db_user):
+    """Обработчик команды /start"""
     try:
-        async with get_db_session() as session:
-            # Получаем или создаем пользователя
-            db_user, created = await UserCRUD.get_or_create(
-                session=session,
-                telegram_id=user.id,
-                username=user.username,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                language_code=user.language_code or "ru"
-            )
-            
-            # Создаем настройки уведомлений для нового пользователя
-            if created:
-                await NotificationSettingsCRUD.get_or_create(session, db_user.id)
-                bot_logger.user_action(
-                    user_id=user.id,
-                    action="user_registered",
-                    username=user.username,
-                    first_name=user.first_name
-                )
-            else:
-                bot_logger.user_action(
-                    user_id=user.id,
-                    action="user_returned",
-                    username=user.username
-                )
+        user_name = db_user.first_name or "Пользователь"
         
-        # Формируем приветственное сообщение
-        if created:
-            welcome_text = (
-                f"👋 Добро пожаловать, {user.first_name or 'студент'}!\n\n"
-                "🎓 Я бот для уведомлений о дедлайнах магистерской программы НИУ ВШЭ.\n\n"
-                "📚 <b>Что я умею:</b>\n"
-                "• Отправлять уведомления о приближающихся дедлайнах\n"
-                "• Управлять подписками на дисциплины\n"
-                "• Настраивать время и количество уведомлений\n"
-                "• Показывать актуальные задания\n\n"
-                "🚀 Для начала выберите дисциплины, на которые хотите подписаться!"
-            )
-        else:
-            welcome_text = (
-                f"👋 С возвращением, {user.first_name or 'студент'}!\n\n"
-                "🎓 Рад снова вас видеть! Я готов помочь с отслеживанием дедлайнов.\n\n"
-                "📋 Используйте команды ниже для управления подписками и настройками."
-            )
+        text = f"""
+🎓 <b>Добро пожаловать в HSE Bot, {user_name}!</b>
+
+Этот бот поможет вам отслеживать дедлайны по предметам магистратуры ВШЭ.
+
+<b>Основные команды:</b>
+• /help - подробная справка
+• /sub - подписаться на предмет
+• /mysubs - мои подписки
+• /deadlines - ближайшие дедлайны
+• /settings - настройки уведомлений
+
+Начните с команды /sub для подписки на интересующие предметы!
+        """
         
-        # Создаем клавиатуру с основными действиями
-        keyboard = InlineKeyboardBuilder()
-        keyboard.button(text="📚 Мои подписки", callback_data="my_subscriptions")
-        keyboard.button(text="➕ Подписаться", callback_data="subscribe")
-        keyboard.button(text="⚙️ Настройки", callback_data="settings")
-        keyboard.button(text="❓ Помощь", callback_data="help")
-        keyboard.adjust(2, 2)
+        # Создаем клавиатуру с быстрыми действиями
+        builder = InlineKeyboardBuilder()
+        builder.button(text="📚 Подписки", callback_data="quick_sub")
+        builder.button(text="📅 Ближайшие дедлайны", callback_data="quick_deadlines")
+        builder.button(text="ℹ️ Помощь", callback_data="quick_help")
+        builder.adjust(1)
         
         await message.answer(
-            text=welcome_text,
-            reply_markup=keyboard.as_markup()
+            text.strip(),
+            reply_markup=builder.as_markup()
         )
+        
+        logger.info(f"Пользователь {db_user.tg_user_id} выполнил команду /start")
         
     except Exception as e:
-        bot_logger.error(f"Error in start handler: {e}", user_id=user.id)
-        await message.answer(
-            "😔 Произошла ошибка при регистрации. Попробуйте позже или обратитесь к администратору."
-        )
-
+        logger.error(f"Ошибка в обработчике /start: {e}")
+        await message.answer("Произошла ошибка. Попробуйте позже.")
 
 def register_start_handlers(dp):
-    """Регистрирует хендлеры для команды /start."""
+    """Регистрация handlers для команды start"""
     dp.include_router(router)

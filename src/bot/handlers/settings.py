@@ -1,328 +1,325 @@
-"""
-Хендлеры для настроек уведомлений.
-"""
 from aiogram import Router, F
-from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
+from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from src.db import UserCRUD, NotificationSettingsCRUD, get_db_session
-from src.utils import bot_logger
+from src.bot.services.notification_service import notification_service
+from src.utils import get_logger
 
-
+logger = get_logger()
 router = Router()
 
-
 class SettingsStates(StatesGroup):
-    """Состояния для настройки уведомлений."""
-    setting_notifications_count = State()
-    setting_first_notification_time = State()
-    setting_second_notification_time = State()
-
+    choosing_notification = State()
+    setting_offset = State()
 
 @router.message(Command("settings"))
-async def settings_command_handler(message: Message):
-    """Обработчик команды /settings."""
-    await show_settings_menu(message)
-
-
-@router.callback_query(F.data == "settings")
-async def settings_callback_handler(callback: CallbackQuery):
-    """Обработчик callback для настроек."""
-    await show_settings_menu(callback.message, callback)
-
-
-@router.callback_query(F.data == "toggle_notifications")
-async def toggle_notifications_handler(callback: CallbackQuery):
-    """Обработчик включения/выключения уведомлений."""
-    user = callback.from_user
+@router.callback_query(F.data == "quick_settings")
+async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContext):
+    """Обработчик команды /settings"""
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        message = event.message
+    else:
+        message = event
     
     try:
-        async with get_db_session() as session:
-            # Получаем пользователя
-            db_user = await UserCRUD.get_by_telegram_id(session, user.id)
-            if not db_user:
-                await callback.answer("❌ Пользователь не найден")
-                return
-            
-            # Получаем настройки
-            settings_obj, _ = await NotificationSettingsCRUD.get_or_create(session, db_user.id)
-            
-            # Переключаем состояние
-            new_state = not settings_obj.notifications_enabled
-            await NotificationSettingsCRUD.update(
-                session, db_user.id, notifications_enabled=new_state
-            )
-            
-            status_text = "включены" if new_state else "выключены"
-            await callback.answer(f"✅ Уведомления {status_text}")
-            
-            bot_logger.user_action(
-                user_id=user.id,
-                action="notifications_toggled",
-                enabled=new_state
-            )
-            
-            # Обновляем меню
-            await show_settings_menu(callback.message, callback)
-            
-    except Exception as e:
-        bot_logger.error(f"Error toggling notifications: {e}", user_id=user.id)
-        await callback.answer("❌ Ошибка при изменении настроек")
-
-
-@router.callback_query(F.data.startswith("set_notifications_count:"))
-async def set_notifications_count_handler(callback: CallbackQuery):
-    """Обработчик установки количества уведомлений."""
-    user = callback.from_user
-    count = int(callback.data.split(":")[1])
-    
-    try:
-        async with get_db_session() as session:
-            # Получаем пользователя
-            db_user = await UserCRUD.get_by_telegram_id(session, user.id)
-            if not db_user:
-                await callback.answer("❌ Пользователь не найден")
-                return
-            
-            # Обновляем настройки
-            await NotificationSettingsCRUD.update(
-                session, db_user.id, notifications_count=count
-            )
-            
-            await callback.answer(f"✅ Количество уведомлений: {count}")
-            
-            bot_logger.user_action(
-                user_id=user.id,
-                action="notifications_count_changed",
-                count=count
-            )
-            
-            # Обновляем меню
-            await show_settings_menu(callback.message, callback)
-            
-    except Exception as e:
-        bot_logger.error(f"Error setting notifications count: {e}", user_id=user.id)
-        await callback.answer("❌ Ошибка при изменении настроек")
-
-
-@router.callback_query(F.data.startswith("set_first_notification:"))
-async def set_first_notification_handler(callback: CallbackQuery):
-    """Обработчик установки времени первого уведомления."""
-    user = callback.from_user
-    hours = int(callback.data.split(":")[1])
-    
-    try:
-        async with get_db_session() as session:
-            # Получаем пользователя
-            db_user = await UserCRUD.get_by_telegram_id(session, user.id)
-            if not db_user:
-                await callback.answer("❌ Пользователь не найден")
-                return
-            
-            # Обновляем настройки
-            await NotificationSettingsCRUD.update(
-                session, db_user.id, first_notification_hours=hours
-            )
-            
-            time_text = f"{hours} ч." if hours >= 1 else f"{hours * 60} мин."
-            await callback.answer(f"✅ Первое уведомление за {time_text}")
-            
-            bot_logger.user_action(
-                user_id=user.id,
-                action="first_notification_time_changed",
-                hours=hours
-            )
-            
-            # Обновляем меню
-            await show_settings_menu(callback.message, callback)
-            
-    except Exception as e:
-        bot_logger.error(f"Error setting first notification time: {e}", user_id=user.id)
-        await callback.answer("❌ Ошибка при изменении настроек")
-
-
-@router.callback_query(F.data.startswith("set_second_notification:"))
-async def set_second_notification_handler(callback: CallbackQuery):
-    """Обработчик установки времени второго уведомления."""
-    user = callback.from_user
-    hours = int(callback.data.split(":")[1])
-    
-    try:
-        async with get_db_session() as session:
-            # Получаем пользователя
-            db_user = await UserCRUD.get_by_telegram_id(session, user.id)
-            if not db_user:
-                await callback.answer("❌ Пользователь не найден")
-                return
-            
-            # Обновляем настройки
-            await NotificationSettingsCRUD.update(
-                session, db_user.id, second_notification_hours=hours
-            )
-            
-            time_text = f"{hours} ч." if hours >= 1 else f"{hours * 60} мин."
-            await callback.answer(f"✅ Второе уведомление за {time_text}")
-            
-            bot_logger.user_action(
-                user_id=user.id,
-                action="second_notification_time_changed",
-                hours=hours
-            )
-            
-            # Обновляем меню
-            await show_settings_menu(callback.message, callback)
-            
-    except Exception as e:
-        bot_logger.error(f"Error setting second notification time: {e}", user_id=user.id)
-        await callback.answer("❌ Ошибка при изменении настроек")
-
-
-async def show_settings_menu(message: Message, callback: CallbackQuery = None):
-    """Показывает меню настроек уведомлений."""
-    user = callback.from_user if callback else message.from_user
-    
-    try:
-        async with get_db_session() as session:
-            # Получаем пользователя
-            db_user = await UserCRUD.get_by_telegram_id(session, user.id)
-            if not db_user:
-                error_text = "❌ Пользователь не найден. Используйте /start для регистрации."
-                if callback:
-                    await callback.message.edit_text(error_text)
-                    await callback.answer()
-                else:
-                    await message.answer(error_text)
-                return
-            
-            # Получаем настройки уведомлений
-            settings_obj, _ = await NotificationSettingsCRUD.get_or_create(session, db_user.id)
-            
-            # Формируем текст с текущими настройками
-            status_emoji = "✅" if settings_obj.notifications_enabled else "❌"
-            status_text = "включены" if settings_obj.notifications_enabled else "выключены"
-            
-            first_time_text = f"{settings_obj.first_notification_hours} ч." if settings_obj.first_notification_hours >= 1 else f"{settings_obj.first_notification_hours * 60} мин."
-            second_time_text = f"{settings_obj.second_notification_hours} ч." if settings_obj.second_notification_hours >= 1 else f"{settings_obj.second_notification_hours * 60} мин."
-            
-            text = (
-                "⚙️ <b>Настройки уведомлений</b>\n\n"
-                f"{status_emoji} <b>Уведомления:</b> {status_text}\n"
-                f"🔢 <b>Количество:</b> {settings_obj.notifications_count}\n"
-                f"⏰ <b>Первое уведомление:</b> за {first_time_text}\n"
-            )
-            
-            if settings_obj.notifications_count >= 2:
-                text += f"⏰ <b>Второе уведомление:</b> за {second_time_text}\n"
-            
-            text += (
-                f"🌍 <b>Часовой пояс:</b> {settings_obj.timezone}\n\n"
-                "💡 Настройте уведомления под свои потребности:"
-            )
-            
-            # Создаем клавиатуру
-            keyboard = InlineKeyboardBuilder()
-            
-            # Кнопка включения/выключения уведомлений
-            toggle_text = "❌ Выключить" if settings_obj.notifications_enabled else "✅ Включить"
-            keyboard.button(text=toggle_text, callback_data="toggle_notifications")
-            
-            # Кнопки количества уведомлений
-            keyboard.button(text="🔢 Количество", callback_data="show_count_options")
-            
-            # Кнопки времени уведомлений
-            keyboard.button(text="⏰ Первое уведомление", callback_data="show_first_time_options")
-            if settings_obj.notifications_count >= 2:
-                keyboard.button(text="⏰ Второе уведомление", callback_data="show_second_time_options")
-            
-            # Кнопка возврата в главное меню
-            keyboard.button(text="🏠 Главное меню", callback_data="main_menu")
-            
-            keyboard.adjust(1)
-            
-            if callback:
-                await callback.message.edit_text(text, reply_markup=keyboard.as_markup())
-                await callback.answer()
-            else:
-                await message.answer(text, reply_markup=keyboard.as_markup())
+        # Получаем текущие настройки пользователя
+        notifications = await notification_service.get_user_notifications(db_user.tg_user_id)
+        
+        text = "⚙️ <b>Настройки уведомлений</b>\n\n"
+        
+        if notifications:
+            text += "<b>Текущие настройки:</b>\n"
+            for notif in notifications:
+                status = "✅" if notif.is_enabled else "❌"
+                unit_text = {
+                    'days': 'дн.',
+                    'hours': 'ч.',
+                    'minutes': 'мин.'
+                }.get(notif.offset_unit, notif.offset_unit)
                 
-            bot_logger.user_action(user_id=user.id, action="settings_viewed")
+                text += f"{status} Уведомление {notif.notification_number}: за {notif.offset_value} {unit_text}\n"
+        else:
+            text += "<i>Настройки уведомлений не заданы</i>\n"
+        
+        text += "\n<b>Управление уведомлениями:</b>"
+        
+        # Создаем клавиатуру
+        builder = InlineKeyboardBuilder()
+        
+        # Кнопки управления уведомлениями
+        builder.button(text="🔔 Уведомление 1", callback_data="setup_notification_1")
+        builder.button(text="🔔 Уведомление 2", callback_data="setup_notification_2")
+        
+        if notifications:
+            # Кнопки включения/выключения
+            for notif in notifications:
+                if notif.is_enabled:
+                    builder.button(
+                        text=f"🔕 Выключить уведомление {notif.notification_number}",
+                        callback_data=f"disable_notification_{notif.notification_number}"
+                    )
+                else:
+                    builder.button(
+                        text=f"🔔 Включить уведомление {notif.notification_number}",
+                        callback_data=f"enable_notification_{notif.notification_number}"
+                    )
+        
+        builder.button(text="🗑 Сбросить все настройки", callback_data="reset_notifications")
+        builder.button(text="🔙 Назад", callback_data="back_to_menu")
+        builder.adjust(2, 1)
+        
+        await message.answer(text, reply_markup=builder.as_markup())
         
     except Exception as e:
-        bot_logger.error(f"Error in settings menu: {e}", user_id=user.id)
-        error_text = "❌ Ошибка при загрузке настроек"
-        if callback:
-            await callback.message.edit_text(error_text)
-            await callback.answer()
+        logger.error(f"Ошибка в обработчике /settings: {e}")
+        await message.answer("Произошла ошибка. Попробуйте позже.")
+
+@router.callback_query(F.data.startswith("setup_notification_"))
+async def callback_setup_notification(callback: CallbackQuery, db_user, state: FSMContext):
+    """Обработчик настройки уведомления"""
+    await callback.answer()
+    
+    try:
+        notification_number = int(callback.data.split("_")[-1])
+        
+        text = f"🔔 <b>Настройка уведомления {notification_number}</b>\n\n"
+        text += "Выберите, за сколько времени до дедлайна присылать уведомление:"
+        
+        builder = InlineKeyboardBuilder()
+        
+        # Предустановленные варианты
+        presets = [
+            (1, "days", "За 1 день"),
+            (3, "days", "За 3 дня"),
+            (7, "days", "За неделю"),
+            (12, "hours", "За 12 часов"),
+            (6, "hours", "За 6 часов"),
+            (2, "hours", "За 2 часа"),
+            (30, "minutes", "За 30 минут")
+        ]
+        
+        for offset_value, offset_unit, text_label in presets:
+            builder.button(
+                text=text_label,
+                callback_data=f"set_notification_{notification_number}_{offset_value}_{offset_unit}"
+            )
+        
+        builder.button(text="✏️ Свой вариант", callback_data=f"custom_notification_{notification_number}")
+        builder.button(text="🔙 Назад к настройкам", callback_data="back_to_settings")
+        builder.adjust(2)
+        
+        await state.update_data(notification_number=notification_number)
+        await state.set_state(SettingsStates.choosing_notification)
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка настройки уведомления", show_alert=True)
+
+@router.callback_query(F.data.startswith("set_notification_"))
+async def callback_set_notification(callback: CallbackQuery, db_user, state: FSMContext):
+    """Обработчик установки уведомления"""
+    await callback.answer()
+    
+    try:
+        parts = callback.data.split("_")
+        notification_number = int(parts[2])
+        offset_value = int(parts[3])
+        offset_unit = parts[4]
+        
+        success, message_text = await notification_service.set_user_notification(
+            db_user.tg_user_id, notification_number, offset_value, offset_unit
+        )
+        
+        if success:
+            unit_text = {
+                'days': 'дн.',
+                'hours': 'ч.',
+                'minutes': 'мин.'
+            }.get(offset_unit, offset_unit)
+            
+            await callback.answer(f"Уведомление настроено: за {offset_value} {unit_text}", show_alert=True)
+            await state.clear()
+            # Возвращаемся к настройкам
+            await cmd_settings(callback, db_user, state)
         else:
-            await message.answer(error_text)
+            await callback.answer(message_text, show_alert=True)
+        
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка установки уведомления", show_alert=True)
 
-
-@router.callback_query(F.data == "show_count_options")
-async def show_count_options_handler(callback: CallbackQuery):
-    """Показывает опции количества уведомлений."""
-    text = (
-        "🔢 <b>Количество уведомлений</b>\n\n"
-        "Выберите, сколько уведомлений вы хотите получать о каждом дедлайне:\n\n"
-        "• <b>1 уведомление</b> - только основное напоминание\n"
-        "• <b>2 уведомления</b> - основное + дополнительное напоминание"
-    )
-    
-    keyboard = InlineKeyboardBuilder()
-    keyboard.button(text="1️⃣ Одно уведомление", callback_data="set_notifications_count:1")
-    keyboard.button(text="2️⃣ Два уведомления", callback_data="set_notifications_count:2")
-    keyboard.button(text="◀️ Назад", callback_data="settings")
-    keyboard.adjust(1)
-    
-    await callback.message.edit_text(text, reply_markup=keyboard.as_markup())
+@router.callback_query(F.data.startswith("enable_notification_"))
+async def callback_enable_notification(callback: CallbackQuery, db_user):
+    """Обработчик включения уведомления"""
     await callback.answer()
-
-
-@router.callback_query(F.data == "show_first_time_options")
-async def show_first_time_options_handler(callback: CallbackQuery):
-    """Показывает опции времени первого уведомления."""
-    text = (
-        "⏰ <b>Время первого уведомления</b>\n\n"
-        "За сколько времени до дедлайна отправлять первое уведомление:"
-    )
     
-    keyboard = InlineKeyboardBuilder()
-    keyboard.button(text="🕐 За 1 час", callback_data="set_first_notification:1")
-    keyboard.button(text="🕕 За 6 часов", callback_data="set_first_notification:6")
-    keyboard.button(text="🕐 За 12 часов", callback_data="set_first_notification:12")
-    keyboard.button(text="📅 За 1 день", callback_data="set_first_notification:24")
-    keyboard.button(text="📅 За 2 дня", callback_data="set_first_notification:48")
-    keyboard.button(text="📅 За 3 дня", callback_data="set_first_notification:72")
-    keyboard.button(text="◀️ Назад", callback_data="settings")
-    keyboard.adjust(2, 2, 2, 1)
-    
-    await callback.message.edit_text(text, reply_markup=keyboard.as_markup())
+    try:
+        notification_number = int(callback.data.split("_")[-1])
+        success, message_text = await notification_service.toggle_notification(
+            db_user.tg_user_id, notification_number, True
+        )
+        
+        await callback.answer(message_text, show_alert=True)
+        
+        if success:
+            # Обновляем интерфейс
+            await cmd_settings(callback, db_user, None)
+        
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка включения уведомления", show_alert=True)
+
+@router.callback_query(F.data.startswith("disable_notification_"))
+async def callback_disable_notification(callback: CallbackQuery, db_user):
+    """Обработчик выключения уведомления"""
     await callback.answer()
-
-
-@router.callback_query(F.data == "show_second_time_options")
-async def show_second_time_options_handler(callback: CallbackQuery):
-    """Показывает опции времени второго уведомления."""
-    text = (
-        "⏰ <b>Время второго уведомления</b>\n\n"
-        "За сколько времени до дедлайна отправлять второе (финальное) уведомление:"
-    )
     
-    keyboard = InlineKeyboardBuilder()
-    keyboard.button(text="⚡ За 30 минут", callback_data="set_second_notification:0.5")
-    keyboard.button(text="🕐 За 1 час", callback_data="set_second_notification:1")
-    keyboard.button(text="🕑 За 2 часа", callback_data="set_second_notification:2")
-    keyboard.button(text="🕕 За 6 часов", callback_data="set_second_notification:6")
-    keyboard.button(text="🕐 За 12 часов", callback_data="set_second_notification:12")
-    keyboard.button(text="◀️ Назад", callback_data="settings")
-    keyboard.adjust(2, 2, 1, 1)
-    
-    await callback.message.edit_text(text, reply_markup=keyboard.as_markup())
+    try:
+        notification_number = int(callback.data.split("_")[-1])
+        success, message_text = await notification_service.toggle_notification(
+            db_user.tg_user_id, notification_number, False
+        )
+        
+        await callback.answer(message_text, show_alert=True)
+        
+        if success:
+            # Обновляем интерфейс
+            await cmd_settings(callback, db_user, None)
+        
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка выключения уведомления", show_alert=True)
+
+@router.callback_query(F.data == "reset_notifications")
+async def callback_reset_notifications(callback: CallbackQuery, db_user):
+    """Обработчик сброса всех настроек"""
     await callback.answer()
+    
+    try:
+        success, message_text = await notification_service.reset_user_notifications(db_user.tg_user_id)
+        await callback.answer(message_text, show_alert=True)
+        
+        if success:
+            # Обновляем интерфейс
+            await cmd_settings(callback, db_user, None)
+        
+    except Exception as e:
+        logger.error(f"Ошибка сброса настроек: {e}")
+        await callback.answer("Произошла ошибка", show_alert=True)
 
+@router.callback_query(F.data == "back_to_settings")
+async def callback_back_to_settings(callback: CallbackQuery, db_user, state: FSMContext):
+    """Возврат к настройкам"""
+    await callback.answer()
+    await state.clear()
+    await cmd_settings(callback, db_user, state)
+
+@router.callback_query(F.data.startswith("custom_notification_"))
+async def callback_custom_notification(callback: CallbackQuery, db_user, state: FSMContext):
+    """Обработчик кастомного уведомления"""
+    await callback.answer()
+    
+    try:
+        notification_number = int(callback.data.split("_")[-1])
+        
+        text = f"✏️ <b>Настройка уведомления {notification_number}</b>\n\n"
+        text += "Отправьте сообщение в формате:\n"
+        text += "<code>число единица</code>\n\n"
+        text += "<b>Примеры:</b>\n"
+        text += "• <code>2 дня</code> или <code>2 дн</code>\n"
+        text += "• <code>6 часов</code> или <code>6 ч</code>\n"
+        text += "• <code>30 минут</code> или <code>30 мин</code>\n\n"
+        text += "Или нажмите 'Отмена' для возврата."
+        
+        builder = InlineKeyboardBuilder()
+        builder.button(text="❌ Отмена", callback_data="back_to_settings")
+        
+        await state.update_data(notification_number=notification_number)
+        await state.set_state(SettingsStates.setting_offset)
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка настройки", show_alert=True)
+
+@router.message(SettingsStates.setting_offset)
+async def process_custom_offset(message: Message, db_user, state: FSMContext):
+    """Обработка кастомного времени уведомления"""
+    try:
+        data = await state.get_data()
+        notification_number = data.get('notification_number')
+        
+        if not notification_number:
+            await message.answer("Ошибка: номер уведомления не найден")
+            await state.clear()
+            return
+        
+        # Парсим введенный текст
+        text = message.text.strip().lower()
+        
+        # Регулярные выражения для парсинга
+        import re
+        
+        # Паттерны для разных единиц времени
+        patterns = [
+            (r'(\d+)\s*(?:дн|день|дня|дней|days?)', 'days'),
+            (r'(\d+)\s*(?:ч|час|часа|часов|hours?)', 'hours'),
+            (r'(\d+)\s*(?:мин|минут|минуты|minutes?)', 'minutes')
+        ]
+        
+        offset_value = None
+        offset_unit = None
+        
+        for pattern, unit in patterns:
+            match = re.search(pattern, text)
+            if match:
+                offset_value = int(match.group(1))
+                offset_unit = unit
+                break
+        
+        if not offset_value or not offset_unit:
+            await message.answer(
+                "❌ Не удалось распознать формат.\n"
+                "Используйте формат: <code>число единица</code>\n"
+                "Например: <code>2 дня</code>, <code>6 часов</code>, <code>30 минут</code>"
+            )
+            return
+        
+        # Проверяем разумные пределы
+        if offset_unit == 'days' and offset_value > 30:
+            await message.answer("❌ Максимум 30 дней")
+            return
+        elif offset_unit == 'hours' and offset_value > 24 * 7:
+            await message.answer("❌ Максимум 168 часов (неделя)")
+            return
+        elif offset_unit == 'minutes' and offset_value > 60 * 24:
+            await message.answer("❌ Максимум 1440 минут (сутки)")
+            return
+        
+        # Устанавливаем уведомление
+        success, message_text = await notification_service.set_user_notification(
+            db_user.tg_user_id, notification_number, offset_value, offset_unit
+        )
+        
+        if success:
+            unit_text = {
+                'days': 'дн.',
+                'hours': 'ч.',
+                'minutes': 'мин.'
+            }.get(offset_unit, offset_unit)
+            
+            await message.answer(f"✅ Уведомление настроено: за {offset_value} {unit_text}")
+            await state.clear()
+            
+            # Показываем обновленные настройки
+            await cmd_settings(message, db_user, state)
+        else:
+            await message.answer(f"❌ {message_text}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка обработки кастомного времени: {e}")
+        await message.answer("Произошла ошибка. Попробуйте еще раз.")
 
 def register_settings_handlers(dp):
-    """Регистрирует хендлеры для настроек."""
+    """Регистрация handlers для настроек"""
     dp.include_router(router)

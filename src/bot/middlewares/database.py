@@ -1,63 +1,77 @@
-"""
-Middleware для работы с базой данных.
-"""
 from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, TelegramObject
+from aiogram.types import Message, CallbackQuery
+from datetime import datetime
+import pytz
 
-from src.db import UserCRUD, get_db_session
-from src.utils import db_logger
+from src.core.database import db_manager
+from src.core.models import User
+from src.utils import get_logger
 
+logger = get_logger()
 
 class DatabaseMiddleware(BaseMiddleware):
-    """Middleware для автоматического обновления активности пользователей."""
+    """Middleware для автоматического создания пользователей и работы с БД"""
     
     async def __call__(
         self,
-        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
-        event: TelegramObject,
+        handler: Callable[[Message, Dict[str, Any]], Awaitable[Any]],
+        event: Message | CallbackQuery,
         data: Dict[str, Any]
     ) -> Any:
-        """
-        Обрабатывает входящие обновления и обновляет активность пользователей.
+        # Получаем пользователя из события
+        user = event.from_user
+        if not user:
+            return await handler(event, data)
         
-        Args:
-            handler: Следующий обработчик в цепочке
-            event: Событие (Message, CallbackQuery, etc.)
-            data: Данные контекста
-        """
-        user = None
+        try:
+            # Создаем или обновляем пользователя в БД
+            db_user = await self.get_or_create_user(user)
+            data['db_user'] = db_user
+            
+        except Exception as e:
+            logger.error(f"Ошибка в DatabaseMiddleware: {e}")
+            # Продолжаем выполнение даже при ошибке БД
         
-        # Получаем информацию о пользователе
-        if isinstance(event, (Message, CallbackQuery)):
-            user = event.from_user
-        
-        # Обновляем активность пользователя
-        if user:
+        return await handler(event, data)
+    
+    async def get_or_create_user(self, tg_user) -> User:
+        """Получить или создать пользователя в БД"""
+        async with db_manager.async_session() as session:
             try:
-                async with get_db_session() as session:
-                    await UserCRUD.update_activity(session, user.id)
-                    
-                db_logger.debug(
-                    f"Updated user activity",
-                    user_id=user.id,
-                    username=user.username
-                )
+                # Ищем существующего пользователя
+                from sqlalchemy import select
+                stmt = select(User).where(User.tg_user_id == tg_user.id)
+                result = await session.execute(stmt)
+                user = result.scalar_one_or_none()
+                
+                moscow_tz = pytz.timezone('Europe/Moscow')
+                current_time = datetime.now(moscow_tz)
+                
+                if user:
+                    # Обновляем информацию о пользователе
+                    user.first_name = tg_user.first_name
+                    user.last_name = tg_user.last_name
+                    user.username = tg_user.username
+                    user.last_activity_ts = current_time
+                else:
+                    # Создаем нового пользователя
+                    user = User(
+                        tg_user_id=tg_user.id,
+                        first_name=tg_user.first_name,
+                        last_name=tg_user.last_name,
+                        username=tg_user.username,
+                        last_activity_ts=current_time,
+                        timezone='Europe/Moscow'
+                    )
+                    session.add(user)
+                    logger.info(f"Создан новый пользователь: {tg_user.id} (@{tg_user.username})")
+                
+                await session.commit()
+                await session.refresh(user)
+                return user
                 
             except Exception as e:
-                db_logger.error(
-                    f"Failed to update user activity: {str(e)}",
-                    user_id=user.id,
-                    username=user.username
-                )
-                # Не прерываем выполнение, если не удалось обновить активность
-        
-        # Добавляем сессию БД в контекст для использования в хендлерах
-        try:
-            async with get_db_session() as session:
-                data["db_session"] = session
-                result = await handler(event, data)
-                return result
-        except Exception as e:
-            db_logger.error(f"Database error in middleware: {str(e)}")
-            raise
+                await session.rollback()
+                logger.error(f"Ошибка работы с пользователем {tg_user.id}: {e}")
+                raise

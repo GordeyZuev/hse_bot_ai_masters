@@ -1,8 +1,11 @@
 import asyncio
+import os
+import zipfile
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime, timedelta
 from sqlalchemy import select, func
 from aiogram import Bot
+from aiogram.types import FSInputFile
 import pytz
 
 from src.core.database import db_manager
@@ -274,6 +277,97 @@ class AdminService:
                 await session.rollback()
                 logger.error(f"Ошибка очистки неактивных пользователей: {e}")
                 return 0
+    
+    async def get_today_log_files(self) -> List[tuple]:
+        """Получить пути к файлам логов за сегодня"""
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            
+            # Пути к файлам логов
+            log_files = []
+            
+            # Основные логи
+            main_log_paths = [
+                f"logs/app_{today}.log",
+                f"app_{today}.log",
+                "app.log"
+            ]
+            
+            for path in main_log_paths:
+                if os.path.exists(path):
+                    log_files.append(('app', path))
+                    break
+            
+            # Логи ошибок
+            error_log_paths = [
+                f"logs/error_{today}.log",
+                f"error_{today}.log",
+                "error.log"
+            ]
+            
+            for path in error_log_paths:
+                if os.path.exists(path):
+                    log_files.append(('error', path))
+                    break
+            
+            return log_files
+            
+        except Exception as e:
+            logger.error(f"Ошибка поиска файлов логов: {e}")
+            return []
+    
+    async def send_logs_to_admin(self, bot: Bot, admin_id: int) -> bool:
+        """Отправить файлы логов администратору"""
+        try:
+            log_files = await self.get_today_log_files()
+            
+            if not log_files:
+                await bot.send_message(
+                    admin_id,
+                    "📄 <b>Логи за сегодня</b>\n\n❌ Файлы логов не найдены"
+                )
+                return False
+            
+            # Отправляем каждый файл отдельно
+            today_str = datetime.now().strftime('%d.%m.%Y')
+            
+            for log_type, file_path in log_files:
+                try:
+                    # Определяем имя файла и описание
+                    if log_type == 'app':
+                        filename = f"app_logs_{datetime.now().strftime('%Y-%m-%d')}.log"
+                        caption = f"📄 <b>Основные логи за {today_str}</b>"
+                    else:  # error
+                        filename = f"error_logs_{datetime.now().strftime('%Y-%m-%d')}.log"
+                        caption = f"🚨 <b>Логи ошибок за {today_str}</b>"
+                    
+                    document = FSInputFile(file_path, filename=filename)
+                    
+                    await bot.send_document(
+                        admin_id,
+                        document,
+                        caption=caption
+                    )
+                    
+                    logger.info(f"Отправлен файл логов {log_type}: {file_path}")
+                    
+                except Exception as e:
+                    logger.error(f"Ошибка отправки файла {log_type}: {e}")
+                    await bot.send_message(
+                        admin_id,
+                        f"❌ Ошибка отправки файла {log_type}: {str(e)}"
+                    )
+            
+            logger.info(f"Логи отправлены администратору {admin_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка отправки логов: {e}")
+            await bot.send_message(
+                admin_id,
+                f"📄 <b>Логи за сегодня</b>\n\n❌ Ошибка при отправке логов: {str(e)}"
+            )
+            return False
 
 # Создаем экземпляр сервиса
 admin_service = AdminService()

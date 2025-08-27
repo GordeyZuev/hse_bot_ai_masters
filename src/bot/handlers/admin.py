@@ -102,7 +102,82 @@ async def callback_refresh_stats(callback: CallbackQuery, db_user):
         return
     
     await callback.answer("Обновляю статистику...")
-    await cmd_stats(callback.message, db_user)
+    
+    try:
+        # Получаем основную и подробную статистику
+        stats = await admin_service.get_bot_statistics()
+        detailed_stats = await admin_service.get_detailed_statistics()
+        
+        text = "📊 <b>Статистика бота HSE</b>\n\n"
+        
+        # Общая статистика пользователей
+        text += f"👥 <b>Пользователи:</b>\n"
+        text += f"• Всего пользователей: {stats.get('total_users', 0)}\n"
+        text += f"• Активных за неделю: {stats.get('active_users_week', 0)}\n"
+        text += f"• Активных за месяц: {stats.get('active_users_month', 0)}\n\n"
+        
+        # Статистика подписок
+        text += f"📚 <b>Подписки:</b>\n"
+        text += f"• Всего подписок: {stats.get('total_subscriptions', 0)}\n"
+        text += f"• Пользователей с подписками: {stats.get('users_with_subscriptions', 0)}\n"
+        
+        # Популярные предметы
+        popular_subjects = stats.get('popular_subjects', [])
+        if popular_subjects:
+            text += f"\n<b>Популярные предметы:</b>\n"
+            for i, (subject_name, count) in enumerate(popular_subjects[:5], 1):
+                text += f"{i}. {subject_name} ({count})\n"
+        
+        # Статистика уведомлений
+        text += f"\n🔔 <b>Уведомления:</b>\n"
+        text += f"• Всего настроек: {stats.get('total_notifications', 0)}\n"
+        text += f"• Активных настроек: {stats.get('active_notifications', 0)}\n"
+        text += f"• Пользователей с настройками: {stats.get('users_with_notifications', 0)}\n"
+        
+        # Статистика дедлайнов
+        text += f"\n📅 <b>Дедлайны:</b>\n"
+        text += f"• Всего дедлайнов: {stats.get('total_deadlines', 0)}\n"
+        text += f"• Активных дедлайнов: {stats.get('active_deadlines', 0)}\n"
+        text += f"• Дедлайнов на неделю: {stats.get('deadlines_week', 0)}\n"
+        
+        # Активность по дням
+        daily_stats = detailed_stats.get('daily_activity', [])
+        if daily_stats:
+            text += f"\n<b>📈 Активность по дням:</b>\n"
+            for day_data in daily_stats[-7:]:  # Последние 7 дней
+                text += f"• {day_data['date']}: {day_data['users']} польз.\n"
+        
+        # Популярные настройки уведомлений
+        popular_settings = detailed_stats.get('popular_notification_settings', [])
+        if popular_settings:
+            text += f"\n<b>⏰ Популярные настройки уведомлений:</b>\n"
+            for setting in popular_settings[:5]:
+                offset_value, offset_unit, count = setting
+                unit_text = {'days': 'дн.', 'hours': 'ч.', 'minutes': 'мин.'}.get(offset_unit, offset_unit)
+                text += f"• За {offset_value} {unit_text}: {count} польз.\n"
+        
+        # Системная информация
+        text += f"\n⚙️ <b>Система:</b>\n"
+        text += f"• Последняя синхронизация: {stats.get('last_sync', 'Неизвестно')}\n"
+        text += f"• Статус синхронизации: {stats.get('sync_status', 'Неизвестно')}\n"
+        
+        # Создаем клавиатуру
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
+        
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        
+        logger.info(f"Админ {db_user.tg_user_id} запросил статистику")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике статистики: {e}")
+        await callback.message.edit_text(
+            "Произошла ошибка при получении статистики.",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="🔙 Назад",
+                callback_data="admin_panel"
+            ).as_markup()
+        )
 
 @router.callback_query(F.data == "admin_detailed_stats")
 async def callback_detailed_stats(callback: CallbackQuery, db_user):
@@ -253,11 +328,56 @@ async def callback_confirm_broadcast(callback: CallbackQuery, db_user, state: FS
         await state.clear()
 
 @router.callback_query(F.data == "admin_cancel_broadcast")
-async def callback_cancel_broadcast(callback: CallbackQuery, state: FSMContext):
+async def callback_cancel_broadcast(callback: CallbackQuery, db_user, state: FSMContext):
     """Отмена рассылки"""
-    await callback.answer("Рассылка отменена")
-    await callback.message.edit_text("❌ Рассылка отменена.")
+    await callback.answer()
     await state.clear()
+    # Просто возвращаемся в админ-панель без сообщения об отмене
+    await callback_admin_panel(callback, db_user)
+
+@router.callback_query(F.data == "admin_panel")
+async def callback_admin_panel(callback: CallbackQuery, db_user):
+    """Обработчик админ-панели"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+    
+    await callback.answer()
+    
+    text = "👨‍💼 <b>Админ-панель</b>\n\nВыберите действие:"
+    
+    builder = InlineKeyboardBuilder()
+    builder.button(text="📊 Статистика", callback_data="admin_refresh_stats")
+    builder.button(text="📢 Broadcast", callback_data="admin_broadcast")
+    builder.button(text="📄 Сегодняшние логи", callback_data="admin_logs")
+    builder.button(text="🔙 Назад", callback_data="back_to_menu")
+    builder.adjust(2, 1, 1)  # 2 кнопки в первом ряду, по 1 в остальных
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+
+@router.callback_query(F.data == "admin_logs")
+async def callback_admin_logs(callback: CallbackQuery, db_user):
+    """Обработчик отправки логов"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+    
+    await callback.answer("Подготавливаю логи...")
+    
+    try:
+        # Отправляем логи (файлы отправляются отдельными сообщениями)
+        success = await admin_service.send_logs_to_admin(callback.bot, db_user.tg_user_id)
+        
+        # Не редактируем сообщение, так как логи отправляются отдельно
+        # Просто показываем уведомление
+        if success:
+            await callback.answer("✅ Логи отправлены", show_alert=True)
+        else:
+            await callback.answer("❌ Логи не найдены", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Ошибка отправки логов: {e}")
+        await callback.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
 
 def register_admin_handlers(dp):
     """Регистрация admin handlers"""

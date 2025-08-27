@@ -88,7 +88,7 @@ async def main():
         await hse_bot.start_polling(with_scheduler=True)
     
     else:
-        print("HSE Bot - Телеграм бот для уведомлений о дедлайнах")
+        print("Телеграм бот для уведомлений о дедлайнах")
         print()
         print("Использование:")
         print("  python main.py bot       - запустить только телеграм бота")

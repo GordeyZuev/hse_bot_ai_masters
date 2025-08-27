@@ -1,3 +1,4 @@
+import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
@@ -23,8 +24,15 @@ async def callback_help(callback: CallbackQuery, db_user):
 async def send_help_message(message: Message, db_user, edit_mode: bool = False):
     """Отправка сообщения с помощью"""
     try:
-        text = """
-📖 <b>Подробная справка по HSE Bot</b>
+        # Получаем ссылки из переменных окружения
+        fcs_wiki_url = os.getenv('FCS_WIKI_URL', 'https://wiki.cs.hse.ru')
+        google_sheets_url = os.getenv('GOOGLE_SHEETS_URL', 'https://docs.google.com/spreadsheets')
+        
+        text = f"""
+📖 <b>Подробная справка по боту</b>
+
+🔗 <a href="{fcs_wiki_url}">ФКН Вики - страничка программы</a>
+📊 <a href="{google_sheets_url}">Табличка с дедлайнами</a>
 
 <b>🎯 Основные команды:</b>
 
@@ -51,6 +59,7 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
 <b>📊 Для администраторов:</b>
 • /stats - статистика использования
 • /broadcast - массовая рассылка
+• /logs - получить файлы логов
 """ if is_admin(db_user.tg_user_id) else "") + """
 <b>💡 Совет:</b> Начните с подписок на предметы!
         """

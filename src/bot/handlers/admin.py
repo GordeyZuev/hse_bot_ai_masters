@@ -31,6 +31,21 @@ def is_admin(user_id: int) -> bool:
     """Проверка, является ли пользователь админом"""
     return user_id in ADMINS
 
+@router.message(Command("logs"))
+async def cmd_logs(message: Message, db_user):
+    """Обработчик команды /logs - получение логов для админов"""
+    if not is_admin(db_user.tg_user_id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+    
+    try:
+        await admin_service.send_logs_to_admin(message.bot, db_user.tg_user_id)
+        logger.info(f"Админ {db_user.tg_user_id} запросил логи через команду")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике /logs: {e}")
+        await message.answer(f"❌ Ошибка при получении логов: {str(e)}")
+
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, db_user):
     """Обработчик команды /stats - статистика для админов"""
@@ -42,7 +57,7 @@ async def cmd_stats(message: Message, db_user):
         # Получаем статистику
         stats = await admin_service.get_bot_statistics()
         
-        text = "📊 <b>Статистика бота HSE</b>\n\n"
+        text = "📊 <b>Статистика бота</b>\n\n"
         
         # Общая статистика пользователей
         text += f"👥 <b>Пользователи:</b>\n"

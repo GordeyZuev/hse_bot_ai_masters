@@ -32,10 +32,10 @@ class NotificationService:
                 return []
     
     async def set_user_notification(
-        self, 
-        user_id: int, 
-        notification_number: int, 
-        offset_value: int, 
+        self,
+        user_id: int,
+        notification_number: int,
+        offset_value: int,
         offset_unit: str
     ) -> Tuple[bool, str]:
         """Установить настройки уведомления для пользователя"""
@@ -50,6 +50,11 @@ class NotificationService:
                 
                 if offset_value <= 0:
                     return False, "Значение времени должно быть положительным"
+                
+                # Проверяем минимальное время уведомления (30 минут)
+                total_minutes = self._convert_to_minutes(offset_value, offset_unit)
+                if total_minutes < 30:
+                    return False, "Минимальное время уведомления - 30 минут (планировщик проверяет уведомления каждые 30 минут)"
                 
                 # Ищем существующее уведомление
                 stmt = select(UserNotification).where(
@@ -186,6 +191,17 @@ class NotificationService:
             return float(offset_value / 60)
         else:
             return 0.0
+    
+    def _convert_to_minutes(self, offset_value: int, offset_unit: str) -> int:
+        """Конвертировать offset в минуты"""
+        if offset_unit == 'minutes':
+            return offset_value
+        elif offset_unit == 'hours':
+            return offset_value * 60
+        elif offset_unit == 'days':
+            return offset_value * 24 * 60
+        else:
+            return 0
     
     async def get_notification_stats(self) -> dict:
         """Получить статистику настроек уведомлений"""

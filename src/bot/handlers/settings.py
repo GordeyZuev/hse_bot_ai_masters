@@ -96,7 +96,7 @@ async def callback_setup_notification(callback: CallbackQuery, db_user, state: F
         
         builder = InlineKeyboardBuilder()
         
-        # Предустановленные варианты
+        # Предустановленные варианты (минимум 30 минут)
         presets = [
             (1, "days", "За 1 день"),
             (3, "days", "За 3 дня"),
@@ -104,6 +104,7 @@ async def callback_setup_notification(callback: CallbackQuery, db_user, state: F
             (12, "hours", "За 12 часов"),
             (6, "hours", "За 6 часов"),
             (2, "hours", "За 2 часа"),
+            (1, "hours", "За 1 час"),
             (30, "minutes", "За 30 минут")
         ]
         
@@ -287,6 +288,22 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
                 "❌ Не удалось распознать формат.\n"
                 "Используйте формат: <code>число единица</code>\n"
                 "Например: <code>2 дня</code>, <code>6 часов</code>, <code>30 минут</code>"
+            )
+            return
+        
+        # Проверяем минимальное время (30 минут)
+        total_minutes = 0
+        if offset_unit == 'minutes':
+            total_minutes = offset_value
+        elif offset_unit == 'hours':
+            total_minutes = offset_value * 60
+        elif offset_unit == 'days':
+            total_minutes = offset_value * 24 * 60
+        
+        if total_minutes < 30:
+            await message.answer(
+                "❌ Минимальное время уведомления - 30 минут\n"
+                "(планировщик проверяет уведомления каждые 30 минут)"
             )
             return
         

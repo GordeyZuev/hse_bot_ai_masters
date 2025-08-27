@@ -50,12 +50,40 @@ class SyncScheduler:
         logger.info("Добавлена задача синхронизации каждый час")
         self.scheduler.add_job(
             self.sync_job,
-            trigger=IntervalTrigger(seconds=15),  # test: seconds=15, prod: hours=1
+            trigger=IntervalTrigger(hours=1),  # Синхронизация каждый час
             id='hourly_sync',
             name='Синхронизация данных каждый час',
             replace_existing=True,
             max_instances=1
         )
+    
+    def add_notification_check(self):
+        """Добавить задачу проверки уведомлений каждые 30 минут"""
+        logger.info("Добавлена задача проверки уведомлений каждые 30 минут")
+        self.scheduler.add_job(
+            self.notification_job,
+            trigger=IntervalTrigger(minutes=30),  # Проверка уведомлений каждые 30 минут
+            id='notification_check',
+            name='Проверка уведомлений каждые 30 минут',
+            replace_existing=True,
+            max_instances=1
+        )
+    
+    async def notification_job(self):
+        """Задача проверки и отправки уведомлений"""
+        try:
+            from src.bot.services.notification_sender import notification_sender
+            start_time = datetime.now()
+            
+            # Отправляем уведомления
+            sent_count = await notification_sender.send_deadline_notifications()
+            
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"Проверка уведомлений завершена за {duration:.2f}с, отправлено: {sent_count}")
+                
+        except Exception as e:
+            logger.error(f"Ошибка проверки уведомлений: {e}")
+            raise
     
     def add_immediate_sync(self):
         """Добавить задачу немедленной синхронизации"""
@@ -94,6 +122,7 @@ async def main():
     try:
         scheduler.add_immediate_sync()
         scheduler.add_hourly_sync()
+        scheduler.add_notification_check()
         scheduler.start()
         
         logger.info("Планировщик работает. Для остановки нажмите Ctrl+C")

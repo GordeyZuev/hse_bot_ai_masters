@@ -35,7 +35,7 @@ class HSEBot:
         storage = MemoryStorage()
         self.dp = Dispatcher(storage=storage)
         
-        logger.info("HSE Bot инициализирован")
+        logger.info("Бот инициализирован")
     
     async def setup(self, with_scheduler: bool = False):
         """Настройка бота перед запуском"""

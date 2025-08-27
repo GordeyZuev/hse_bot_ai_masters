@@ -1,10 +1,10 @@
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from sqlalchemy import select, delete
-from sqlalchemy.orm import selectinload
 
 from src.core.database import db_manager
-from src.core.models import User, Subject, Subscription
+from src.core.models import Subject, Subscription
 from src.utils import get_logger
+from sqlalchemy import func
 
 logger = get_logger()
 
@@ -147,7 +147,6 @@ class SubscriptionService:
                 users_with_subscriptions = len(result.scalars().all())
                 
                 # Самые популярные предметы
-                from sqlalchemy import func
                 stmt = select(
                     Subject.name,
                     func.count(Subscription.subject_id).label('count')

@@ -1,7 +1,6 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from sqlalchemy import select, and_, or_
-from sqlalchemy.orm import selectinload
 import pytz
 
 from src.core.database import db_manager

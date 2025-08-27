@@ -7,6 +7,7 @@ import pytz
 from src.core.database import db_manager
 from src.core.models import User
 from src.utils import get_logger
+from sqlalchemy import select
 
 logger = get_logger()
 
@@ -40,7 +41,7 @@ class DatabaseMiddleware(BaseMiddleware):
         async with db_manager.async_session() as session:
             try:
                 # Ищем существующего пользователя
-                from sqlalchemy import select
+
                 stmt = select(User).where(User.tg_user_id == tg_user.id)
                 result = await session.execute(stmt)
                 user = result.scalar_one_or_none()

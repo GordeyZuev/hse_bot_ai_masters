@@ -7,6 +7,10 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 import pytz
 from aiogram import Bot
+from src.core.database import db_manager
+from src.core.models import NotificationLog
+from sqlalchemy import delete
+from datetime import timedelta
 
 from src.core.sync.data_syncer import data_syncer
 from src.bot.services.notification_sender import notification_sender
@@ -127,10 +131,6 @@ class BotScheduler:
             # - Удаление устаревших дедлайнов
             
             # Пример: очистка старых логов уведомлений (старше 30 дней)
-            from src.core.database import db_manager
-            from src.core.models import NotificationLog
-            from sqlalchemy import delete
-            from datetime import timedelta
             
             async with db_manager.async_session() as session:
                 cutoff_date = datetime.now() - timedelta(days=30)

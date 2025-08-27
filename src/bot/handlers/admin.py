@@ -82,7 +82,7 @@ async def cmd_stats(message: Message, db_user):
         # Создаем клавиатуру с дополнительными действиями
         builder = InlineKeyboardBuilder()
         builder.button(text="🔄 Обновить", callback_data="admin_refresh_stats")
-        builder.button(text="📊 Подробная статистика", callback_data="admin_detailed_stats")
+        builder.button(text="📊 Подробно", callback_data="admin_detailed_stats")
         builder.button(text="📢 Массовая рассылка", callback_data="admin_broadcast")
         builder.adjust(2, 1)
         
@@ -116,19 +116,13 @@ async def callback_detailed_stats(callback: CallbackQuery, db_user):
     try:
         detailed_stats = await admin_service.get_detailed_statistics()
         
-        text = "📊 <b>Подробная статистика</b>\n\n"
+        text = "📊 <b>Подробно</b>\n\n"
         
         # Статистика по дням
         text += "<b>📈 Активность по дням:</b>\n"
         daily_stats = detailed_stats.get('daily_activity', [])
         for day_data in daily_stats[-7:]:  # Последние 7 дней
             text += f"• {day_data['date']}: {day_data['users']} польз.\n"
-        
-        # Популярные команды
-        text += "\n<b>🔥 Популярные команды:</b>\n"
-        popular_commands = detailed_stats.get('popular_commands', [])
-        for cmd, count in popular_commands[:5]:
-            text += f"• {cmd}: {count} раз\n"
         
         # Настройки уведомлений
         text += "\n<b>⏰ Популярные настройки уведомлений:</b>\n"
@@ -138,7 +132,7 @@ async def callback_detailed_stats(callback: CallbackQuery, db_user):
             unit_text = {'days': 'дн.', 'hours': 'ч.', 'minutes': 'мин.'}.get(offset_unit, offset_unit)
             text += f"• За {offset_value} {unit_text}: {count} польз.\n"
         
-        await callback.message.answer(text)
+        await callback.message.edit_text(text)
         
     except Exception as e:
         logger.error(f"Ошибка получения подробной статистики: {e}")
@@ -225,7 +219,7 @@ async def callback_confirm_broadcast(callback: CallbackQuery, db_user, state: FS
         broadcast_text = data.get('broadcast_text')
         
         if not broadcast_text:
-            await callback.message.answer("❌ Сообщение для рассылки не найдено.")
+            await callback.message.edit_text("❌ Сообщение для рассылки не найдено.")
             await state.clear()
             return
         
@@ -248,21 +242,21 @@ async def callback_confirm_broadcast(callback: CallbackQuery, db_user, state: FS
         if error_count > 0:
             result_text += f"\n<i>Ошибки могут возникать из-за заблокированных ботов или удаленных аккаунтов.</i>"
         
-        await callback.message.answer(result_text)
+        await callback.message.edit_text(result_text)
         await state.clear()
         
         logger.info(f"Админ {db_user.tg_user_id} выполнил рассылку: {success_count}/{total_count}")
         
     except Exception as e:
         logger.error(f"Ошибка выполнения рассылки: {e}")
-        await callback.message.answer("❌ Произошла ошибка при выполнении рассылки.")
+        await callback.message.edit_text("❌ Произошла ошибка при выполнении рассылки.")
         await state.clear()
 
 @router.callback_query(F.data == "admin_cancel_broadcast")
 async def callback_cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     """Отмена рассылки"""
     await callback.answer("Рассылка отменена")
-    await callback.message.answer("❌ Рассылка отменена.")
+    await callback.message.edit_text("❌ Рассылка отменена.")
     await state.clear()
 
 def register_admin_handlers(dp):

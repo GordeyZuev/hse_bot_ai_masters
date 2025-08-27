@@ -15,26 +15,21 @@ async def cmd_start(message: Message, db_user):
         user_name = db_user.first_name or "Пользователь"
         
         text = f"""
-🎓 <b>Добро пожаловать в HSE Bot, {user_name}!</b>
+🎓 <b>Добро пожаловать в Бота-оповещателя, {user_name}!</b>
 
-Этот бот поможет вам отслеживать дедлайны по предметам магистратуры ВШЭ.
+Этот бот поможет вам отслеживать дедлайны по предметам магистратуры «Искуственный Интеллект» (НИУ ВШЭ).
 
-<b>Основные команды:</b>
-• /help - подробная справка
-• /sub - подписаться на предмет
-• /mysubs - мои подписки
-• /deadlines - ближайшие дедлайны
-• /settings - настройки уведомлений
-
-Начните с команды /sub для подписки на интересующие предметы!
+<b>Рекомендуем пользоваться кнопками.</b> 
+Описание бота и функционал в виде команд можно найти в разделе «Помощь».
         """
         
         # Создаем клавиатуру с быстрыми действиями
         builder = InlineKeyboardBuilder()
         builder.button(text="📚 Подписки", callback_data="quick_sub")
-        builder.button(text="📅 Ближайшие дедлайны", callback_data="quick_deadlines")
+        builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
+        builder.button(text="⚙️ Настройки", callback_data="quick_settings")
         builder.button(text="ℹ️ Помощь", callback_data="quick_help")
-        builder.adjust(1)
+        builder.adjust(2, 2)  # 2 кнопки в первом ряду, 2 во втором
         
         await message.answer(
             text.strip(),

@@ -56,6 +56,7 @@ async def cmd_subscriptions(event: Message | CallbackQuery, db_user, state: FSMC
             text += "Выберите курс для подписки:"
         
         builder = InlineKeyboardBuilder()
+        
         builder.button(text="1️⃣ Первый курс", callback_data="sub_year_1")
         builder.button(text="2️⃣ Второй курс", callback_data="sub_year_2")
         
@@ -65,7 +66,12 @@ async def cmd_subscriptions(event: Message | CallbackQuery, db_user, state: FSMC
         
         builder.row()
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
-        builder.adjust(2)
+        
+        # Настраиваем layout: первые 2 кнопки в ряд, остальные по одной
+        if subscriptions:
+            builder.adjust(2, 1, 1)  # 2 кнопки курсов, 1 отписка, 1 назад
+        else:
+            builder.adjust(2, 1)     # 2 кнопки курсов, 1 назад
         
         await state.set_state(SubscriptionStates.choosing_year)
         
@@ -256,7 +262,8 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="📚 Подписки", callback_data="quick_sub")
     builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
     builder.button(text="⚙️ Настройки", callback_data="quick_settings")
-    builder.adjust(2, 1)
+    builder.button(text="ℹ️ Помощь", callback_data="quick_help")
+    builder.adjust(2, 2)  # 2 кнопки в первом ряду, 2 во втором
     
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
 

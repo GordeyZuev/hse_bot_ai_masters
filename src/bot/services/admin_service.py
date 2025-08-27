@@ -1,12 +1,12 @@
 import asyncio
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime, timedelta
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func
 from aiogram import Bot
 import pytz
 
 from src.core.database import db_manager
-from src.core.models import User, Subject, Deadline, Subscription, UserNotification
+from src.core.models import User, Deadline
 from src.bot.services.subscription_service import subscription_service
 from src.bot.services.notification_service import notification_service
 from src.utils import get_logger
@@ -114,15 +114,6 @@ class AdminService:
                     })
                 
                 stats['daily_activity'] = list(reversed(daily_activity))
-                
-                # Популярные команды (заглушка - можно добавить логирование команд)
-                stats['popular_commands'] = [
-                    ('/start', 150),
-                    ('/deadlines', 120),
-                    ('/sub', 80),
-                    ('/mysubs', 60),
-                    ('/help', 45)
-                ]
                 
                 # Популярные настройки уведомлений
                 notification_stats = await notification_service.get_notification_stats()

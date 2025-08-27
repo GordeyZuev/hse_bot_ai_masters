@@ -9,6 +9,7 @@ from src.core.sync.scheduler import scheduler
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
 from src.utils import get_logger
+from src.bot.bot import hse_bot
 
 logger = get_logger()
 
@@ -80,12 +81,10 @@ async def main():
     
     elif command == "bot":
         logger.info("Режим: только телеграм бот")
-        from src.bot.bot import hse_bot
         await hse_bot.start_polling(with_scheduler=False)
     
     elif command == "full":
         logger.info("Режим: бот + синхронизация + уведомления")
-        from src.bot.bot import hse_bot
         await hse_bot.start_polling(with_scheduler=True)
     
     else:

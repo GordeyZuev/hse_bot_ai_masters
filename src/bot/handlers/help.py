@@ -3,6 +3,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from src.bot.handlers.admin import is_admin
 from src.utils import get_logger
 
 logger = get_logger()
@@ -17,9 +18,9 @@ async def cmd_help(message: Message, db_user):
 async def callback_help(callback: CallbackQuery, db_user):
     """Обработчик кнопки помощи"""
     await callback.answer()
-    await send_help_message(callback.message, db_user)
+    await send_help_message(callback.message, db_user, edit_mode=True)
 
-async def send_help_message(message: Message, db_user):
+async def send_help_message(message: Message, db_user, edit_mode: bool = False):
     """Отправка сообщения с помощью"""
     try:
         text = """
@@ -34,9 +35,7 @@ async def send_help_message(message: Message, db_user):
 • /mysubs - показать мои подписки
 
 <b>📅 Дедлайны:</b>
-• /deadlines - ближайшие дедлайны (15 дней)
-• /deadlines 7 - дедлайны на 7 дней
-• /deadlines 30 - дедлайны на 30 дней
+• /deadlines N - дедлайны в ближайшие N дней (N = 15 по умолчанию)
 
 <b>⚙️ Настройки:</b>
 • /settings - настройки уведомлений
@@ -46,14 +45,14 @@ async def send_help_message(message: Message, db_user):
 • /help - эта справка
 
 <b>🔔 Уведомления:</b>
-Бот автоматически присылает уведомления о приближающихся дедлайнах. 
+Бот автоматически присылает уведомления о приближающихся дедлайнах.
 Настроить время и частоту уведомлений можно в /settings.
-
+        """ + ("""
 <b>📊 Для администраторов:</b>
 • /stats - статистика использования
 • /broadcast - массовая рассылка
-
-<b>💡 Совет:</b> Начните с команды /sub для подписки на нужные предметы!
+""" if is_admin(db_user.tg_user_id) else "") + """
+<b>💡 Совет:</b> Начните с подписок на предметы!
         """
         
         # Создаем клавиатуру с полезными действиями
@@ -61,12 +60,19 @@ async def send_help_message(message: Message, db_user):
         builder.button(text="📚 Подписки", callback_data="quick_sub")
         builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
         builder.button(text="⚙️ Настройки", callback_data="quick_settings")
-        builder.adjust(2, 1)
+        builder.button(text="🔙 Назад", callback_data="back_to_menu")
+        builder.adjust(2, 2)  # 2 кнопки в первом ряду, 2 во втором
         
-        await message.answer(
-            text.strip(),
-            reply_markup=builder.as_markup()
-        )
+        if edit_mode:
+            await message.edit_text(
+                text.strip(),
+                reply_markup=builder.as_markup()
+            )
+        else:
+            await message.answer(
+                text.strip(),
+                reply_markup=builder.as_markup()
+            )
         
         logger.info(f"Пользователь {db_user.tg_user_id} запросил помощь")
         

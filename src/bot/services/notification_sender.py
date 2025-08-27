@@ -1,5 +1,4 @@
-import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -7,9 +6,9 @@ import pytz
 
 from src.core.database import db_manager
 from src.core.models import User, Deadline, Subject, Subscription, UserNotification, NotificationLog
-from src.bot.services.deadline_service import deadline_service
 from src.bot.services.notification_service import notification_service
 from src.utils import get_logger
+from sqlalchemy import select, and_, or_
 
 logger = get_logger()
 
@@ -99,7 +98,6 @@ class NotificationSender:
         """Получить пользователей с активными настройками уведомлений"""
         async with db_manager.async_session() as session:
             try:
-                from sqlalchemy import select
                 
                 # Получаем пользователей с активными уведомлениями и подписками
                 stmt = select(User).join(UserNotification).join(Subscription).where(
@@ -156,7 +154,7 @@ class NotificationSender:
         """Получить дедлайны пользователя для уведомления"""
         async with db_manager.async_session() as session:
             try:
-                from sqlalchemy import select, and_, or_
+
                 
                 # Получаем подписки пользователя
                 subscriptions_stmt = select(Subscription.subject_id).where(
@@ -211,7 +209,6 @@ class NotificationSender:
         """Фильтровать дедлайны, о которых уже отправлялись уведомления"""
         async with db_manager.async_session() as session:
             try:
-                from sqlalchemy import select
                 
                 # Получаем уже отправленные уведомления
                 deadline_ids = [data['deadline'].id for data in deadlines_data]

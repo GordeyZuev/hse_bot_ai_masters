@@ -22,8 +22,10 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
     if isinstance(event, CallbackQuery):
         await event.answer()
         message = event.message
+        edit_mode = True
     else:
         message = event
+        edit_mode = False
     
     try:
         # Получаем текущие настройки пользователя
@@ -72,7 +74,10 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(2, 1)
         
-        await message.answer(text, reply_markup=builder.as_markup())
+        if edit_mode:
+            await message.edit_text(text, reply_markup=builder.as_markup())
+        else:
+            await message.answer(text, reply_markup=builder.as_markup())
         
     except Exception as e:
         logger.error(f"Ошибка в обработчике /settings: {e}")

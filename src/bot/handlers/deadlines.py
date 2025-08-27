@@ -6,6 +6,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.services.deadline_service import deadline_service
 from src.utils import get_logger
+from datetime import datetime
+import pytz
 
 logger = get_logger()
 router = Router()
@@ -41,7 +43,7 @@ async def cmd_deadlines(message: Message, db_user):
 async def callback_deadlines(callback: CallbackQuery, db_user):
     """Обработчик кнопки быстрого доступа к дедлайнам"""
     await callback.answer()
-    await send_deadlines_list(callback.message, db_user, 15)
+    await send_deadlines_list(callback.message, db_user, 15, edit=True)
 
 @router.callback_query(F.data.startswith("deadlines_"))
 async def callback_deadlines_period(callback: CallbackQuery, db_user):
@@ -66,7 +68,6 @@ async def send_deadlines_list(message: Message, db_user, days: int, edit: bool =
         # Создаем клавиатуру с периодами и действиями
         builder = InlineKeyboardBuilder()
         
-        # Кнопки выбора периода
         periods = [
             (7, "7 дней"),
             (15, "15 дней"),
@@ -83,16 +84,13 @@ async def send_deadlines_list(message: Message, db_user, days: int, edit: bool =
             
             builder.button(text=button_text, callback_data=callback_data)
         
-        builder.adjust(3)  # 3 кнопки в ряд
+        builder.row()
         
-        # Дополнительные действия если есть дедлайны
         if not deadlines_data:
-            builder.row()
             builder.button(text="📚 Подписки", callback_data="quick_sub")
         
-        # Кнопка назад
-        builder.row()
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
+        builder.adjust(3, 2)
         
         if edit:
             await message.edit_text(text, reply_markup=builder.as_markup())
@@ -131,8 +129,6 @@ async def callback_detailed_deadlines(callback: CallbackQuery, db_user):
             detailed_text += f"📝 <b>{data['deadline'].hw_name}</b>\n\n"
             
             # Текущее время для проверки актуальности
-            from datetime import datetime
-            import pytz
             moscow_tz = pytz.timezone('Europe/Moscow')
             now = datetime.now(moscow_tz)
             

@@ -1,11 +1,12 @@
-from typing import List, Optional, Tuple
-from sqlalchemy import select, delete, update
+from typing import List, Tuple
+from sqlalchemy import select, delete
 from datetime import datetime
 import pytz
 
 from src.core.database import db_manager
 from src.core.models import User, UserNotification
 from src.utils import get_logger
+from sqlalchemy import func
 
 logger = get_logger()
 
@@ -206,7 +207,7 @@ class NotificationService:
                 users_with_notifications = len(result.scalars().all())
                 
                 # Популярные настройки
-                from sqlalchemy import func
+
                 stmt = select(
                     UserNotification.offset_value,
                     UserNotification.offset_unit,

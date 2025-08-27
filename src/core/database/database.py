@@ -10,7 +10,7 @@ import asyncpg
 from datetime import datetime
 import pytz
 
-from src.core.models import Base, Subject, Deadline, User, UserNotification, Subscription, NotificationLog, ALL_SUBJECTS
+from src.core.models import Base, Subject, Deadline, ALL_SUBJECTS
 from src.utils import get_logger
 
 load_dotenv('src/config/.env')

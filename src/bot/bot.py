@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from src.bot.handlers import register_handlers
 from src.bot.middlewares import register_middlewares
-from src.bot.services.bot_scheduler import bot_scheduler
+from src.core.scheduler import hse_scheduler
 from src.core.database import db_manager
 from src.utils import get_logger
 
@@ -54,12 +54,12 @@ class HSEBot:
             
             # Настраиваем планировщик если нужно
             if with_scheduler:
-                bot_scheduler.set_bot(self.bot)
-                bot_scheduler.add_sync_job(1)  # Синхронизация каждый час
-                bot_scheduler.add_notification_job(30)  # Уведомления каждые 30 минут
-                bot_scheduler.add_daily_cleanup_job(5, 0)  # Очистка в 5:00
-                bot_scheduler.add_immediate_sync()  # Немедленная синхронизация при старте
-                bot_scheduler.start() 
+                hse_scheduler.set_bot(self.bot)
+                hse_scheduler.add_sync_job(1)  # Синхронизация каждый час
+                hse_scheduler.add_notification_job(30)  # Уведомления каждые 30 минут
+                hse_scheduler.add_daily_cleanup_job(5, 0)  # Очистка в 5:00
+                hse_scheduler.add_immediate_sync()  # Немедленная синхронизация при старте
+                hse_scheduler.start()
                 logger.info("Планировщик настроен и запущен")
             
             # Получаем информацию о боте
@@ -86,8 +86,8 @@ class HSEBot:
         """Корректное завершение работы бота"""
         try:
             # Останавливаем планировщик если он запущен
-            if bot_scheduler.is_running:
-                bot_scheduler.stop()
+            if hse_scheduler.is_running:
+                hse_scheduler.stop()
                 logger.info("Планировщик остановлен")
             
             await self.bot.session.close()

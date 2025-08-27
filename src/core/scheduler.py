@@ -1,25 +1,23 @@
 import asyncio
 import atexit
-from datetime import datetime
+from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 import pytz
 from aiogram import Bot
+from sqlalchemy import delete
+
 from src.core.database import db_manager
 from src.core.models import NotificationLog
-from sqlalchemy import delete
-from datetime import timedelta
-
 from src.core.sync.data_syncer import data_syncer
-from src.bot.services.notification_sender import notification_sender
 from src.utils import get_logger
 
 logger = get_logger()
 
-class BotScheduler:
-    """Планировщик для бота с синхронизацией и уведомлениями"""
+class HSEScheduler:
+    """Единый планировщик для HSE бота с синхронизацией и уведомлениями"""
     
     def __init__(self, bot: Bot = None):
         self.scheduler = AsyncIOScheduler(timezone=pytz.timezone('Europe/Moscow'))
@@ -29,11 +27,12 @@ class BotScheduler:
         self.scheduler.add_listener(self._job_executed, EVENT_JOB_EXECUTED)
         self.scheduler.add_listener(self._job_error, EVENT_JOB_ERROR)
         
-        logger.info("Планировщик бота инициализирован")
+        logger.info("HSE планировщик инициализирован")
     
     def set_bot(self, bot: Bot):
         """Установить экземпляр бота"""
         self.bot = bot
+        logger.info("Бот установлен в планировщик")
     
     def _job_executed(self, event):
         """Обработчик успешного выполнения задачи"""
@@ -44,7 +43,7 @@ class BotScheduler:
         logger.error(f"Ошибка в задаче '{event.job_id}': {event.exception}")
     
     async def sync_job(self):
-        """Задача синхронизации данных"""
+        """Задача синхронизации данных с Google Sheets"""
         try:
             start_time = datetime.now()
             success = await data_syncer.sync_data()
@@ -60,12 +59,13 @@ class BotScheduler:
             raise
     
     async def notification_job(self):
-        """Задача отправки уведомлений"""
+        """Задача отправки уведомлений о дедлайнах"""
         if not self.bot:
             logger.warning("Бот не установлен, пропускаю отправку уведомлений")
             return
         
         try:
+            from src.bot.services.notification_sender import notification_sender
             start_time = datetime.now()
             result = await notification_sender.send_deadline_notifications(self.bot)
             duration = (datetime.now() - start_time).total_seconds()
@@ -79,6 +79,27 @@ class BotScheduler:
         except Exception as e:
             logger.error(f"Ошибка отправки уведомлений: {e}")
             raise
+    
+    async def cleanup_job(self):
+        """Задача очистки старых данных"""
+        try:
+            logger.info("Начинаю очистку старых данных")
+            
+            # Очистка старых логов уведомлений (старше 30 дней)
+            async with db_manager.async_session() as session:
+                cutoff_date = datetime.now() - timedelta(days=30)
+                stmt = delete(NotificationLog).where(NotificationLog.created_at < cutoff_date)
+                result = await session.execute(stmt)
+                await session.commit()
+                
+                deleted_count = result.rowcount
+                if deleted_count > 0:
+                    logger.info(f"Удалено {deleted_count} старых записей логов уведомлений")
+            
+            logger.info("Очистка завершена")
+            
+        except Exception as e:
+            logger.error(f"Ошибка очистки: {e}")
     
     def add_sync_job(self, interval_hours: int = 1):
         """Добавить задачу синхронизации данных"""
@@ -100,7 +121,7 @@ class BotScheduler:
         
         self.scheduler.add_job(
             self.notification_job,
-            trigger=IntervalTrigger(interval_minutes),
+            trigger=IntervalTrigger(minutes=interval_minutes),
             id='send_notifications',
             name=f'Отправка уведомлений каждые {interval_minutes} мин.',
             replace_existing=True,
@@ -120,33 +141,6 @@ class BotScheduler:
         )
         logger.info(f"Добавлена задача очистки в {hour:02d}:{minute:02d}")
     
-    async def cleanup_job(self):
-        """Задача очистки старых данных"""
-        try:
-            logger.info("Начинаю очистку старых данных")
-            
-            # Здесь можно добавить логику очистки:
-            # - Удаление старых логов уведомлений
-            # - Очистка неактивных пользователей
-            # - Удаление устаревших дедлайнов
-            
-            # Пример: очистка старых логов уведомлений (старше 30 дней)
-            
-            async with db_manager.async_session() as session:
-                cutoff_date = datetime.now() - timedelta(days=30)
-                stmt = delete(NotificationLog).where(NotificationLog.created_at < cutoff_date)
-                result = await session.execute(stmt)
-                await session.commit()
-                
-                deleted_count = result.rowcount
-                if deleted_count > 0:
-                    logger.info(f"Удалено {deleted_count} старых записей логов уведомлений")
-            
-            logger.info("Очистка завершена")
-            
-        except Exception as e:
-            logger.error(f"Ошибка очистки: {e}")
-    
     def add_immediate_sync(self):
         """Добавить задачу немедленной синхронизации"""
         self.scheduler.add_job(
@@ -160,12 +154,13 @@ class BotScheduler:
     def start(self):
         """Запуск планировщика"""
         if self.is_running:
+            logger.warning("Планировщик уже запущен")
             return
         
         self.scheduler.start()
         self.is_running = True
         atexit.register(self.stop)
-        logger.info("Планировщик бота запущен")
+        logger.info("HSE планировщик запущен")
     
     def stop(self):
         """Остановка планировщика"""
@@ -174,7 +169,7 @@ class BotScheduler:
         
         self.scheduler.shutdown(wait=True)
         self.is_running = False
-        logger.info("Планировщик бота остановлен")
+        logger.info("HSE планировщик остановлен")
     
     def get_jobs_info(self) -> list:
         """Получить информацию о запланированных задачах"""
@@ -188,26 +183,40 @@ class BotScheduler:
                 'trigger': str(job.trigger)
             })
         return jobs_info
+    
+    # Методы для совместимости со старым API
+    def add_hourly_sync(self):
+        """Добавить задачу синхронизации каждый час (совместимость)"""
+        self.add_sync_job(1)
+    
+    def add_notification_check(self):
+        """Добавить задачу проверки уведомлений каждые 30 минут (совместимость)"""
+        self.add_notification_job(30)
 
 # Создаем глобальный экземпляр планировщика
-bot_scheduler = BotScheduler()
+hse_scheduler = HSEScheduler()
+
+# Алиасы для совместимости
+scheduler = hse_scheduler
+bot_scheduler = hse_scheduler
 
 async def main():
     """Основная функция для тестирования планировщика"""
     try:
-        bot_scheduler.add_immediate_sync()
-        bot_scheduler.add_sync_job(1)  # Каждый час
-        bot_scheduler.start()
+        hse_scheduler.add_immediate_sync()
+        hse_scheduler.add_sync_job(1)  # Каждый час
+        hse_scheduler.add_daily_cleanup_job(5, 0)  # В 5:00 утра
+        hse_scheduler.start()
         
         logger.info("Планировщик работает. Для остановки нажмите Ctrl+C")
         
-        while bot_scheduler.is_running:
+        while hse_scheduler.is_running:
             await asyncio.sleep(1)
             
     except KeyboardInterrupt:
         logger.info("Получен сигнал прерывания")
     finally:
-        bot_scheduler.stop()
+        hse_scheduler.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())

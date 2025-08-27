@@ -5,7 +5,7 @@ from pathlib import Path
 # Добавляем текущую директорию в путь для импортов
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.core.sync.scheduler import scheduler
+from src.core.scheduler import hse_scheduler
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
 from src.utils import get_logger
@@ -17,7 +17,7 @@ class HSEBotSyncApp:
     """Основное приложение для синхронизации данных"""
     
     def __init__(self):
-        self.scheduler = scheduler
+        self.scheduler = hse_scheduler
         self.db_manager = db_manager
         self.data_syncer = data_syncer
     
@@ -36,7 +36,8 @@ class HSEBotSyncApp:
     async def start_sync_scheduler(self):
         """Запуск планировщика синхронизации"""
         try:
-            self.scheduler.add_hourly_sync()
+            self.scheduler.add_sync_job(1)  # Каждый час
+            self.scheduler.add_daily_cleanup_job(5, 0)  # Очистка в 5:00
             self.scheduler.start()
             
             logger.info("Планировщик запущен. Для остановки нажмите Ctrl+C")

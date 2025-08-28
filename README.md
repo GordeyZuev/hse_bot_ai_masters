@@ -150,7 +150,7 @@ TIMEZONE=Europe/Moscow
 NOTIFICATION_DAYS_BEFORE=3,1,0  # За сколько дней уведомлять (устаревшее)
 NOTIFICATION_TIME=09:00  # Время уведомлений (HH:MM, устаревшее)
 SYNC_INTERVAL_HOURS=1    # Интервал синхронизации в часах
-NOTIFICATION_CHECK_MINUTES=30  # Интервал проверки уведомлений в минутах
+NOTIFICATION_CHECK_MINUTES=5  # Интервал проверки уведомлений в минутах
 ```
 
 ### 4. Настройка базы данных

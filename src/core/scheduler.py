@@ -113,7 +113,7 @@ class HSEScheduler:
         )
         logger.info(f"Добавлена задача синхронизации каждые {interval_hours} ч.")
     
-    def add_notification_job(self, interval_minutes: int = 30):
+    def add_notification_job(self, interval_minutes: int = 10):
         """Добавить задачу отправки уведомлений"""
         if not self.bot:
             logger.warning("Бот не установлен, задача уведомлений не добавлена")
@@ -191,7 +191,7 @@ class HSEScheduler:
     
     def add_notification_check(self):
         """Добавить задачу проверки уведомлений каждые 30 минут (совместимость)"""
-        self.add_notification_job(30)
+        self.add_notification_job(10)
 
 # Создаем глобальный экземпляр планировщика
 hse_scheduler = HSEScheduler()

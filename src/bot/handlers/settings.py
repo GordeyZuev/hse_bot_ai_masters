@@ -7,6 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from src.bot.services.notification_service import notification_service
 from src.utils import get_logger
+import re
 
 logger = get_logger()
 router = Router()
@@ -263,8 +264,6 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
         # Парсим введенный текст
         text = message.text.strip().lower()
         
-        # Регулярные выражения для парсинга
-        import re
         
         # Паттерны для разных единиц времени
         patterns = [
@@ -300,10 +299,9 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
         elif offset_unit == 'days':
             total_minutes = offset_value * 24 * 60
         
-        if total_minutes < 30:
+        if total_minutes < 15:
             await message.answer(
-                "❌ Минимальное время уведомления - 30 минут\n"
-                "(планировщик проверяет уведомления каждые 30 минут)"
+                "❌ Минимальное время уведомления - 15 минут\n"
             )
             return
         

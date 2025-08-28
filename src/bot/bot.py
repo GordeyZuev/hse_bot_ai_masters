@@ -56,7 +56,7 @@ class HSEBot:
             if with_scheduler:
                 hse_scheduler.set_bot(self.bot)
                 hse_scheduler.add_sync_job(1)  # Синхронизация каждый час
-                hse_scheduler.add_notification_job(30)  # Уведомления каждые 30 минут
+                hse_scheduler.add_notification_job(10)  # Уведомления каждые 10 минут
                 hse_scheduler.add_daily_cleanup_job(5, 0)  # Очистка в 5:00
                 hse_scheduler.add_immediate_sync()  # Немедленная синхронизация при старте
                 hse_scheduler.start()

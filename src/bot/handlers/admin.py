@@ -8,6 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from src.bot.services.admin_service import admin_service
 from src.utils import get_logger
+from src.core.sync.data_syncer import data_syncer
 
 logger = get_logger()
 router = Router()
@@ -45,6 +46,36 @@ async def cmd_logs(message: Message, db_user):
     except Exception as e:
         logger.error(f"Ошибка в обработчике /logs: {e}")
         await message.answer(f"❌ Ошибка при получении логов: {str(e)}")
+
+@router.message(Command("fast_sync"))
+async def cmd_fast_sync(message: Message, db_user):
+    """Обработчик команды /fast_sync - быстрая синхронизация для админов"""
+    if not is_admin(db_user.tg_user_id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+    
+    try:
+        # Отправляем сообщение о начале синхронизации
+        status_message = await message.answer("🔄 <b>Запускаю синхронизацию...</b>")
+        
+        # Импортируем и запускаем синхронизацию
+        
+        logger.info(f"Админ {db_user.tg_user_id} запустил быструю синхронизацию через команду /fast_sync")
+        success = await data_syncer.sync_data()
+        
+        if success:
+            text = "✅ <b>Синхронизация завершена успешно!</b>\n\n"
+            text += "Данные из Google Sheets обновлены в базе данных."
+        else:
+            text = "❌ <b>Ошибка синхронизации</b>\n\n"
+            text += "Не удалось синхронизировать данные. Проверьте логи для подробностей."
+        
+        await status_message.edit_text(text)
+        logger.info(f"Быстрая синхронизация завершена. Результат: {'успех' if success else 'ошибка'}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике /fast_sync: {e}")
+        await message.answer(f"❌ Ошибка при выполнении синхронизации: {str(e)}")
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, db_user):
@@ -363,10 +394,11 @@ async def callback_admin_panel(callback: CallbackQuery, db_user):
     
     builder = InlineKeyboardBuilder()
     builder.button(text="📊 Статистика", callback_data="admin_refresh_stats")
+    builder.button(text="🔄 Синхронизация", callback_data="admin_sync")
     builder.button(text="📢 Broadcast", callback_data="admin_broadcast")
     builder.button(text="📄 Сегодняшние логи", callback_data="admin_logs")
     builder.button(text="🔙 Назад", callback_data="back_to_menu")
-    builder.adjust(2, 1, 1)  # 2 кнопки в первом ряду, по 1 в остальных
+    builder.adjust(2, 2, 1)  # 2 кнопки в первых двух рядах, 1 в последнем
     
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
 
@@ -393,6 +425,44 @@ async def callback_admin_logs(callback: CallbackQuery, db_user):
     except Exception as e:
         logger.error(f"Ошибка отправки логов: {e}")
         await callback.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
+
+@router.callback_query(F.data == "admin_sync")
+async def callback_admin_sync(callback: CallbackQuery, db_user):
+    """Обработчик мгновенной синхронизации"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+    
+    await callback.answer("Запускаю синхронизацию...")
+    
+    try:
+        logger.info(f"Админ {db_user.tg_user_id} запустил мгновенную синхронизацию")
+        success = await data_syncer.sync_data()
+        
+        if success:
+            text = "✅ <b>Синхронизация завершена успешно!</b>\n\n"
+            text += "Данные из Google Sheets обновлены в базе данных."
+        else:
+            text = "❌ <b>Ошибка синхронизации</b>\n\n"
+            text += "Не удалось синхронизировать данные. Проверьте логи для подробностей."
+        
+        # Создаем клавиатуру для возврата
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
+        
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        
+        logger.info(f"Мгновенная синхронизация завершена. Результат: {'успех' if success else 'ошибка'}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике синхронизации: {e}")
+        await callback.message.edit_text(
+            "❌ <b>Произошла ошибка</b>\n\nНе удалось запустить синхронизацию.",
+            reply_markup=InlineKeyboardBuilder().button(
+                text="🔙 Назад",
+                callback_data="admin_panel"
+            ).as_markup()
+        )
 
 def register_admin_handlers(dp):
     """Регистрация admin handlers"""

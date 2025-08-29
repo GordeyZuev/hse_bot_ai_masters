@@ -45,9 +45,9 @@ class HSEScheduler:
     async def sync_job(self):
         """Задача синхронизации данных с Google Sheets"""
         try:
-            start_time = datetime.now()
+            start_time = datetime.now(pytz.timezone('Europe/Moscow'))
             success = await data_syncer.sync_data()
-            duration = (datetime.now() - start_time).total_seconds()
+            duration = (datetime.now(pytz.timezone('Europe/Moscow')) - start_time).total_seconds()
             
             if success:
                 logger.success(f"Синхронизация завершена за {duration:.2f}с")
@@ -66,9 +66,9 @@ class HSEScheduler:
         
         try:
             from src.bot.services.notification_sender import notification_sender
-            start_time = datetime.now()
+            start_time = datetime.now(pytz.timezone('Europe/Moscow'))
             result = await notification_sender.send_deadline_notifications(self.bot)
-            duration = (datetime.now() - start_time).total_seconds()
+            duration = (datetime.now(pytz.timezone('Europe/Moscow')) - start_time).total_seconds()
             
             sent = result.get('sent', 0)
             errors = result.get('errors', 0)
@@ -87,7 +87,7 @@ class HSEScheduler:
             
             # Очистка старых логов уведомлений (старше 30 дней)
             async with db_manager.async_session() as session:
-                cutoff_date = datetime.now() - timedelta(days=30)
+                cutoff_date = datetime.now(pytz.timezone('Europe/Moscow')) - timedelta(days=30)
                 stmt = delete(NotificationLog).where(NotificationLog.created_at < cutoff_date)
                 result = await session.execute(stmt)
                 await session.commit()
@@ -175,7 +175,11 @@ class HSEScheduler:
         """Получить информацию о запланированных задачах"""
         jobs_info = []
         for job in self.scheduler.get_jobs():
-            next_run = job.next_run_time.strftime('%d.%m.%Y %H:%M:%S') if job.next_run_time else 'Не запланировано'
+            if job.next_run_time:
+                moscow_time = job.next_run_time.astimezone(pytz.timezone('Europe/Moscow'))
+                next_run = moscow_time.strftime('%d.%m.%Y %H:%M:%S МСК')
+            else:
+                next_run = 'Не запланировано'
             jobs_info.append({
                 'id': job.id,
                 'name': job.name,

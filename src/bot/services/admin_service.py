@@ -281,7 +281,7 @@ class AdminService:
     async def get_today_log_files(self) -> List[tuple]:
         """Получить пути к файлам логов за сегодня"""
         try:
-            today = datetime.now().strftime('%Y-%m-%d')
+            today = datetime.now(self.moscow_tz).strftime('%Y-%m-%d')
             
             # Пути к файлам логов
             log_files = []
@@ -329,16 +329,16 @@ class AdminService:
                 return False
             
             # Отправляем каждый файл отдельно
-            today_str = datetime.now().strftime('%d.%m.%Y')
+            today_str = datetime.now(self.moscow_tz).strftime('%d.%m.%Y')
             
             for log_type, file_path in log_files:
                 try:
                     # Определяем имя файла и описание
                     if log_type == 'app':
-                        filename = f"app_logs_{datetime.now().strftime('%Y-%m-%d')}.log"
+                        filename = f"app_logs_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
                         caption = f"📄 <b>Основные логи за {today_str}</b>"
                     else:  # error
-                        filename = f"error_logs_{datetime.now().strftime('%Y-%m-%d')}.log"
+                        filename = f"error_logs_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
                         caption = f"🚨 <b>Логи ошибок за {today_str}</b>"
                     
                     document = FSInputFile(file_path, filename=filename)

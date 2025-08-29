@@ -71,7 +71,10 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
                         callback_data=f"enable_notification_{notif.notification_number}"
                     )
         
-        builder.button(text="🗑 Сбросить все настройки", callback_data="reset_notifications")
+        # Кнопка сброса показывается только если есть настройки
+        if notifications:
+            builder.button(text="🗑 Сбросить все настройки", callback_data="reset_notifications")
+        
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(2, 1)
         

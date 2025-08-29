@@ -3,10 +3,12 @@ import sys
 from pathlib import Path
 from loguru import logger
 import os
+from datetime import datetime
+import pytz
 
 def setup_logging(
     log_level: str = "INFO",
-    rotation: str = "10 MB",
+    rotation: str = "00:00",  # Ротация в полночь по московскому времени
     retention: str = "30 days",
     log_dir: Path = Path("logs")
 ) -> None:
@@ -16,6 +18,13 @@ def setup_logging(
     
     # Создаем директорию для логов если не существует
     log_dir.mkdir(exist_ok=True)
+    
+    # Настройка временной зоны
+    moscow_tz = pytz.timezone('Europe/Moscow')
+    current_moscow_time = datetime.now(moscow_tz)
+    
+    # Принудительно устанавливаем временную зону для loguru
+    os.environ['TZ'] = 'Europe/Moscow'
     
     # Формат для логов
     log_format = (
@@ -48,15 +57,16 @@ def setup_logging(
         diagnose=True
     )
     
-    # Файловый вывод (ротация по размеру)
+    # Файловый вывод (ротация по времени в полночь)
     logger.add(
         log_dir / "app_{time:YYYY-MM-DD}.log",
         level=log_level,
         format=log_format,
-        rotation=rotation,
+        rotation=rotation,  # Ротация в полночь по московскому времени
         retention=retention,
         compression="zip",
-        encoding="utf-8"
+        encoding="utf-8",
+        enqueue=True  # Асинхронная запись для лучшей производительности
     )
     
     # JSON лог для машинной обработки
@@ -67,7 +77,8 @@ def setup_logging(
         rotation=rotation,
         retention=retention,
         compression="zip",
-        encoding="utf-8"
+        encoding="utf-8",
+        enqueue=True
     )
     
     # Отдельный файл для ошибок
@@ -78,11 +89,16 @@ def setup_logging(
         rotation=rotation,
         retention="90 days",
         compression="zip",
-        encoding="utf-8"
+        encoding="utf-8",
+        enqueue=True
     )
     
-    # Логирование старта
+    # Логирование старта с диагностикой
     logger.info("Логгер успешно настроен")
+    logger.info(f"Директория логов: {log_dir.absolute()}")
+    logger.info(f"Московское время: {current_moscow_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logger.info(f"Ротация настроена на: {rotation}")
+    logger.info(f"Текущий файл лога: app_{current_moscow_time.strftime('%Y-%m-%d')}.log")
 
 def get_logger() -> logger:
     """Получить настроенный логгер"""

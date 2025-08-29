@@ -57,7 +57,8 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
 Настроить время и частоту уведомлений можно в /settings.
         """ + ("""
 <b>📊 Для администраторов:</b>
-• /stats - статистика использования
+• /stats - статистика использования и админ-панель
+• /fast_sync - быстрая синхронизация с Google Sheets
 • /broadcast - массовая рассылка
 • /logs - получить файлы логов
 """ if is_admin(db_user.tg_user_id) else "") + """

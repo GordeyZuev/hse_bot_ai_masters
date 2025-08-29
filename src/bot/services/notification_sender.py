@@ -288,11 +288,13 @@ class NotificationSender:
         
         # Информация о дедлайнах
         if deadline.soft_deadline_ts:
-            soft_date = deadline.soft_deadline_ts.strftime("%d.%m.%Y %H:%M")
+            soft_moscow = deadline.soft_deadline_ts.astimezone(self.moscow_tz)
+            soft_date = soft_moscow.strftime("%d.%m.%Y %H:%M МСК")
             message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date}\n"
         
         if deadline.hard_deadline_ts:
-            hard_date = deadline.hard_deadline_ts.strftime("%d.%m.%Y %H:%M")
+            hard_moscow = deadline.hard_deadline_ts.astimezone(self.moscow_tz)
+            hard_date = hard_moscow.strftime("%d.%m.%Y %H:%M МСК")
             message += f"🔴 <b>Жесткий дедлайн:</b> {hard_date}\n"
         
         message += f"\n⏰ <b>Осталось:</b> {notification_setting.offset_value} {unit_text}"
@@ -326,10 +328,12 @@ class NotificationSender:
             message += f"📝 {deadline.hw_name}\n"
             
             if deadline.soft_deadline_ts:
-                date_str = deadline.soft_deadline_ts.strftime("%d.%m %H:%M")
+                moscow_time = deadline.soft_deadline_ts.astimezone(self.moscow_tz)
+                date_str = moscow_time.strftime("%d.%m %H:%M МСК")
                 message += f"🟡 {date_str}\n"
             elif deadline.hard_deadline_ts:
-                date_str = deadline.hard_deadline_ts.strftime("%d.%m %H:%M")
+                moscow_time = deadline.hard_deadline_ts.astimezone(self.moscow_tz)
+                date_str = moscow_time.strftime("%d.%m %H:%M МСК")
                 message += f"🔴 {date_str}\n"
             
             message += "\n"

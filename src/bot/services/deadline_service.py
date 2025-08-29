@@ -50,10 +50,6 @@ class DeadlineService:
                             )
                         )
                     )
-                ).order_by(
-                    # Сортируем по ближайшему дедлайну (мягкому или жесткому)
-                    Deadline.soft_deadline_ts.asc().nulls_last(),
-                    Deadline.hard_deadline_ts.asc().nulls_last()
                 )
                 
                 result = await session.execute(stmt)
@@ -101,6 +97,9 @@ class DeadlineService:
                             'time_left': time_left
                         })
                 
+                # Сортируем по времени ближайшего дедлайна (от ближайшего к дальнему)
+                deadlines_data.sort(key=lambda x: x['nearest_deadline'])
+                
                 return deadlines_data
                 
             except Exception as e:
@@ -127,19 +126,37 @@ class DeadlineService:
                             Deadline.hard_deadline_ts <= end_date
                         )
                     )
-                ).order_by(
-                    Deadline.soft_deadline_ts.asc().nulls_last(),
-                    Deadline.hard_deadline_ts.asc().nulls_last()
                 )
                 
                 result = await session.execute(stmt)
                 deadlines_data = []
                 
                 for deadline, subject in result.fetchall():
-                    deadlines_data.append({
-                        'deadline': deadline,
-                        'subject': subject
-                    })
+                    # Определяем ближайший актуальный дедлайн для сортировки
+                    now = datetime.now(self.moscow_tz)
+                    nearest_deadline = None
+                    
+                    # Проверяем, какие дедлайны еще актуальны
+                    soft_valid = deadline.soft_deadline_ts and deadline.soft_deadline_ts >= now
+                    hard_valid = deadline.hard_deadline_ts and deadline.hard_deadline_ts >= now
+                    
+                    if soft_valid and hard_valid:
+                        # Оба дедлайна актуальны - выбираем ближайший
+                        nearest_deadline = min(deadline.soft_deadline_ts, deadline.hard_deadline_ts)
+                    elif soft_valid:
+                        nearest_deadline = deadline.soft_deadline_ts
+                    elif hard_valid:
+                        nearest_deadline = deadline.hard_deadline_ts
+                    
+                    if nearest_deadline:
+                        deadlines_data.append({
+                            'deadline': deadline,
+                            'subject': subject,
+                            'nearest_deadline': nearest_deadline
+                        })
+                
+                # Сортируем по времени ближайшего дедлайна
+                deadlines_data.sort(key=lambda x: x['nearest_deadline'])
                 
                 return deadlines_data
                 
@@ -270,7 +287,7 @@ class DeadlineService:
             if data.get('nearest_deadline'):
                 # Форматируем время в московском часовом поясе
                 moscow_time = data['nearest_deadline'].astimezone(self.moscow_tz)
-                date_str = moscow_time.strftime("%d.%m %H:%M")
+                date_str = moscow_time.strftime("%d.%m %H:%M МСК")
                 
                 # Выбираем цвет в зависимости от типа дедлайна
                 deadline_type_icon = "🟡" if data['deadline_type'] == "soft" else "🔴"

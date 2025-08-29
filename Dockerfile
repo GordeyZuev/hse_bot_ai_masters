@@ -2,11 +2,13 @@
 FROM python:3.11-slim
 
 # Устанавливаем системные зависимости
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && unset DEBIAN_FRONTEND
 
 # Создаем пользователя для приложения
 RUN useradd --create-home --shell /bin/bash app

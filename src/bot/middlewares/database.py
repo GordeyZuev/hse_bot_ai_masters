@@ -26,13 +26,31 @@ class DatabaseMiddleware(BaseMiddleware):
             return await handler(event, data)
         
         try:
+            # Убеждаемся, что база данных инициализирована
+            await db_manager.ensure_initialized()
+            
             # Создаем или обновляем пользователя в БД
             db_user = await self.get_or_create_user(user)
             data['db_user'] = db_user
             
         except Exception as e:
             logger.error(f"Ошибка в DatabaseMiddleware: {e}")
-            # Продолжаем выполнение даже при ошибке БД
+            # Создаем временный объект пользователя для продолжения работы
+            from src.core.models import User
+            from datetime import datetime
+            import pytz
+            
+            moscow_tz = pytz.timezone('Europe/Moscow')
+            temp_user = User(
+                tg_user_id=user.id,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                username=user.username,
+                last_activity_ts=datetime.now(moscow_tz),
+                timezone='Europe/Moscow'
+            )
+            data['db_user'] = temp_user
+            logger.warning(f"Используется временный пользователь для {user.id} из-за ошибки БД")
         
         return await handler(event, data)
     

@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 import os
 from dotenv import load_dotenv
 import asyncpg
+import asyncio
 
 from datetime import datetime
 import pytz
@@ -49,29 +50,44 @@ class DatabaseManager:
     
     async def ensure_database_exists(self):
         """Создает базу данных, если она не существует"""
-        try:
-            conn = await asyncpg.connect(
-                host=self.db_host,
-                port=self.db_port,
-                user=self.db_user,
-                password=self.db_password,
-                database='postgres'
-            )
-            
-            result = await conn.fetchval(
-                "SELECT 1 FROM pg_database WHERE datname = $1",
-                self.db_name
-            )
-            
-            if not result:
-                await conn.execute(f'CREATE DATABASE "{self.db_name}"')
-                logger.info(f"База данных '{self.db_name}' создана")
-            
-            await conn.close()
-            
-        except Exception as e:
-            logger.error(f"Ошибка создания БД: {e}")
-            raise
+        max_retries = 5
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Попытка подключения к PostgreSQL (попытка {attempt + 1}/{max_retries})")
+                
+                conn = await asyncpg.connect(
+                    host=self.db_host,
+                    port=int(self.db_port),
+                    user=self.db_user,
+                    password=self.db_password,
+                    database='postgres',
+                    timeout=10
+                )
+                
+                result = await conn.fetchval(
+                    "SELECT 1 FROM pg_database WHERE datname = $1",
+                    self.db_name
+                )
+                
+                if not result:
+                    await conn.execute(f'CREATE DATABASE "{self.db_name}"')
+                    logger.info(f"База данных '{self.db_name}' создана")
+                else:
+                    logger.info(f"База данных '{self.db_name}' уже существует")
+                
+                await conn.close()
+                return
+                
+            except Exception as e:
+                logger.error(f"Ошибка создания БД (попытка {attempt + 1}): {e}")
+                if attempt == max_retries - 1:
+                    logger.critical(f"Не удалось подключиться к PostgreSQL после {max_retries} попыток")
+                    raise
+                
+                logger.info(f"Повторная попытка через {retry_delay} секунд...")
+                await asyncio.sleep(retry_delay)
 
     async def create_engine(self):
         """Создает движок SQLAlchemy после того, как база данных существует"""

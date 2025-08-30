@@ -288,8 +288,8 @@ class AdminService:
             
             # Основные логи
             main_log_paths = [
-                f"logs/app_{today}.log",
-                f"app_{today}.log",
+                f"logs/app_logs_{today}.log",
+                f"app_logs_{today}.log",
                 "app.log"
             ]
             
@@ -300,8 +300,9 @@ class AdminService:
             
             # Логи ошибок
             error_log_paths = [
-                f"logs/error_{today}.log",
-                f"error_{today}.log",
+                f"logs/errors_{today}.log",
+                f"error_logs_{today}.log",
+                f"errors_{today}.log",
                 "error.log"
             ]
             
@@ -333,12 +334,26 @@ class AdminService:
             
             for log_type, file_path in log_files:
                 try:
+                    # Проверяем размер файла
+                    if not os.path.exists(file_path):
+                        logger.warning(f"Файл {file_path} не существует")
+                        continue
+                    
+                    file_size = os.path.getsize(file_path)
+                    if file_size == 0:
+                        logger.warning(f"Файл {file_path} пустой, пропускаем отправку")
+                        await bot.send_message(
+                            admin_id,
+                            f"📄 <b>Файл {log_type} логов за {today_str}</b>\n\n⚠️ Файл пустой"
+                        )
+                        continue
+                    
                     # Определяем имя файла и описание
                     if log_type == 'app':
                         filename = f"app_logs_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
                         caption = f"📄 <b>Основные логи за {today_str}</b>"
                     else:  # error
-                        filename = f"error_logs_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
+                        filename = f"errors_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
                         caption = f"🚨 <b>Логи ошибок за {today_str}</b>"
                     
                     document = FSInputFile(file_path, filename=filename)

@@ -63,6 +63,49 @@ class HSEBotSyncApp:
             self.scheduler.stop()
         await self.db_manager.close()
 
+async def run_migrations():
+    """Запуск миграций базы данных"""
+    import subprocess
+    import os
+    
+    try:
+        logger.info("Запуск миграций базы данных...")
+        
+        # Запускаем alembic upgrade head
+        result = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            cwd=os.path.dirname(__file__),
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            logger.info("Миграции выполнены успешно")
+            logger.info(result.stdout)
+            return True
+        else:
+            logger.error(f"Ошибка выполнения миграций: {result.stderr}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Ошибка запуска миграций: {e}")
+        return False
+
+async def restore_database():
+    """Восстановление базы данных через SQLAlchemy"""
+    try:
+        logger.info("Восстановление структуры базы данных...")
+        
+        # Создаем менеджер БД и пересоздаем таблицы
+        await db_manager.initialize(recreate_tables=True)
+        
+        logger.info("База данных успешно восстановлена!")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Ошибка восстановления базы данных: {e}")
+        return False
+
 async def main():
     """Основная функция приложения"""
     command = sys.argv[1].lower() if len(sys.argv) > 1 else "help"
@@ -88,6 +131,16 @@ async def main():
         logger.info("Режим: бот + синхронизация + уведомления")
         await hse_bot.start_polling(with_scheduler=True)
     
+    elif command == "migrate":
+        logger.info("Режим: выполнение миграций")
+        success = await run_migrations()
+        sys.exit(0 if success else 1)
+    
+    elif command == "restore":
+        logger.info("Режим: восстановление базы данных")
+        success = await restore_database()
+        sys.exit(0 if success else 1)
+    
     else:
         print("Телеграм бот для уведомлений о дедлайнах")
         print()
@@ -96,6 +149,8 @@ async def main():
         print("  python main.py sync      - выполнить одну синхронизацию")
         print("  python main.py scheduler - запустить только планировщик синхронизации")
         print("  python main.py full      - запустить бота + синхронизацию")
+        print("  python main.py migrate   - выполнить миграции базы данных")
+        print("  python main.py restore   - восстановить структуру базы данных")
         print("  python main.py help      - показать эту справку")
         print()
         print("Рекомендуется использовать 'full' для полного функционала.")

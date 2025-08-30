@@ -45,7 +45,7 @@ services:
       - src/config/.env
     volumes:
       - ./logs:/app/logs
-      - ./src/config/creds.json:/app/config/creds.json:ro
+      - ./src/config/creds.json:/app/src/config/creds.json:ro
     networks:
       - hse_bot_network
     command: ["python", "main.py", "full"]

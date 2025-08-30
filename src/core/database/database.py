@@ -1,7 +1,6 @@
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import select
-
+from sqlalchemy import select, text
 from typing import Optional, List, Dict, Any
 import os
 from dotenv import load_dotenv
@@ -120,16 +119,17 @@ class DatabaseManager:
     async def check_tables_exist(self):
         """Проверяет наличие основных таблиц"""
         try:
+
             async with self.engine.begin() as conn:
                 # Проверяем наличие таблицы users
                 result = await conn.execute(
-                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')"
+                    text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')")
                 )
                 users_exists = result.scalar()
                 
                 # Проверяем наличие таблицы subjects
                 result = await conn.execute(
-                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'subjects')"
+                    text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'subjects')")
                 )
                 subjects_exists = result.scalar()
                 

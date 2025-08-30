@@ -109,8 +109,34 @@ class DatabaseManager:
         if not self.engine:
             await self.ensure_database_exists()
             await self.create_engine()
-        if not self.initialized:
+        
+        # Проверяем наличие таблиц
+        if not await self.check_tables_exist():
+            logger.warning("Таблицы отсутствуют, восстанавливаем структуру БД...")
+            await self.initialize(recreate_tables=True)
+        elif not self.initialized:
             await self.initialize()
+    
+    async def check_tables_exist(self):
+        """Проверяет наличие основных таблиц"""
+        try:
+            async with self.engine.begin() as conn:
+                # Проверяем наличие таблицы users
+                result = await conn.execute(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')"
+                )
+                users_exists = result.scalar()
+                
+                # Проверяем наличие таблицы subjects
+                result = await conn.execute(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'subjects')"
+                )
+                subjects_exists = result.scalar()
+                
+                return users_exists and subjects_exists
+        except Exception as e:
+            logger.error(f"Ошибка проверки таблиц: {e}")
+            return False
 
     async def initialize(self, recreate_tables: bool = False):
         """Инициализация базы данных"""

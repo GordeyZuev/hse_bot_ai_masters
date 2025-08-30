@@ -288,9 +288,8 @@ class AdminService:
             
             # Основные логи
             main_log_paths = [
-                f"logs/app_logs_{today}.log",
-                f"app_logs_{today}.log",
-                "app.log"
+                f"logs/app_{today}.log",
+                f"app_{today}.log",
             ]
             
             for path in main_log_paths:
@@ -301,9 +300,7 @@ class AdminService:
             # Логи ошибок
             error_log_paths = [
                 f"logs/errors_{today}.log",
-                f"error_logs_{today}.log",
                 f"errors_{today}.log",
-                "error.log"
             ]
             
             for path in error_log_paths:
@@ -329,12 +326,10 @@ class AdminService:
                 )
                 return False
             
-            # Отправляем каждый файл отдельно
             today_str = datetime.now(self.moscow_tz).strftime('%d.%m.%Y')
             
             for log_type, file_path in log_files:
                 try:
-                    # Проверяем размер файла
                     if not os.path.exists(file_path):
                         logger.warning(f"Файл {file_path} не существует")
                         continue
@@ -347,10 +342,8 @@ class AdminService:
                             f"📄 <b>Файл {log_type} логов за {today_str}</b>\n\n⚠️ Файл пустой"
                         )
                         continue
-                    
-                    # Определяем имя файла и описание
                     if log_type == 'app':
-                        filename = f"app_logs_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
+                        filename = f"app_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
                         caption = f"📄 <b>Основные логи за {today_str}</b>"
                     else:  # error
                         filename = f"errors_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"

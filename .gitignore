@@ -132,9 +132,10 @@ dmypy.json
 # Project specific
 logs/
 *.log
-src/config/creds.json
 src/config/.env.local
+src/config/creds.json
 config/.env.production
+config/creds.json
 
 # IDE
 .vscode/

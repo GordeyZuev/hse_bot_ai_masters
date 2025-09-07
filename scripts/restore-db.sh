@@ -133,16 +133,9 @@ restore_database() {
     
     log "Начало восстановления базы данных из: $sql_file"
     
-    # Копируем файл в контейнер
-    local container_backup_path="/tmp/restore_backup.sql"
-    docker cp "$sql_file" "$CONTAINER_NAME:$container_backup_path"
-    
-    # Выполняем восстановление
-    if docker exec "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$container_backup_path"; then
+    # Восстанавливаем базу данных, передавая SQL через stdin
+    if cat "$sql_file" | docker exec -i "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"; then
         log "База данных успешно восстановлена"
-        
-        # Удаляем временный файл из контейнера
-        docker exec "$CONTAINER_NAME" rm -f "$container_backup_path"
         
         # Если мы создавали временный файл, удаляем его
         if [[ "$sql_file" == /tmp/* ]]; then
@@ -151,7 +144,6 @@ restore_database() {
     else
         log "ОШИБКА: Не удалось восстановить базу данных"
         # Очистка
-        docker exec "$CONTAINER_NAME" rm -f "$container_backup_path" || true
         if [[ "$sql_file" == /tmp/* ]]; then
             rm -f "$sql_file" || true
         fi

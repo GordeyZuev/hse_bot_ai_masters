@@ -154,6 +154,11 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
+# Backups
+backups/
+*.sql
+*.sql.gz
+
 # Temporary files
 *.tmp
 *.temp

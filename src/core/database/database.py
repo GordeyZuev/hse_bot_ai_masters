@@ -1,16 +1,16 @@
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import select, text
+from sqlalchemy import select, text, and_
 from typing import Optional, List, Dict, Any
 import os
 from dotenv import load_dotenv
 import asyncpg
 import asyncio
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
-from src.core.models import Base, Subject, Deadline, ALL_SUBJECTS
+from src.core.models import Base, Subject, Deadline, User, UserNotificationSettings, Subscription, ScheduledNotification, ALL_SUBJECTS
 from src.utils import get_logger
 
 load_dotenv('src/config/.env')
@@ -23,7 +23,6 @@ class DatabaseManager:
             logger.critical("DATABASE_URL не найден в переменных окружения")
             raise ValueError("DATABASE_URL не найден в переменных окружения")
         
-        # Извлекаем параметры подключения из URL
         self.db_host = os.getenv('DB_HOST', 'localhost')
         self.db_port = os.getenv('DB_PORT', '5432')
         self.db_name = os.getenv('DB_NAME', 'hse_bot_db')
@@ -109,7 +108,6 @@ class DatabaseManager:
             await self.ensure_database_exists()
             await self.create_engine()
         
-        # Проверяем наличие таблиц
         if not await self.check_tables_exist():
             logger.warning("Таблицы отсутствуют, восстанавливаем структуру БД...")
             await self.initialize(recreate_tables=True)
@@ -121,13 +119,11 @@ class DatabaseManager:
         try:
 
             async with self.engine.begin() as conn:
-                # Проверяем наличие таблицы users
                 result = await conn.execute(
                     text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')")
                 )
                 users_exists = result.scalar()
                 
-                # Проверяем наличие таблицы subjects
                 result = await conn.execute(
                     text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'subjects')")
                 )
@@ -200,7 +196,6 @@ class DatabaseManager:
                 deadline = result.scalar_one_or_none()
                 
                 if deadline:
-                    # Проверяем изменения
                     has_changes = False
                     fields_to_compare = ['subject_id', 'hw_name', 'source_link', 'soft_deadline_ts', 'hard_deadline_ts', 'note']
                     
@@ -213,7 +208,6 @@ class DatabaseManager:
                         moscow_tz = pytz.timezone('Europe/Moscow')
                         deadline.last_updated = datetime.now(moscow_tz)
                 else:
-                    # Создаем новый дедлайн
                     if 'last_updated' not in deadline_data:
                         moscow_tz = pytz.timezone('Europe/Moscow')
                         deadline_data['last_updated'] = datetime.now(moscow_tz)
@@ -237,12 +231,6 @@ class DatabaseManager:
             result = await session.execute(stmt)
             return list(result.scalars().all())
     
-    async def get_all_deadlines(self) -> List[Deadline]:
-        """Получить все дедлайны"""
-        async with self.async_session() as session:
-            stmt = select(Deadline)
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
     
     async def delete_outdated_deadlines(self, current_sheet_row_ids: List[int]):
         """Удалить дедлайны, которых нет в текущих данных Google Sheets"""
@@ -291,6 +279,191 @@ class DatabaseManager:
             logger.error(f"Ошибка загрузки дисциплин: {e}")
             return False
     
+    async def get_user_by_id(self, tg_user_id: int) -> User:
+        """Получить пользователя по ID"""
+        async with self.async_session() as session:
+            try:
+                stmt = select(User).where(User.tg_user_id == tg_user_id)
+                result = await session.execute(stmt)
+                user = result.scalar_one_or_none()
+                return user
+                
+            except Exception as e:
+                logger.error(f"Ошибка получения пользователя {tg_user_id}: {e}")
+                return None
+
+    async def create_user_notification_settings(self, user_id: int) -> UserNotificationSettings:
+        """Создать настройки уведомлений для пользователя"""
+        return UserNotificationSettings(user_id=user_id)
+
+    async def get_user_notification_settings(self, user_id: int) -> UserNotificationSettings:
+        """Получить настройки уведомлений пользователя"""
+        async with self.async_session() as session:
+            try:
+                stmt = select(UserNotificationSettings).where(UserNotificationSettings.user_id == user_id)
+                result = await session.execute(stmt)
+                settings = result.scalar_one_or_none()
+                
+                if not settings:
+                    settings = await self.create_user_notification_settings(user_id)
+                    session.add(settings)
+                    await session.commit()
+                    await session.refresh(settings)
+                
+                return settings
+                
+            except Exception as e:
+                logger.error(f"Ошибка получения настроек уведомлений для пользователя {user_id}: {e}")
+                raise
+
+    async def update_user_notification_settings(self, user_id: int, settings_data: dict) -> UserNotificationSettings:
+        """Обновить настройки уведомлений пользователя"""
+        async with self.async_session() as session:
+            try:
+                stmt = select(UserNotificationSettings).where(UserNotificationSettings.user_id == user_id)
+                result = await session.execute(stmt)
+                settings = result.scalar_one_or_none()
+                
+                if not settings:
+                    settings = await self.create_user_notification_settings(user_id)
+                    session.add(settings)
+                
+                for key, value in settings_data.items():
+                    if hasattr(settings, key):
+                        setattr(settings, key, value)
+                
+                moscow_tz = pytz.timezone('Europe/Moscow')
+                settings.last_modified = datetime.now(moscow_tz)
+                
+                await session.commit()
+                await session.refresh(settings)
+                return settings
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка обновления настроек уведомлений для пользователя {user_id}: {e}")
+                raise
+
+    async def create_scheduled_notification(self, notification_data: dict) -> ScheduledNotification:
+        """Создать запланированное уведомление"""
+        async with self.async_session() as session:
+            try:
+                notification = ScheduledNotification(**notification_data)
+                session.add(notification)
+                await session.commit()
+                await session.refresh(notification)
+                return notification
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка создания запланированного уведомления: {e}")
+                raise
+
+    async def get_scheduled_notifications_for_delivery(self, time_window_minutes: int = 5) -> List[ScheduledNotification]:
+        """Получить уведомления для отправки в указанном временном окне"""
+        async with self.async_session() as session:
+            try:
+                moscow_tz = pytz.timezone('Europe/Moscow')
+                now = datetime.now(moscow_tz)
+                window_end = now + timedelta(minutes=time_window_minutes)
+                
+                stmt = select(ScheduledNotification).where(
+                    and_(
+                        ScheduledNotification.status == 'scheduled',
+                        ScheduledNotification.planned_delivery_time <= window_end,
+                        ScheduledNotification.planned_delivery_time >= now - timedelta(minutes=time_window_minutes)
+                    )
+                ).order_by(ScheduledNotification.planned_delivery_time)
+                
+                result = await session.execute(stmt)
+                return list(result.scalars().all())
+                
+            except Exception as e:
+                logger.error(f"Ошибка получения запланированных уведомлений: {e}")
+                return []
+
+    async def update_notification_status(self, notification_id: int, status: str, error_message: str = None) -> bool:
+        """Обновить статус уведомления"""
+        async with self.async_session() as session:
+            try:
+                stmt = select(ScheduledNotification).where(ScheduledNotification.id == notification_id)
+                result = await session.execute(stmt)
+                notification = result.scalar_one_or_none()
+                
+                if not notification:
+                    return False
+                
+                notification.status = status
+                if error_message:
+                    pass
+                
+                moscow_tz = pytz.timezone('Europe/Moscow')
+                notification.updated_at = datetime.now(moscow_tz)
+                
+                await session.commit()
+                return True
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка обновления статуса уведомления {notification_id}: {e}")
+                return False
+
+    async def cancel_scheduled_notifications_for_deadline(self, deadline_id: int) -> int:
+        """Отменить все запланированные уведомления для дедлайна"""
+        async with self.async_session() as session:
+            try:
+                stmt = select(ScheduledNotification).where(
+                    and_(
+                        ScheduledNotification.deadline_id == deadline_id,
+                        ScheduledNotification.status == 'scheduled'
+                    )
+                )
+                result = await session.execute(stmt)
+                notifications = result.scalars().all()
+                
+                count = 0
+                for notification in notifications:
+                    notification.status = 'cancelled'
+                    moscow_tz = pytz.timezone('Europe/Moscow')
+                    notification.updated_at = datetime.now(moscow_tz)
+                    count += 1
+                
+                await session.commit()
+                return count
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка отмены уведомлений для дедлайна {deadline_id}: {e}")
+                return 0
+
+    async def cleanup_old_notifications(self, days_old: int = 30) -> int:
+        """Удалить старые отправленные уведомления"""
+        async with self.async_session() as session:
+            try:
+                moscow_tz = pytz.timezone('Europe/Moscow')
+                cutoff_date = datetime.now(moscow_tz) - timedelta(days=days_old)
+                
+                stmt = select(ScheduledNotification).where(
+                    and_(
+                        ScheduledNotification.status.in_(['sent', 'failed', 'cancelled']),
+                        ScheduledNotification.updated_at < cutoff_date
+                    )
+                )
+                result = await session.execute(stmt)
+                old_notifications = result.scalars().all()
+                
+                count = len(old_notifications)
+                for notification in old_notifications:
+                    await session.delete(notification)
+                
+                await session.commit()
+                return count
+                
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Ошибка очистки старых уведомлений: {e}")
+                return 0
+
     async def close(self):
         """Закрыть соединение с базой данных"""
         if self.engine:

@@ -10,8 +10,8 @@ from aiogram import Bot
 from sqlalchemy import delete
 
 from src.core.database import db_manager
-from src.core.models import NotificationLog
 from src.core.sync.data_syncer import data_syncer
+from src.bot.services.scheduled_notification_sender import scheduled_notification_sender
 from src.utils import get_logger
 
 logger = get_logger()
@@ -59,22 +59,25 @@ class HSEScheduler:
             raise
     
     async def notification_job(self):
-        """Задача отправки уведомлений о дедлайнах"""
+        """Задача отправки запланированных уведомлений о дедлайнах"""
         if not self.bot:
             logger.warning("Бот не установлен, пропускаю отправку уведомлений")
             return
         
         try:
-            from src.bot.services.notification_sender import notification_sender
             start_time = datetime.now(pytz.timezone('Europe/Moscow'))
-            result = await notification_sender.send_deadline_notifications(self.bot)
+            result = await scheduled_notification_sender.send_scheduled_notifications(self.bot)
             duration = (datetime.now(pytz.timezone('Europe/Moscow')) - start_time).total_seconds()
             
             sent = result.get('sent', 0)
-            errors = result.get('errors', 0)
+            failed = result.get('failed', 0)
             skipped = result.get('skipped', 0)
+            total_processed = result.get('total_processed', 0)
             
-            logger.info(f"Уведомления отправлены за {duration:.2f}с: {sent} успешно, {errors} ошибок, {skipped} пропущено")
+            if total_processed > 0:
+                logger.info(f"Уведомления отправлены за {duration:.2f}с: {sent} успешно, {failed} неудачно, {skipped} пропущено из {total_processed}")
+            else:
+                logger.debug(f"Нет уведомлений для отправки (проверка за {duration:.2f}с)")
             
         except Exception as e:
             logger.error(f"Ошибка отправки уведомлений: {e}")
@@ -85,16 +88,10 @@ class HSEScheduler:
         try:
             logger.info("Начинаю очистку старых данных")
             
-            # Очистка старых логов уведомлений (старше 30 дней)
-            async with db_manager.async_session() as session:
-                cutoff_date = datetime.now(pytz.timezone('Europe/Moscow')) - timedelta(days=30)
-                stmt = delete(NotificationLog).where(NotificationLog.created_at < cutoff_date)
-                result = await session.execute(stmt)
-                await session.commit()
-                
-                deleted_count = result.rowcount
-                if deleted_count > 0:
-                    logger.info(f"Удалено {deleted_count} старых записей логов уведомлений")
+            # Очистка старых уведомлений (старше 30 дней)
+            deleted_count = await db_manager.cleanup_old_notifications(days_old=30)
+            if deleted_count > 0:
+                logger.info(f"Удалено {deleted_count} старых уведомлений")
             
             logger.info("Очистка завершена")
             
@@ -171,38 +168,7 @@ class HSEScheduler:
         self.is_running = False
         logger.info("HSE планировщик остановлен")
     
-    def get_jobs_info(self) -> list:
-        """Получить информацию о запланированных задачах"""
-        jobs_info = []
-        for job in self.scheduler.get_jobs():
-            if job.next_run_time:
-                moscow_time = job.next_run_time.astimezone(pytz.timezone('Europe/Moscow'))
-                next_run = moscow_time.strftime('%d.%m.%Y %H:%M:%S МСК')
-            else:
-                next_run = 'Не запланировано'
-            jobs_info.append({
-                'id': job.id,
-                'name': job.name,
-                'next_run': next_run,
-                'trigger': str(job.trigger)
-            })
-        return jobs_info
-    
-    # Методы для совместимости со старым API
-    def add_hourly_sync(self):
-        """Добавить задачу синхронизации каждый час (совместимость)"""
-        self.add_sync_job(1)
-    
-    def add_notification_check(self):
-        """Добавить задачу проверки уведомлений каждые 30 минут (совместимость)"""
-        self.add_notification_job(10)
-
-# Создаем глобальный экземпляр планировщика
 hse_scheduler = HSEScheduler()
-
-# Алиасы для совместимости
-scheduler = hse_scheduler
-bot_scheduler = hse_scheduler
 
 async def main():
     """Основная функция для тестирования планировщика"""

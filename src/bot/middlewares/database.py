@@ -5,7 +5,7 @@ from datetime import datetime
 import pytz
 
 from src.core.database import db_manager
-from src.core.models import User
+from src.core.models import User, UserNotificationSettings
 from src.utils import get_logger
 from sqlalchemy import select
 
@@ -20,22 +20,18 @@ class DatabaseMiddleware(BaseMiddleware):
         event: Message | CallbackQuery,
         data: Dict[str, Any]
     ) -> Any:
-        # Получаем пользователя из события
         user = event.from_user
         if not user:
             return await handler(event, data)
         
         try:
-            # Убеждаемся, что база данных инициализирована
             await db_manager.ensure_initialized()
             
-            # Создаем или обновляем пользователя в БД
             db_user = await self.get_or_create_user(user)
             data['db_user'] = db_user
             
         except Exception as e:
             logger.error(f"Ошибка в DatabaseMiddleware: {e}")
-            # Не создаем временного пользователя, пропускаем обработчик
             raise
         
         return await handler(event, data)
@@ -71,6 +67,10 @@ class DatabaseMiddleware(BaseMiddleware):
                     )
                     session.add(user)
                     logger.info(f"Создан новый пользователь: {tg_user.id} (@{tg_user.username})")
+                    
+                    # Создаем настройки уведомлений по умолчанию для нового пользователя
+                    settings = await db_manager.create_user_notification_settings(tg_user.id)
+                    session.add(settings)
                 
                 await session.commit()
                 await session.refresh(user)

@@ -164,51 +164,6 @@ class DeadlineService:
                 logger.error(f"Ошибка получения всех дедлайнов: {e}")
                 return []
     
-    async def get_deadlines_for_notification(self, notification_hours: int = 24) -> List[Dict[str, Any]]:
-        """Получить дедлайны для отправки уведомлений"""
-        async with db_manager.async_session() as session:
-            try:
-                now = datetime.now(self.moscow_tz)
-                notification_time = now + timedelta(hours=notification_hours)
-                
-                # Получаем дедлайны, которые наступят в указанное время
-                stmt = select(Deadline, Subject).join(Subject).where(
-                    or_(
-                        and_(
-                            Deadline.soft_deadline_ts.isnot(None),
-                            Deadline.soft_deadline_ts >= now,
-                            Deadline.soft_deadline_ts <= notification_time
-                        ),
-                        and_(
-                            Deadline.hard_deadline_ts.isnot(None),
-                            Deadline.hard_deadline_ts >= now,
-                            Deadline.hard_deadline_ts <= notification_time
-                        )
-                    )
-                )
-                
-                result = await session.execute(stmt)
-                deadlines_data = []
-                
-                for deadline, subject in result.fetchall():
-                    # Получаем пользователей, подписанных на этот предмет
-                    users_stmt = select(User).join(Subscription).where(
-                        Subscription.subject_id == deadline.subject_id
-                    )
-                    users_result = await session.execute(users_stmt)
-                    users = users_result.scalars().all()
-                    
-                    deadlines_data.append({
-                        'deadline': deadline,
-                        'subject': subject,
-                        'users': list(users)
-                    })
-                
-                return deadlines_data
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения дедлайнов для уведомлений: {e}")
-                return []
     
     def format_deadline_message(self, deadline_data: Dict[str, Any]) -> str:
         """Форматирование сообщения о дедлайне"""

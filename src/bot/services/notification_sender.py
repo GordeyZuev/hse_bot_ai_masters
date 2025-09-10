@@ -5,7 +5,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import pytz
 
 from src.core.database import db_manager
-from src.core.models import User, Deadline, Subject, Subscription, UserNotification, NotificationLog
+from src.core.models import User, Deadline, Subject, Subscription, UserNotificationSettings, ScheduledNotification
 from src.bot.services.notification_service import notification_service
 from src.utils import get_logger
 from sqlalchemy import select, and_, or_
@@ -37,46 +37,67 @@ class NotificationSender:
             for user_data in users_to_notify:
                 try:
                     user = user_data['user']
-                    notifications_settings = user_data['notifications']
+                    settings = user_data['settings']
                     
-                    # Получаем дедлайны для каждой настройки уведомлений
-                    for notification_setting in notifications_settings:
-                        if not notification_setting.is_enabled:
-                            continue
+                    # Обрабатываем первое напоминание
+                    if settings.reminder1_offset > 0:
+                        notification_time = self._calculate_notification_time(
+                            settings.reminder1_offset, settings.reminder1_unit
+                        )
                         
-                        # Вычисляем временной диапазон для уведомления
-                        notification_time = self._calculate_notification_time(notification_setting)
-                        
-                        # Получаем дедлайны пользователя в этом диапазоне
                         deadlines_to_notify = await self._get_user_deadlines_for_notification(
                             user.tg_user_id, notification_time
                         )
                         
-                        if not deadlines_to_notify:
-                            continue
-                        
-                        # Проверяем, не отправляли ли уже уведомления об этих дедлайнах
-                        filtered_deadlines = await self._filter_already_notified_deadlines(
-                            user.tg_user_id, deadlines_to_notify, notification_setting.notification_number
-                        )
-                        
-                        if not filtered_deadlines:
-                            skipped_count += 1
-                            continue
-                        
-                        # Отправляем уведомление
-                        success = await self._send_notification_to_user(
-                            bot, user, filtered_deadlines, notification_setting
-                        )
-                        
-                        if success:
-                            sent_count += 1
-                            # Записываем в лог отправленные уведомления
-                            await self._log_sent_notifications(
-                                user.tg_user_id, filtered_deadlines, notification_setting.notification_number
+                        if deadlines_to_notify:
+                            filtered_deadlines = await self._filter_already_notified_deadlines(
+                                user.tg_user_id, deadlines_to_notify, 1
                             )
-                        else:
-                            error_count += 1
+                            
+                            if filtered_deadlines:
+                                success = await self._send_notification_to_user(
+                                    bot, user, filtered_deadlines, 1, settings.reminder1_offset, settings.reminder1_unit
+                                )
+                                
+                                if success:
+                                    sent_count += 1
+                                    await self._log_sent_notifications(
+                                        user.tg_user_id, filtered_deadlines, 1
+                                    )
+                                else:
+                                    error_count += 1
+                            else:
+                                skipped_count += 1
+                    
+                    # Обрабатываем второе напоминание
+                    if settings.reminder2_offset > 0:
+                        notification_time = self._calculate_notification_time(
+                            settings.reminder2_offset, settings.reminder2_unit
+                        )
+                        
+                        deadlines_to_notify = await self._get_user_deadlines_for_notification(
+                            user.tg_user_id, notification_time
+                        )
+                        
+                        if deadlines_to_notify:
+                            filtered_deadlines = await self._filter_already_notified_deadlines(
+                                user.tg_user_id, deadlines_to_notify, 2
+                            )
+                            
+                            if filtered_deadlines:
+                                success = await self._send_notification_to_user(
+                                    bot, user, filtered_deadlines, 2, settings.reminder2_offset, settings.reminder2_unit
+                                )
+                                
+                                if success:
+                                    sent_count += 1
+                                    await self._log_sent_notifications(
+                                        user.tg_user_id, filtered_deadlines, 2
+                                    )
+                                else:
+                                    error_count += 1
+                            else:
+                                skipped_count += 1
                 
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления пользователю {user_data['user'].tg_user_id}: {e}")
@@ -99,9 +120,9 @@ class NotificationSender:
         async with db_manager.async_session() as session:
             try:
                 
-                # Получаем пользователей с активными уведомлениями и подписками
-                stmt = select(User).join(UserNotification).join(Subscription).where(
-                    UserNotification.is_enabled == True
+                # Получаем пользователей с активными настройками уведомлений и подписками
+                stmt = select(User).join(UserNotificationSettings).join(Subscription).where(
+                    UserNotificationSettings.is_active == True
                 ).distinct()
                 
                 result = await session.execute(stmt)
@@ -110,11 +131,11 @@ class NotificationSender:
                 users_data = []
                 for user in users:
                     # Получаем настройки уведомлений для каждого пользователя
-                    notifications = await notification_service.get_user_notifications(user.tg_user_id)
-                    if notifications:
+                    settings = await notification_service.get_user_notification_settings(user.tg_user_id)
+                    if settings and settings.is_active:
                         users_data.append({
                             'user': user,
-                            'notifications': notifications
+                            'settings': settings
                         })
                 
                 return users_data
@@ -123,17 +144,14 @@ class NotificationSender:
                 logger.error(f"Ошибка получения пользователей для уведомлений: {e}")
                 return []
     
-    def _calculate_notification_time(self, notification_setting: UserNotification) -> Dict[str, datetime]:
+    def _calculate_notification_time(self, offset_value: int, offset_unit: str) -> Dict[str, datetime]:
         """Вычислить временной диапазон для уведомления"""
         now = datetime.now(self.moscow_tz)
         
-        # Конвертируем offset в часы
-        if notification_setting.offset_unit == 'days':
-            hours_offset = notification_setting.offset_value * 24
-        elif notification_setting.offset_unit == 'hours':
-            hours_offset = notification_setting.offset_value
-        elif notification_setting.offset_unit == 'minutes':
-            hours_offset = notification_setting.offset_value / 60
+        if offset_unit == 'days':
+            hours_offset = offset_value * 24
+        elif offset_unit == 'hours':
+            hours_offset = offset_value
         else:
             hours_offset = 24  # По умолчанию 24 часа
         
@@ -223,7 +241,6 @@ class NotificationSender:
                 result = await session.execute(stmt)
                 notified_deadline_ids = set(row[0] for row in result.fetchall())
                 
-                # Фильтруем дедлайны
                 filtered_deadlines = [
                     data for data in deadlines_data
                     if data['deadline'].id not in notified_deadline_ids
@@ -233,20 +250,21 @@ class NotificationSender:
                 
             except Exception as e:
                 logger.error(f"Ошибка фильтрации уведомлений: {e}")
-                return deadlines_data  # В случае ошибки возвращаем все
+                return deadlines_data
     
     async def _send_notification_to_user(
-        self, bot: Bot, user: User, deadlines_data: List[Dict[str, Any]], notification_setting: UserNotification
+        self, bot: Bot, user: User, deadlines_data: List[Dict[str, Any]], 
+        notification_number: int, offset_value: int, offset_unit: str
     ) -> bool:
         """Отправить уведомление пользователю"""
         try:
             if len(deadlines_data) == 1:
                 # Одиночное уведомление
                 data = deadlines_data[0]
-                message_text = self._format_single_deadline_notification(data, notification_setting)
+                message_text = self._format_single_deadline_notification(data, notification_number, offset_value, offset_unit)
             else:
                 # Групповое уведомление
-                message_text = self._format_multiple_deadlines_notification(deadlines_data, notification_setting)
+                message_text = self._format_multiple_deadlines_notification(deadlines_data, notification_number, offset_value, offset_unit)
             
             await bot.send_message(
                 chat_id=user.tg_user_id,
@@ -269,18 +287,16 @@ class NotificationSender:
             return False
     
     def _format_single_deadline_notification(
-        self, deadline_data: Dict[str, Any], notification_setting: UserNotification
+        self, deadline_data: Dict[str, Any], notification_number: int, offset_value: int, offset_unit: str
     ) -> str:
         """Форматировать уведомление об одном дедлайне"""
         deadline = deadline_data['deadline']
         subject = deadline_data['subject']
         
-        # Определяем единицу времени для сообщения
         unit_text = {
             'days': 'дн.',
-            'hours': 'ч.',
-            'minutes': 'мин.'
-        }.get(notification_setting.offset_unit, notification_setting.offset_unit)
+            'hours': 'ч.'
+        }.get(offset_unit, offset_unit)
         
         message = f"🔔 <b>Напоминание о дедлайне</b>\n\n"
         message += f"📚 <b>{subject.name}</b>\n"
@@ -297,7 +313,7 @@ class NotificationSender:
             hard_date = hard_moscow.strftime("%d.%m.%Y %H:%M МСК")
             message += f"🔴 <b>Жесткий дедлайн:</b> {hard_date}\n"
         
-        message += f"\n⏰ <b>Осталось:</b> {notification_setting.offset_value} {unit_text}"
+        message += f"\n⏰ <b>Осталось:</b> {offset_value} {unit_text}"
         
         if deadline.source_link:
             message += f"\n\n🔗 <a href='{deadline.source_link}'>Перейти к заданию</a>"
@@ -308,17 +324,16 @@ class NotificationSender:
         return message
     
     def _format_multiple_deadlines_notification(
-        self, deadlines_data: List[Dict[str, Any]], notification_setting: UserNotification
+        self, deadlines_data: List[Dict[str, Any]], notification_number: int, offset_value: int, offset_unit: str
     ) -> str:
         """Форматировать уведомление о нескольких дедлайнах"""
         unit_text = {
             'days': 'дн.',
-            'hours': 'ч.',
-            'minutes': 'мин.'
-        }.get(notification_setting.offset_unit, notification_setting.offset_unit)
+            'hours': 'ч.'
+        }.get(offset_unit, offset_unit)
         
         message = f"🔔 <b>Напоминание о дедлайнах</b>\n\n"
-        message += f"У вас {len(deadlines_data)} дедлайнов через {notification_setting.offset_value} {unit_text}:\n\n"
+        message += f"У вас {len(deadlines_data)} дедлайнов через {offset_value} {unit_text}:\n\n"
         
         for i, data in enumerate(deadlines_data, 1):
             deadline = data['deadline']
@@ -370,5 +385,4 @@ class NotificationSender:
                 await session.rollback()
                 logger.error(f"Ошибка записи лога уведомлений: {e}")
 
-# Создаем экземпляр сервиса
 notification_sender = NotificationSender()

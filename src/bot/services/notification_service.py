@@ -1,10 +1,11 @@
-from typing import List, Tuple
-from sqlalchemy import select, delete
+from typing import List, Tuple, Dict, Any
+from sqlalchemy import select
 from datetime import datetime
 import pytz
 
 from src.core.database import db_manager
-from src.core.models import User, UserNotification
+from src.core.models import User, UserNotificationSettings
+from src.bot.services.notification_scheduler_service import notification_scheduler_service
 from src.utils import get_logger
 from sqlalchemy import func
 
@@ -16,20 +17,13 @@ class NotificationService:
     def __init__(self):
         self.moscow_tz = pytz.timezone('Europe/Moscow')
     
-    async def get_user_notifications(self, user_id: int) -> List[UserNotification]:
+    async def get_user_notification_settings(self, user_id: int) -> UserNotificationSettings:
         """Получить настройки уведомлений пользователя"""
-        async with db_manager.async_session() as session:
-            try:
-                stmt = select(UserNotification).where(
-                    UserNotification.user_id == user_id
-                ).order_by(UserNotification.notification_number)
-                
-                result = await session.execute(stmt)
-                return list(result.scalars().all())
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения уведомлений пользователя {user_id}: {e}")
-                return []
+        try:
+            return await db_manager.get_user_notification_settings(user_id)
+        except Exception as e:
+            logger.error(f"Ошибка получения настроек уведомлений пользователя {user_id}: {e}")
+            return await db_manager.create_user_notification_settings(user_id)
     
     async def set_user_notification(
         self,
@@ -39,215 +33,104 @@ class NotificationService:
         offset_unit: str
     ) -> Tuple[bool, str]:
         """Установить настройки уведомления для пользователя"""
-        async with db_manager.async_session() as session:
-            try:
-                # Проверяем валидность параметров
-                if notification_number not in [1, 2]:
-                    return False, "Номер уведомления должен быть 1 или 2"
-                
-                if offset_unit not in ['days', 'hours', 'minutes']:
-                    return False, "Единица времени должна быть: days, hours или minutes"
-                
-                if offset_value <= 0:
-                    return False, "Значение времени должно быть положительным"
-                
-                # Проверяем минимальное время уведомления (30 минут)
-                total_minutes = self._convert_to_minutes(offset_value, offset_unit)
-                if total_minutes < 30:
-                    return False, "Минимальное время уведомления - 30 минут (планировщик проверяет уведомления каждые 30 минут)"
-                
-                # Ищем существующее уведомление
-                stmt = select(UserNotification).where(
-                    UserNotification.user_id == user_id,
-                    UserNotification.notification_number == notification_number
-                )
-                result = await session.execute(stmt)
-                notification = result.scalar_one_or_none()
-                
-                current_time = datetime.now(self.moscow_tz)
-                
-                if notification:
-                    # Обновляем существующее
-                    notification.offset_value = offset_value
-                    notification.offset_unit = offset_unit
-                    notification.is_enabled = True
-                    notification.last_modified = current_time
-                else:
-                    # Создаем новое
-                    notification = UserNotification(
-                        user_id=user_id,
-                        notification_number=notification_number,
-                        offset_value=offset_value,
-                        offset_unit=offset_unit,
-                        is_enabled=True
-                    )
-                    session.add(notification)
-                
-                await session.commit()
-                
-                unit_text = {
-                    'days': 'дн.',
-                    'hours': 'ч.',
-                    'minutes': 'мин.'
-                }.get(offset_unit, offset_unit)
-                
-                logger.info(f"Пользователь {user_id} настроил уведомление {notification_number}: за {offset_value} {unit_text}")
-                return True, f"Уведомление настроено: за {offset_value} {unit_text}"
-                
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Ошибка настройки уведомления для пользователя {user_id}: {e}")
-                return False, "Произошла ошибка при настройке уведомления"
+        try:
+            # Проверяем валидность параметров
+            if notification_number not in [1, 2]:
+                return False, "Номер уведомления должен быть 1 или 2"
+            
+            if offset_unit not in ['days', 'hours']:
+                return False, "Единица времени должна быть: days или hours"
+            
+            if offset_value <= 0:
+                return False, "Значение времени должно быть положительным"
+            
+            # Проверяем минимальное время уведомления (1 час)
+            total_hours = self._convert_to_hours(offset_value, offset_unit)
+            if total_hours < 1:
+                return False, "Минимальное время уведомления - 1 час"
+            
+            # Готовим данные для обновления
+            if notification_number == 1:
+                settings_data = {
+                    'reminder1_offset': offset_value,
+                    'reminder1_unit': offset_unit
+                }
+            else:
+                settings_data = {
+                    'reminder2_offset': offset_value,
+                    'reminder2_unit': offset_unit
+                }
+            
+            # Обновляем настройки
+            await db_manager.update_user_notification_settings(user_id, settings_data)
+            
+            # Перепланируем уведомления пользователя
+            rescheduled_count = await notification_scheduler_service.reschedule_notifications_for_user_settings_change(user_id)
+            
+            unit_text = {
+                'days': 'дн.',
+                'hours': 'ч.'
+            }.get(offset_unit, offset_unit)
+            
+            logger.info(f"Пользователь {user_id} настроил уведомление {notification_number}: за {offset_value} {unit_text}. Перепланировано {rescheduled_count} уведомлений")
+            return True, f"Уведомление настроено: за {offset_value} {unit_text}"
+            
+        except Exception as e:
+            logger.error(f"Ошибка настройки уведомления для пользователя {user_id}: {e}")
+            return False, "Произошла ошибка при настройке уведомления"
     
-    async def toggle_notification(
-        self, 
-        user_id: int, 
-        notification_number: int, 
-        is_enabled: bool
-    ) -> Tuple[bool, str]:
-        """Включить/выключить уведомление"""
-        async with db_manager.async_session() as session:
-            try:
-                stmt = select(UserNotification).where(
-                    UserNotification.user_id == user_id,
-                    UserNotification.notification_number == notification_number
-                )
-                result = await session.execute(stmt)
-                notification = result.scalar_one_or_none()
-                
-                if not notification:
-                    return False, "Уведомление не найдено. Сначала настройте его."
-                
-                notification.is_enabled = is_enabled
-                notification.last_modified = datetime.now(self.moscow_tz)
-                
-                await session.commit()
-                
-                status_text = "включено" if is_enabled else "выключено"
-                logger.info(f"Пользователь {user_id} {status_text} уведомление {notification_number}")
-                return True, f"Уведомление {notification_number} {status_text}"
-                
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Ошибка переключения уведомления для пользователя {user_id}: {e}")
-                return False, "Произошла ошибка при изменении настроек"
-    
-    async def reset_user_notifications(self, user_id: int) -> Tuple[bool, str]:
-        """Сбросить все настройки уведомлений пользователя"""
-        async with db_manager.async_session() as session:
-            try:
-                stmt = delete(UserNotification).where(UserNotification.user_id == user_id)
-                result = await session.execute(stmt)
-                await session.commit()
-                
-                count = result.rowcount
-                if count > 0:
-                    logger.info(f"Пользователь {user_id} сбросил {count} настроек уведомлений")
-                    return True, f"Сброшено {count} настроек уведомлений"
-                else:
-                    return True, "Настройки уведомлений уже сброшены"
-                
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Ошибка сброса уведомлений для пользователя {user_id}: {e}")
-                return False, "Произошла ошибка при сбросе настроек"
-    
-    async def get_users_for_notification(self, hours_before: int) -> List[dict]:
-        """Получить пользователей, которым нужно отправить уведомления"""
-        async with db_manager.async_session() as session:
-            try:
-                # Получаем всех пользователей с активными уведомлениями
-                stmt = select(User, UserNotification).join(UserNotification).where(
-                    UserNotification.is_enabled == True
-                )
-                result = await session.execute(stmt)
-                
-                users_notifications = []
-                for user, notification in result.fetchall():
-                    # Конвертируем offset в часы для сравнения
-                    offset_hours = self._convert_to_hours(notification.offset_value, notification.offset_unit)
+    async def toggle_notifications(self, user_id: int, is_enabled: bool) -> Tuple[bool, str]:
+        """Включить/выключить все уведомления пользователя"""
+        try:
+            settings_data = {'is_active': is_enabled}
+            await db_manager.update_user_notification_settings(user_id, settings_data)
+            
+            if is_enabled:
+                # Если включаем уведомления, перепланируем их
+                rescheduled_count = await notification_scheduler_service.reschedule_notifications_for_user_settings_change(user_id)
+                status_text = "включены"
+                logger.info(f"Пользователь {user_id} включил уведомления. Запланировано {rescheduled_count} уведомлений")
+            else:
+                # Если выключаем, отменяем все запланированные уведомления пользователя
+                async with db_manager.async_session() as session:
+                    from src.core.models import ScheduledNotification
+                    from sqlalchemy import and_
                     
-                    # Проверяем, подходит ли это уведомление для текущего времени
-                    if abs(offset_hours - hours_before) <= 1:  # Допуск в 1 час
-                        users_notifications.append({
-                            'user': user,
-                            'notification': notification,
-                            'offset_hours': offset_hours
-                        })
+                    stmt = select(ScheduledNotification).where(
+                        and_(
+                            ScheduledNotification.user_id == user_id,
+                            ScheduledNotification.status == 'scheduled'
+                        )
+                    )
+                    result = await session.execute(stmt)
+                    notifications = result.scalars().all()
+                    
+                    cancelled_count = 0
+                    for notification in notifications:
+                        notification.status = 'cancelled'
+                        notification.updated_at = datetime.now(self.moscow_tz)
+                        cancelled_count += 1
+                    
+                    await session.commit()
                 
-                return users_notifications
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения пользователей для уведомлений: {e}")
-                return []
+                status_text = "выключены"
+                logger.info(f"Пользователь {user_id} выключил уведомления. Отменено {cancelled_count} уведомлений")
+            
+            return True, f"Уведомления {status_text}"
+            
+        except Exception as e:
+            logger.error(f"Ошибка переключения уведомлений для пользователя {user_id}: {e}")
+            return False, "Произошла ошибка при изменении настроек"
     
-    def _convert_to_hours(self, offset_value: int, offset_unit: str) -> float:
+    def _convert_to_hours(self, offset_value: int, offset_unit: str) -> int:
         """Конвертировать offset в часы"""
         if offset_unit == 'hours':
-            return float(offset_value)
-        elif offset_unit == 'days':
-            return float(offset_value * 24)
-        elif offset_unit == 'minutes':
-            return float(offset_value / 60)
-        else:
-            return 0.0
-    
-    def _convert_to_minutes(self, offset_value: int, offset_unit: str) -> int:
-        """Конвертировать offset в минуты"""
-        if offset_unit == 'minutes':
             return offset_value
-        elif offset_unit == 'hours':
-            return offset_value * 60
         elif offset_unit == 'days':
-            return offset_value * 24 * 60
+            return offset_value * 24
         else:
             return 0
     
-    async def get_notification_stats(self) -> dict:
-        """Получить статистику настроек уведомлений"""
-        async with db_manager.async_session() as session:
-            try:
-                # Общее количество настроек
-                stmt = select(UserNotification)
-                result = await session.execute(stmt)
-                total_notifications = len(result.scalars().all())
-                
-                # Активные настройки
-                stmt = select(UserNotification).where(UserNotification.is_enabled == True)
-                result = await session.execute(stmt)
-                active_notifications = len(result.scalars().all())
-                
-                # Пользователи с настройками
-                stmt = select(UserNotification.user_id).distinct()
-                result = await session.execute(stmt)
-                users_with_notifications = len(result.scalars().all())
-                
-                # Популярные настройки
-
-                stmt = select(
-                    UserNotification.offset_value,
-                    UserNotification.offset_unit,
-                    func.count().label('count')
-                ).where(
-                    UserNotification.is_enabled == True
-                ).group_by(
-                    UserNotification.offset_value,
-                    UserNotification.offset_unit
-                ).order_by(func.count().desc()).limit(5)
-                
-                result = await session.execute(stmt)
-                popular_settings = result.all()
-                
-                return {
-                    'total_notifications': total_notifications,
-                    'active_notifications': active_notifications,
-                    'users_with_notifications': users_with_notifications,
-                    'popular_settings': popular_settings
-                }
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения статистики уведомлений: {e}")
-                return {}
 
 # Создаем экземпляр сервиса
 notification_service = NotificationService()

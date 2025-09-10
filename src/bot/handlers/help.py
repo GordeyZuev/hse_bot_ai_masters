@@ -24,7 +24,6 @@ async def callback_help(callback: CallbackQuery, db_user):
 async def send_help_message(message: Message, db_user, edit_mode: bool = False):
     """Отправка сообщения с помощью"""
     try:
-        # Получаем ссылки из переменных окружения
         fcs_wiki_url = os.getenv('FCS_WIKI_URL', 'https://wiki.cs.hse.ru')
         google_sheets_url = os.getenv('GOOGLE_SHEETS_URL', 'https://docs.google.com/spreadsheets')
         

@@ -7,6 +7,7 @@ import pytz
 
 from src.core.sync.gsheets_syncer import sheets_manager
 from src.core.database import db_manager
+from src.bot.services.notification_scheduler_service import notification_scheduler_service
 from src.utils import get_logger
 
 logger = get_logger()
@@ -119,6 +120,7 @@ class DataSyncer:
             
             # Синхронизация
             synced_count = 0
+            scheduled_notifications_count = 0
             current_sheet_row_ids = []
             
             for deadline_data in db_data:
@@ -126,9 +128,16 @@ class DataSyncer:
                 if deadline:
                     synced_count += 1
                     current_sheet_row_ids.append(deadline.sheet_row_id)
+                    
+                    # Планируем уведомления для этого дедлайна
+                    try:
+                        notifications_count = await notification_scheduler_service.reschedule_notifications_for_updated_deadline(deadline)
+                        scheduled_notifications_count += notifications_count
+                    except Exception as e:
+                        logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}")
             
             await db_manager.delete_outdated_deadlines(current_sheet_row_ids)
-            logger.success(f"Синхронизировано {synced_count} дедлайнов")
+            logger.info(f"Синхронизировано {synced_count} дедлайнов, запланировано {scheduled_notifications_count} уведомлений")
             return True
             
         except Exception as e:

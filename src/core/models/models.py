@@ -11,8 +11,8 @@ class Subject(Base):
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     year = Column(Integer)
-    start_module = Column(Integer)  # начальный модуль
-    end_module = Column(Integer)  # конечный модуль
+    start_module = Column(Integer)
+    end_module = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
     
@@ -38,10 +38,12 @@ class Deadline(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     subject = relationship("Subject", back_populates="deadlines")
-    notifications = relationship("NotificationLog", back_populates="deadline", cascade="all, delete-orphan")
+    notifications = relationship("ScheduledNotification", back_populates="deadline", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_deadlines_subject_id', 'subject_id'),
+        Index('idx_deadlines_soft_ts', 'soft_deadline_ts'),
+        Index('idx_deadlines_hard_ts', 'hard_deadline_ts'),
     )
 
 class User(Base):
@@ -54,33 +56,36 @@ class User(Base):
     subscribed_at = Column(DateTime(timezone=True), server_default=func.now())
     last_activity_ts = Column(DateTime(timezone=True))
     timezone = Column(Text, nullable=False, default='Europe/Moscow', server_default='Europe/Moscow')
+    settings_version = Column(Integer, default=1)
     
-    notifications = relationship("UserNotification", back_populates="user", cascade="all, delete-orphan")
     subscriptions = relationship("Subscription", back_populates="user", cascade="all, delete-orphan")
-    notification_logs = relationship("NotificationLog", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship("ScheduledNotification", back_populates="user", cascade="all, delete-orphan")
+    notification_settings = relationship("UserNotificationSettings", back_populates="user", cascade="all, delete-orphan", uselist=False)
 
-class UserNotification(Base):
-    __tablename__ = 'user_notifications'
+class UserNotificationSettings(Base):
+    __tablename__ = 'user_notification_settings'
     
     id = Column(Integer, primary_key=True)
     user_id = Column(BigInteger, ForeignKey('users.tg_user_id', ondelete='CASCADE'), nullable=False)
     
-    offset_value = Column(Integer, nullable=False, default=1)
-    offset_unit = Column(Text, nullable=False, default='days')
-    is_enabled = Column(Boolean, nullable=False, default=True)
+    reminder1_offset = Column(Integer, nullable=False, default=7)
+    reminder1_unit = Column(Text, nullable=False, default='days')
     
-    notification_number = Column(Integer, nullable=False)  
+    reminder2_offset = Column(Integer, nullable=False, default=1)
+    reminder2_unit = Column(Text, nullable=False, default='days')
     
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_modified = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
-    user = relationship("User", back_populates="notifications")
+    user = relationship("User", back_populates="notification_settings")
     
     __table_args__ = (
-        UniqueConstraint('user_id', 'notification_number', name='unique_user_notification_number'),
-        CheckConstraint('offset_value >= 0', name='check_offset_positive'),
-        CheckConstraint("offset_unit IN ('days', 'hours', 'minutes')", name='check_offset_unit_valid'),
-        CheckConstraint('notification_number IN (1, 2)', name='check_notification_number_valid'),
+        UniqueConstraint('user_id', name='unique_user_settings'),
+        CheckConstraint('reminder1_offset >= 0', name='check_reminder1_positive'),
+        CheckConstraint('reminder2_offset >= 0', name='check_reminder2_positive'),
+        CheckConstraint("reminder1_unit IN ('days', 'hours')", name='check_reminder1_unit_valid'),
+        CheckConstraint("reminder2_unit IN ('days', 'hours')", name='check_reminder2_unit_valid'),
     )
 
 class Subscription(Base):
@@ -98,26 +103,34 @@ class Subscription(Base):
         Index('idx_subscriptions_subject_id', 'subject_id'),
     )
 
-class NotificationLog(Base):
-    __tablename__ = 'notification_log'
+class ScheduledNotification(Base):
+    __tablename__ = 'scheduled_notifications'
     
     id = Column(Integer, primary_key=True)
     user_id = Column(BigInteger, ForeignKey('users.tg_user_id', ondelete='CASCADE'), nullable=False)
     deadline_id = Column(Integer, ForeignKey('deadlines.id', ondelete='CASCADE'), nullable=False)
-    notification_type = Column(Text, nullable=False)
-    scheduled_for = Column(DateTime(timezone=True), nullable=False)
+    
+    deadline_type = Column(Text, nullable=False)
+    notification_number = Column(Integer, nullable=False)
+    
+    original_deadline_ts = Column(DateTime(timezone=True), nullable=False)
+    planned_delivery_time = Column(DateTime(timezone=True), nullable=False)
+    
     status = Column(Text, nullable=False, default='scheduled')
-    attempt_count = Column(Integer, nullable=False, default=0)
-    sent_at = Column(DateTime(timezone=True))
-    error_message = Column(Text)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
-    user = relationship("User", back_populates="notification_logs")
+    user = relationship("User", back_populates="notifications")
     deadline = relationship("Deadline", back_populates="notifications")
     
     __table_args__ = (
-        UniqueConstraint('user_id', 'deadline_id', 'notification_type', name='unique_notification_task'),
-        Index('idx_notification_log_status_scheduled', 'status', 'scheduled_for'),
-        Index('idx_notification_log_user_id', 'user_id'),
+        UniqueConstraint('user_id', 'deadline_id', 'deadline_type', 'notification_number', name='unique_user_deadline_notification'),
+        Index('idx_sched_notif_status_time', 'status', 'planned_delivery_time'),
+        Index('idx_sched_notif_user_status', 'user_id', 'status'),
+        Index('idx_sched_notif_deadline', 'deadline_id'),
+        Index('idx_sched_notif_delivery_time', 'planned_delivery_time'),
+        CheckConstraint("status IN ('scheduled', 'sent', 'cancelled', 'failed')", name='check_status_valid'),
+        CheckConstraint('notification_number IN (1, 2)', name='check_notif_number_valid'),
+        CheckConstraint("deadline_type IN ('soft', 'hard')", name='check_deadline_type_valid'),
     )

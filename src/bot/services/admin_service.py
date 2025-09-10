@@ -9,7 +9,7 @@ from aiogram.types import FSInputFile
 import pytz
 
 from src.core.database import db_manager
-from src.core.models import User, Deadline
+from src.core.models import User, Deadline, UserNotificationSettings
 from src.bot.services.subscription_service import subscription_service
 from src.bot.services.notification_service import notification_service
 from src.utils import get_logger
@@ -54,8 +54,17 @@ class AdminService:
                 stats.update(subscription_stats)
                 
                 # Статистика уведомлений
-                notification_stats = await notification_service.get_notification_stats()
-                stats.update(notification_stats)
+                stmt = select(func.count(UserNotificationSettings.id))
+                result = await session.execute(stmt)
+                stats['total_notifications'] = result.scalar() or 0
+                
+                stmt = select(func.count(UserNotificationSettings.id)).where(UserNotificationSettings.is_active == True)
+                result = await session.execute(stmt)
+                stats['active_notifications'] = result.scalar() or 0
+                
+                stmt = select(func.count(UserNotificationSettings.user_id.distinct()))
+                result = await session.execute(stmt)
+                stats['users_with_notifications'] = result.scalar() or 0
                 
                 # Статистика дедлайнов
                 stmt = select(func.count(Deadline.id))
@@ -91,42 +100,6 @@ class AdminService:
                 logger.error(f"Ошибка получения статистики: {e}")
                 return {}
     
-    async def get_detailed_statistics(self) -> Dict[str, Any]:
-        """Получить подробную статистику"""
-        async with db_manager.async_session() as session:
-            try:
-                stats = {}
-                
-                # Активность по дням (последние 7 дней)
-                daily_activity = []
-                for i in range(7):
-                    date = datetime.now(self.moscow_tz) - timedelta(days=i)
-                    start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0)
-                    end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999)
-                    
-                    stmt = select(func.count(User.tg_user_id.distinct())).where(
-                        (User.last_activity_ts >= start_of_day) &
-                        (User.last_activity_ts <= end_of_day)
-                    )
-                    result = await session.execute(stmt)
-                    user_count = result.scalar() or 0
-                    
-                    daily_activity.append({
-                        'date': date.strftime('%d.%m'),
-                        'users': user_count
-                    })
-                
-                stats['daily_activity'] = list(reversed(daily_activity))
-                
-                # Популярные настройки уведомлений
-                notification_stats = await notification_service.get_notification_stats()
-                stats['popular_notification_settings'] = notification_stats.get('popular_settings', [])
-                
-                return stats
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения подробной статистики: {e}")
-                return {}
     
     async def get_active_users_count(self) -> int:
         """Получить количество активных пользователей для рассылки"""
@@ -218,35 +191,6 @@ class AdminService:
             logger.error(f"Ошибка выполнения рассылки: {e}")
             return {'success': 0, 'errors': 0}
     
-    async def get_user_info(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Получить подробную информацию о пользователе"""
-        async with db_manager.async_session() as session:
-            try:
-                # Основная информация о пользователе
-                stmt = select(User).where(User.tg_user_id == user_id)
-                result = await session.execute(stmt)
-                user = result.scalar_one_or_none()
-                
-                if not user:
-                    return None
-                
-                # Подписки пользователя
-                subscriptions = await subscription_service.get_user_subscriptions(user_id)
-                
-                # Настройки уведомлений
-                notifications = await notification_service.get_user_notifications(user_id)
-                
-                return {
-                    'user': user,
-                    'subscriptions_count': len(subscriptions),
-                    'subscriptions': subscriptions,
-                    'notifications_count': len(notifications),
-                    'notifications': notifications
-                }
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения информации о пользователе {user_id}: {e}")
-                return None
     
     async def cleanup_inactive_users(self, days_inactive: int = 90) -> int:
         """Очистка неактивных пользователей"""

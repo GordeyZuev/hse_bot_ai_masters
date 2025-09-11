@@ -1,74 +1,46 @@
-# Архитектура системы
-
-## 🏗️ Общая схема
+## Архитектура
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Telegram Bot  │    │  Google Sheets  │    │   PostgreSQL    │
-│                 │    │                 │    │                 │
-│  - Handlers     │◄──►│  - Deadlines    │    │  - Users        │
-│  - Middlewares  │    │  - Subjects     │    │  - Subscriptions│
-│  - Services     │    │                 │    │  - Notifications│
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         └───────────────────────┼───────────────────────┘
-                                 │
-                    ┌─────────────────┐
-                    │   Scheduler     │
-                    │                 │
-                    │ - Sync Tasks    │
-                    │ - Notifications │
-                    │ - Cleanup       │
-                    └─────────────────┘
+┌───────────────────────────────────────────────────── Application (Python) ─────────────────────────────────────────────────────┐
+│                                                                                                                                │
+│  ┌───────────────┐        ┌──────────────────┐        ┌────────────────────┐        ┌──────────────────────────────┐         │
+│  │   Handlers    │  calls │    Services      │  use   │   Core / DB Layer   │  I/O   │       Scheduler (APS)        │         │
+│  │ (bot/handlers)├────────► (bot/services)   ├────────► (core/database,     ├────────►  sync, notifications,       │         │
+│  │               │        │  admin, notify)  │        │  models, sync)      │        │  cleanup (cron-like jobs)    │         │
+│  └───────▲───────┘        └─────────▲────────┘        └──────────▲─────────┘        └──────────────▲────────────────┘         │
+│          │ Inline-callbacks / cmds            │ DI / business logic           │ SQLAlchemy (async)         │ jobs/triggers       │
+│  ┌───────┴────────┐                           │                               │                            │                     │
+│  │  Middlewares   │───────────────────────────┘                               │                            │                     │
+│  │(bot/middlewares)│   user/session mgmt                                          │                            │                     │
+│  └───────▲────────┘                                                               │                            │                     │
+│          │ Telegram API                                                            │                            │                     │
+│  ┌───────┴──────────────┐                                              ┌───────────┴──────────┐                 │                     │
+│  │       Bot (aiogram)  │                                              │  Google Sheets API   │◄────────────────┘                     │
+│  │    (bot/bot.py)      │                                              │ (core/sync/gsheets)  │                                       │
+│  └─────────▲────────────┘                                              └───────────▲──────────┘                                       │
+│            │ Polling                                                             │ HTTP                                                 │
+│            │                                                                      │                                                     │
+│  ┌─────────┴──────────┐                                                ┌──────────┴──────────┐                                        │
+│  │     Logger         │                                                │     PostgreSQL      │                                        │
+│  │   (utils/logger)   │────────────────────────────────────────────────►   (Docker: db)     │                                        │
+│  └────────────────────┘            file logs (./logs)                  └─────────────────────┘                                        │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 📊 Слои приложения
+### Слои
+- Bot (`src/bot/`): handlers, middlewares, services
+- Core (`src/core/`): database, models, sync, scheduler
+- Utils (`src/utils/`): логирование и утилиты
 
-1. **Presentation Layer** - Telegram Bot Interface
-2. **Business Logic Layer** - Services и Core Logic  
-3. **Data Access Layer** - Database Models и Repositories
-4. **External Integration Layer** - Google Sheets API
+### Потоки
+- Синхронизация: Scheduler → GSheetsSyncer → DataSyncer → БД
+- Уведомления: Scheduler → NotificationService/NotificationSender → Telegram
+- Обработка команд: Middleware → Handler → Service → Ответ
 
-## 🔧 Структура компонентов
-
-### Bot Layer (`src/bot/`)
-- **handlers/** - Обработчики команд и callback'ов
-- **middlewares/** - Автоматическое управление пользователями
-- **services/** - Бизнес-логика (админ, уведомления, подписки)
-- **states/** - FSM состояния для диалогов
-
-### Core Layer (`src/core/`)
-- **database/** - DatabaseManager, подключение к БД
-- **models/** - SQLAlchemy модели и справочники
-- **sync/** - Синхронизация с Google Sheets и планировщик
-
-### Utils Layer (`src/utils/`)
-- **logger.py** - Система логирования
-
-## 🔄 Жизненный цикл данных
-
-### Синхронизация с Google Sheets
-1. **Планировщик** → Запуск каждый час
-2. **GSheetsSyncer** → Получение данных из таблицы
-3. **DataSyncer** → Обработка и сохранение в БД
-4. **Мгновенная синхронизация** → Через админ-панель
-
-### Система уведомлений
-1. **Планировщик** → Проверка каждые 10 минут
-2. **NotificationService** → Поиск дедлайнов
-3. **Отправка уведомлений** → По настройкам пользователя
-4. **Логирование** → Сохранение в `notification_log`
-
-### Обработка команд
-1. **Middleware** → Создание/обновление пользователя
-2. **Handler** → Обработка команды
-3. **Service** → Выполнение бизнес-логики
-4. **Response** → Ответ пользователю
-
-## 🗄️ Архитектура базы данных
-
-См. диаграмму в основном README.md
+Ключевые связи:
+- `subscriptions.user_id → users.id`, `subscriptions.subject_id → subjects.id`
+- `deadlines.subject_id → subjects.id`
+- `notifications.user_id → users.id`, `notifications.deadline_id → deadlines.id`
 
 ---
-
-**Примечание:** Подробная техническая документация по API, моделям данных и примерам интеграций была перенесена в основной README.md для упрощения структуры проекта.
+Детали запуска и конфигурации: см. `README.md`.

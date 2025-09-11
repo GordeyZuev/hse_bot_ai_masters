@@ -47,11 +47,9 @@ async def show_statistics(message_or_callback, db_user, show_back_button: bool =
         else:
             builder.adjust(1, 1)
         
-        if hasattr(message_or_callback, 'edit_text'):
-            # Это CallbackQuery
-            await message_or_callback.edit_text(text, reply_markup=builder.as_markup())
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup())
         else:
-            # Это Message
             await message_or_callback.answer(text, reply_markup=builder.as_markup())
         
         logger.info(f"Админ {db_user.tg_user_id} запросил статистику")
@@ -73,16 +71,15 @@ async def show_statistics(message_or_callback, db_user, show_back_button: bool =
             else:
                 error_keyboard = None
             
-            if hasattr(message_or_callback, 'edit_text'):
-                await message_or_callback.edit_text(error_text, reply_markup=error_keyboard)
+            if isinstance(message_or_callback, CallbackQuery):
+                await message_or_callback.message.edit_text(error_text, reply_markup=error_keyboard)
             else:
                 await message_or_callback.answer(error_text)
 
 async def perform_sync(message_or_callback, db_user, show_back_button: bool = False):
     """Общая функция для выполнения синхронизации"""
     try:
-        if hasattr(message_or_callback, 'answer'):
-            # Это CallbackQuery
+        if isinstance(message_or_callback, CallbackQuery):
             await message_or_callback.answer("Запускаю синхронизацию...")
         
         logger.info(f"Админ {db_user.tg_user_id} запустил синхронизацию")
@@ -102,10 +99,10 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
         else:
             keyboard = None
         
-        if hasattr(message_or_callback, 'edit_text'):
-            await message_or_callback.edit_text(text, reply_markup=keyboard)
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.edit_text(text, reply_markup=keyboard)
         else:
-            # Для команды /fast_sync - это статусное сообщение, которое нужно отредактировать
+            # Для команды /fast_sync статусное сообщение редактируем напрямую
             await message_or_callback.edit_text(text)
         
         logger.info(f"Синхронизация завершена. Результат: {'успех' if success else 'ошибка'}")
@@ -122,8 +119,8 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
         else:
             error_keyboard = None
         
-        if hasattr(message_or_callback, 'edit_text'):
-            await message_or_callback.edit_text(error_text, reply_markup=error_keyboard)
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.edit_text(error_text, reply_markup=error_keyboard)
         else:
             await message_or_callback.answer(f"❌ Ошибка при выполнении синхронизации: {str(e)}")
 
@@ -158,12 +155,10 @@ async def format_statistics_message(stats: dict) -> str:
     text += f"\n📅 <b>Дедлайны:</b>\n"
     text += f"• Всего дедлайнов: {stats.get('total_deadlines', 0)}\n"
     text += f"• Активных дедлайнов: {stats.get('active_deadlines', 0)}\n"
-    text += f"• Дедлайнов на неделю: {stats.get('deadlines_week', 0)}\n"
     
     # Системная информация
     text += f"\n⚙️ <b>Система:</b>\n"
     text += f"• Последняя синхронизация: {stats.get('last_sync', 'Неизвестно')}\n"
-    text += f"• Статус синхронизации: {stats.get('sync_status', 'Неизвестно')}\n"
     
     return text
 

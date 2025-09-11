@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from loguru import logger
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import pytz
 
 def setup_logging(
@@ -19,12 +19,8 @@ def setup_logging(
     # Создаем директорию для логов если не существует
     log_dir.mkdir(exist_ok=True)
     
-    # Настройка временной зоны
-    moscow_tz = pytz.timezone('Europe/Moscow')
-    current_moscow_time = datetime.now(moscow_tz)
-    
-    # Принудительно устанавливаем временную зону для loguru
-    os.environ['TZ'] = 'Europe/Moscow'
+    # Текущее время в UTC
+    current_utc_time = datetime.now(timezone.utc)
     
     # Формат для логов
     log_format = (
@@ -62,7 +58,7 @@ def setup_logging(
         log_dir / "app_{time:YYYY-MM-DD}.log",
         level=log_level,
         format=log_format,
-        rotation=rotation,  # Ротация в полночь по московскому времени
+        rotation=rotation,
         retention=retention,
         compression="zip",
         encoding="utf-8",
@@ -96,9 +92,9 @@ def setup_logging(
     # Логирование старта с диагностикой
     logger.info("Логгер успешно настроен")
     logger.info(f"Директория логов: {log_dir.absolute()}")
-    logger.info(f"Московское время: {current_moscow_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    logger.info(f"UTC время: {current_utc_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     logger.info(f"Ротация настроена на: {rotation}")
-    logger.info(f"Текущий файл лога: app_{current_moscow_time.strftime('%Y-%m-%d')}.log")
+    logger.info(f"Текущий файл лога: app_{current_utc_time.strftime('%Y-%m-%d')}.log")
 
 def get_logger() -> logger:
     """Получить настроенный логгер"""

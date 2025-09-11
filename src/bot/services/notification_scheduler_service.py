@@ -1,11 +1,12 @@
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
 from sqlalchemy import select, and_
 
 from src.core.database import db_manager
 from src.core.models import User, Deadline, Subject, Subscription, UserNotificationSettings, ScheduledNotification
 from src.utils import get_logger
+from src.utils.time import utc_now
 
 logger = get_logger()
 
@@ -13,7 +14,7 @@ class NotificationSchedulerService:
     """Сервис для планирования уведомлений о дедлайнах"""
     
     def __init__(self):
-        self.moscow_tz = pytz.timezone('Europe/Moscow')
+        pass
     
     async def schedule_notifications_for_deadline(self, deadline: Deadline) -> int:
         """Создать запланированные уведомления для дедлайна"""
@@ -82,7 +83,7 @@ class NotificationSchedulerService:
                 deadline_ts, settings.reminder1_offset, settings.reminder1_unit
             )
             
-            if reminder1_time and reminder1_time > datetime.now(self.moscow_tz):
+            if reminder1_time and reminder1_time > datetime.now(timezone.utc):
                 await self._create_scheduled_notification(
                     user.tg_user_id, deadline.id, deadline_type, 1,
                     deadline_ts, reminder1_time
@@ -94,7 +95,7 @@ class NotificationSchedulerService:
                 deadline_ts, settings.reminder2_offset, settings.reminder2_unit
             )
             
-            if reminder2_time and reminder2_time > datetime.now(self.moscow_tz):
+            if reminder2_time and reminder2_time > datetime.now(timezone.utc):
                 await self._create_scheduled_notification(
                     user.tg_user_id, deadline.id, deadline_type, 2,
                     deadline_ts, reminder2_time
@@ -121,7 +122,7 @@ class NotificationSchedulerService:
             notification_time = deadline_ts - delta
             
             # Проверяем, что время уведомления не в прошлом
-            if notification_time <= datetime.now(self.moscow_tz):
+            if notification_time <= datetime.now(timezone.utc):
                 return None
             
             return notification_time
@@ -155,7 +156,7 @@ class NotificationSchedulerService:
                     existing.original_deadline_ts = original_deadline_ts
                     existing.planned_delivery_time = planned_delivery_time
                     existing.status = 'scheduled'
-                    existing.updated_at = datetime.now(self.moscow_tz)
+                    existing.updated_at = utc_now()
                     await session.commit()
                     return True
             
@@ -224,7 +225,7 @@ class NotificationSchedulerService:
                     
                     for notification in notifications_to_cancel:
                         notification.status = 'cancelled'
-                        notification.updated_at = datetime.now(self.moscow_tz)
+                        notification.updated_at = utc_now()
                     
                     await session.commit()
                 

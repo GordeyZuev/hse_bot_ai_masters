@@ -1,6 +1,6 @@
 from typing import List, Tuple, Dict, Any
 from sqlalchemy import select
-from datetime import datetime
+from datetime import datetime, timezone
 import pytz
 
 from src.core.database import db_manager
@@ -15,7 +15,7 @@ class NotificationService:
     """Сервис для работы с настройками уведомлений пользователей"""
     
     def __init__(self):
-        self.moscow_tz = pytz.timezone('Europe/Moscow')
+        pass
     
     async def get_user_notification_settings(self, user_id: int) -> UserNotificationSettings:
         """Получить настройки уведомлений пользователя"""
@@ -108,7 +108,7 @@ class NotificationService:
                     cancelled_count = 0
                     for notification in notifications:
                         notification.status = 'cancelled'
-                        notification.updated_at = datetime.now(self.moscow_tz)
+                        notification.updated_at = datetime.now(timezone.utc)
                         cancelled_count += 1
                     
                     await session.commit()

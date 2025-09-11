@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import pytz
@@ -15,7 +15,7 @@ class ScheduledNotificationSender:
     """Сервис для отправки предрассчитанных уведомлений о дедлайнах"""
     
     def __init__(self):
-        self.moscow_tz = pytz.timezone('Europe/Moscow')
+        pass
     
     async def send_scheduled_notifications(self, bot: Bot) -> Dict[str, int]:
         """Отправить все запланированные уведомления"""
@@ -113,8 +113,20 @@ class ScheduledNotificationSender:
                 logger.warning(f"Не найдены дедлайны для уведомлений пользователя {user_id}")
                 return False
             
-            # Формируем сообщение
-            message = await self._format_notifications_message(notification_data)
+            # Определяем TZ пользователя для форматирования
+            user = await db_manager.get_user_by_id(user_id)
+            user_tz = pytz.timezone(user.timezone) if user and user.timezone else pytz.UTC
+            
+            message = await self._format_notifications_message(notification_data, user_tz)
+            
+            # Проверяем задержку по UTC
+            now_utc = datetime.now(timezone.utc)
+            planned_times = [d['notification'].planned_delivery_time for d in notification_data]
+            delay_threshold = now_utc - timedelta(minutes=30)
+            is_delayed = any(pt and pt < delay_threshold for pt in planned_times)
+            
+            if is_delayed:
+                message = "⚠️ <i>Отправлено с задержкой (>30 мин)</i>\n\n" + message
             
             # Отправляем сообщение
             await bot.send_message(
@@ -139,14 +151,14 @@ class ScheduledNotificationSender:
             logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
             return False
     
-    async def _format_notifications_message(self, notification_data: List[Dict[str, Any]]) -> str:
+    async def _format_notifications_message(self, notification_data: List[Dict[str, Any]], user_tz) -> str:
         """Форматировать сообщение с уведомлениями"""
         if len(notification_data) == 1:
-            return self._format_single_notification(notification_data[0])
+            return self._format_single_notification(notification_data[0], user_tz)
         else:
-            return self._format_multiple_notifications(notification_data)
+            return self._format_multiple_notifications(notification_data, user_tz)
     
-    def _format_single_notification(self, data: Dict[str, Any]) -> str:
+    def _format_single_notification(self, data: Dict[str, Any], user_tz) -> str:
         """Форматировать одиночное уведомление"""
         notification = data['notification']
         deadline = data['deadline']
@@ -160,12 +172,12 @@ class ScheduledNotificationSender:
         else:
             deadline_ts = deadline.hard_deadline_ts
         
-        # Форматируем дату
-        moscow_deadline = deadline_ts.astimezone(self.moscow_tz)
-        deadline_str = moscow_deadline.strftime("%d.%m.%Y в %H:%M")
+        # Форматируем дату в TZ пользователя
+        local_deadline = deadline_ts.astimezone(user_tz)
+        deadline_str = local_deadline.strftime("%d.%m.%Y в %H:%M")
         
         # Вычисляем время до дедлайна
-        now = datetime.now(self.moscow_tz)
+        now = datetime.now(timezone.utc)
         time_left = deadline_ts - now
         
         if time_left.days > 0:
@@ -194,7 +206,7 @@ class ScheduledNotificationSender:
         
         return message
     
-    def _format_multiple_notifications(self, notification_data: List[Dict[str, Any]]) -> str:
+    def _format_multiple_notifications(self, notification_data: List[Dict[str, Any]], user_tz) -> str:
         """Форматировать множественные уведомления"""
         message = f"⏰ <b>Напоминания о дедлайнах ({len(notification_data)})</b>\n\n"
         
@@ -214,12 +226,12 @@ class ScheduledNotificationSender:
             else:
                 deadline_ts = deadline.hard_deadline_ts
             
-            # Форматируем дату
-            moscow_deadline = deadline_ts.astimezone(self.moscow_tz)
-            deadline_str = moscow_deadline.strftime("%d.%m в %H:%M")
+            # Форматируем дату в TZ пользователя
+            local_deadline = deadline_ts.astimezone(user_tz)
+            deadline_str = local_deadline.strftime("%d.%m в %H:%M")
             
             # Вычисляем время до дедлайна
-            now = datetime.now(self.moscow_tz)
+            now = datetime.now(timezone.utc)
             time_left = deadline_ts - now
             
             if time_left.days > 0:

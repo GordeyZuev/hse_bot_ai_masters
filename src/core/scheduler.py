@@ -1,13 +1,12 @@
 import asyncio
 import atexit
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 import pytz
 from aiogram import Bot
-from sqlalchemy import delete
 
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
@@ -20,7 +19,13 @@ class HSEScheduler:
     """Единый планировщик для HSE бота с синхронизацией и уведомлениями"""
     
     def __init__(self, bot: Bot = None):
-        self.scheduler = AsyncIOScheduler(timezone=pytz.timezone('Europe/Moscow'))
+        self.scheduler = AsyncIOScheduler(
+            timezone=pytz.UTC,
+            job_defaults={
+                'misfire_grace_time': 900,  # 15 минут допуска для выполнений после просрочки
+                'coalesce': True            # объединять пропущенные срабатывания в одно
+            }
+        )
         self.bot = bot
         self.is_running = False
         
@@ -45,9 +50,9 @@ class HSEScheduler:
     async def sync_job(self):
         """Задача синхронизации данных с Google Sheets"""
         try:
-            start_time = datetime.now(pytz.timezone('Europe/Moscow'))
+            start_time = datetime.now(timezone.utc)
             success = await data_syncer.sync_data()
-            duration = (datetime.now(pytz.timezone('Europe/Moscow')) - start_time).total_seconds()
+            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             
             if success:
                 logger.success(f"Синхронизация завершена за {duration:.2f}с")
@@ -65,9 +70,9 @@ class HSEScheduler:
             return
         
         try:
-            start_time = datetime.now(pytz.timezone('Europe/Moscow'))
+            start_time = datetime.now(timezone.utc)
             result = await scheduled_notification_sender.send_scheduled_notifications(self.bot)
-            duration = (datetime.now(pytz.timezone('Europe/Moscow')) - start_time).total_seconds()
+            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             
             sent = result.get('sent', 0)
             failed = result.get('failed', 0)
@@ -116,7 +121,7 @@ class HSEScheduler:
             logger.warning("Бот не установлен, задача уведомлений не добавлена")
             return
         
-        self.scheduler.add_job(
+        job = self.scheduler.add_job(
             self.notification_job,
             trigger=IntervalTrigger(minutes=interval_minutes),
             id='send_notifications',
@@ -124,7 +129,9 @@ class HSEScheduler:
             replace_existing=True,
             max_instances=1
         )
-        logger.info(f"Добавлена задача уведомлений каждые {interval_minutes} мин.")
+        logger.info(
+            f"Добавлена задача уведомлений каждые {interval_minutes} мин., next_run_time={getattr(job, 'next_run_time', None)}"
+        )
     
     def add_daily_cleanup_job(self, hour: int = 5, minute: int = 0):
         """Добавить ежедневную задачу очистки"""
@@ -158,6 +165,15 @@ class HSEScheduler:
         self.is_running = True
         atexit.register(self.stop)
         logger.info("HSE планировщик запущен")
+        # Листинг задач для валидации конфигурации
+        try:
+            jobs = self.scheduler.get_jobs()
+            for job in jobs:
+                logger.info(
+                    f"Задача запланирована: id={job.id}, name={job.name}, trigger={job.trigger}, next_run_time={job.next_run_time}"
+                )
+        except Exception as e:
+            logger.warning(f"Не удалось получить список задач планировщика: {e}")
     
     def stop(self):
         """Остановка планировщика"""

@@ -60,7 +60,7 @@ async def send_deadlines_list(message: Message, db_user, days: int, edit: bool =
         deadlines_data = await deadline_service.get_user_deadlines(db_user.tg_user_id, days)
         
         # Форматируем сообщение
-        text = deadline_service.format_deadlines_list(deadlines_data, days)
+        text = deadline_service.format_deadlines_list(deadlines_data, days, user_tz_name=db_user.timezone)
         
         # Создаем клавиатуру с периодами и действиями
         builder = InlineKeyboardBuilder()

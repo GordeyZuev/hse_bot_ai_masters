@@ -4,6 +4,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from datetime import datetime, timezone
 
 from src.bot.services.notification_service import notification_service
 from src.core.database import db_manager
@@ -16,6 +17,7 @@ router = Router()
 class SettingsStates(StatesGroup):
     choosing_notification = State()
     setting_offset = State()
+    choosing_timezone = State()
 
 @router.message(Command("settings"))
 @router.callback_query(F.data == "quick_settings")
@@ -30,7 +32,9 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         edit_mode = False
     
     try:
-        # Получаем текущие настройки пользователя
+        # Получаем актуальные данные пользователя и настройки
+        fresh_user = await db_manager.get_user_by_id(db_user.tg_user_id)
+        user_for_view = fresh_user or db_user
         settings = await notification_service.get_user_notification_settings(db_user.tg_user_id)
         
         text = "⚙️ <b>Настройки уведомлений</b>\n\n"
@@ -57,6 +61,9 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         else:
             text += "<i>Настройки уведомлений не заданы</i>\n"
         
+        from src.utils.time import format_offset_from_moscow_label
+        msk_label = format_offset_from_moscow_label(user_for_view.timezone)
+        text += f"\n<b>Часовой пояс:</b> {user_for_view.timezone} ({msk_label})\n"
         text += "\n<b>Управление уведомлениями:</b>"
         
         builder = InlineKeyboardBuilder()
@@ -76,7 +83,7 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
                     callback_data="enable_notifications"
                 )
             
-        
+        builder.button(text="🌍 Часовой пояс", callback_data="choose_timezone")
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(2, 1)
         
@@ -88,6 +95,50 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
     except Exception as e:
         logger.error(f"Ошибка в обработчике /settings: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
+
+@router.callback_query(F.data == "choose_timezone")
+async def callback_choose_timezone(callback: CallbackQuery, db_user, state: FSMContext):
+    """Начало выбора часового пояса: пользователь вводит смещение относительно Москвы"""
+    await callback.answer()
+    try:
+        await state.set_state(SettingsStates.choosing_timezone)
+        text = (
+            "🌍 <b>Часовой пояс (смещение относительно UTC)</b>\n\n"
+            f"Текущий: <b>{db_user.timezone}</b>\n\n"
+            "Отправьте смещение относительно UTC в часах: <code>+N</code> или <code>-N</code>\n\n"
+            "Примеры: \n• Москва: <code>+3</code> \n• Сербия: <code>+2</code>"
+        )
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    except Exception as e:
+        logger.error(f"Ошибка запуска выбора часового пояса: {e}")
+        await callback.answer("Ошибка", show_alert=True)
+
+@router.message(SettingsStates.choosing_timezone)
+async def process_timezone_offset(message: Message, db_user, state: FSMContext):
+    """Обработка текстового ввода смещения относительно МСК"""
+    text = (message.text or "").strip()
+    try:
+        from src.utils.time import parse_utc_offset, propose_timezones_for_utc_offset
+        utc_total = parse_utc_offset(text)
+        top, fixed_label = propose_timezones_for_utc_offset(utc_total)
+        # Берём первый найденный IANA timezone, иначе фиксированный UTC
+        tz_to_save = top[0] if top else fixed_label
+        updated = await db_manager.update_user_timezone(db_user.tg_user_id, tz_to_save)
+        if updated:
+            await message.answer(f"✅ Часовой пояс обновлён: {tz_to_save}")
+            await state.clear()
+            await cmd_settings(message, db_user, state)
+        else:
+            await message.answer("❌ Не удалось обновить часовой пояс")
+    except ValueError:
+        await message.answer("❌ Формат: +N или -N. Пример: +3, -5")
+    except Exception as e:
+        logger.error(f"Ошибка обработки TZ: {e}")
+        await message.answer("Произошла ошибка. Попробуйте ещё раз.")
+
+# Удалены кнопки смещений и выбор из списка; выбор теперь автоматический
 
 @router.callback_query(F.data.startswith("setup_notification_"))
 async def callback_setup_notification(callback: CallbackQuery, db_user, state: FSMContext):
@@ -195,7 +246,6 @@ async def callback_disable_notifications(callback: CallbackQuery, db_user):
     except Exception as e:
         logger.error(f"Ошибка выключения уведомлений: {e}")
         await callback.answer("Ошибка выключения уведомлений", show_alert=True)
-
 
 @router.callback_query(F.data == "back_to_settings")
 async def callback_back_to_settings(callback: CallbackQuery, db_user, state: FSMContext):

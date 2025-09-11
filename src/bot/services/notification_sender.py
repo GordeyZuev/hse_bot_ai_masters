@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import pytz
@@ -16,7 +16,7 @@ class NotificationSender:
     """Сервис для отправки уведомлений о дедлайнах"""
     
     def __init__(self):
-        self.moscow_tz = pytz.timezone('Europe/Moscow')
+        pass
     
     async def send_deadline_notifications(self, bot: Bot) -> Dict[str, int]:
         """Отправить уведомления о приближающихся дедлайнах"""
@@ -145,8 +145,8 @@ class NotificationSender:
                 return []
     
     def _calculate_notification_time(self, offset_value: int, offset_unit: str) -> Dict[str, datetime]:
-        """Вычислить временной диапазон для уведомления"""
-        now = datetime.now(self.moscow_tz)
+        """Вычислить временной диапазон для уведомления (UTC)"""
+        now = datetime.now(timezone.utc)
         
         if offset_unit == 'days':
             hours_offset = offset_value * 24
@@ -172,7 +172,6 @@ class NotificationSender:
         """Получить дедлайны пользователя для уведомления"""
         async with db_manager.async_session() as session:
             try:
-
                 
                 # Получаем подписки пользователя
                 subscriptions_stmt = select(Subscription.subject_id).where(
@@ -261,10 +260,10 @@ class NotificationSender:
             if len(deadlines_data) == 1:
                 # Одиночное уведомление
                 data = deadlines_data[0]
-                message_text = self._format_single_deadline_notification(data, notification_number, offset_value, offset_unit)
+                message_text = self._format_single_deadline_notification(user, data, notification_number, offset_value, offset_unit)
             else:
                 # Групповое уведомление
-                message_text = self._format_multiple_deadlines_notification(deadlines_data, notification_number, offset_value, offset_unit)
+                message_text = self._format_multiple_deadlines_notification(user, deadlines_data, notification_number, offset_value, offset_unit)
             
             await bot.send_message(
                 chat_id=user.tg_user_id,
@@ -287,7 +286,7 @@ class NotificationSender:
             return False
     
     def _format_single_deadline_notification(
-        self, deadline_data: Dict[str, Any], notification_number: int, offset_value: int, offset_unit: str
+        self, user: User, deadline_data: Dict[str, Any], notification_number: int, offset_value: int, offset_unit: str
     ) -> str:
         """Форматировать уведомление об одном дедлайне"""
         deadline = deadline_data['deadline']
@@ -303,14 +302,15 @@ class NotificationSender:
         message += f"📝 <b>{deadline.hw_name}</b>\n\n"
         
         # Информация о дедлайнах
+        user_tz = pytz.timezone(getattr(user, 'timezone', '') or 'UTC')
         if deadline.soft_deadline_ts:
-            soft_moscow = deadline.soft_deadline_ts.astimezone(self.moscow_tz)
-            soft_date = soft_moscow.strftime("%d.%m.%Y %H:%M МСК")
+            soft_local = deadline.soft_deadline_ts.astimezone(user_tz)
+            soft_date = soft_local.strftime("%d.%m.%Y %H:%M")
             message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date}\n"
         
         if deadline.hard_deadline_ts:
-            hard_moscow = deadline.hard_deadline_ts.astimezone(self.moscow_tz)
-            hard_date = hard_moscow.strftime("%d.%m.%Y %H:%M МСК")
+            hard_local = deadline.hard_deadline_ts.astimezone(user_tz)
+            hard_date = hard_local.strftime("%d.%m.%Y %H:%M")
             message += f"🔴 <b>Жесткий дедлайн:</b> {hard_date}\n"
         
         message += f"\n⏰ <b>Осталось:</b> {offset_value} {unit_text}"
@@ -324,7 +324,7 @@ class NotificationSender:
         return message
     
     def _format_multiple_deadlines_notification(
-        self, deadlines_data: List[Dict[str, Any]], notification_number: int, offset_value: int, offset_unit: str
+        self, user: User, deadlines_data: List[Dict[str, Any]], notification_number: int, offset_value: int, offset_unit: str
     ) -> str:
         """Форматировать уведомление о нескольких дедлайнах"""
         unit_text = {
@@ -335,6 +335,7 @@ class NotificationSender:
         message = f"🔔 <b>Напоминание о дедлайнах</b>\n\n"
         message += f"У вас {len(deadlines_data)} дедлайнов через {offset_value} {unit_text}:\n\n"
         
+        user_tz = pytz.timezone(getattr(user, 'timezone', '') or 'UTC')
         for i, data in enumerate(deadlines_data, 1):
             deadline = data['deadline']
             subject = data['subject']
@@ -343,12 +344,12 @@ class NotificationSender:
             message += f"📝 {deadline.hw_name}\n"
             
             if deadline.soft_deadline_ts:
-                moscow_time = deadline.soft_deadline_ts.astimezone(self.moscow_tz)
-                date_str = moscow_time.strftime("%d.%m %H:%M МСК")
+                local_time = deadline.soft_deadline_ts.astimezone(user_tz)
+                date_str = local_time.strftime("%d.%m %H:%M")
                 message += f"🟡 {date_str}\n"
             elif deadline.hard_deadline_ts:
-                moscow_time = deadline.hard_deadline_ts.astimezone(self.moscow_tz)
-                date_str = moscow_time.strftime("%d.%m %H:%M МСК")
+                local_time = deadline.hard_deadline_ts.astimezone(user_tz)
+                date_str = local_time.strftime("%d.%m %H:%M")
                 message += f"🔴 {date_str}\n"
             
             message += "\n"
@@ -363,7 +364,7 @@ class NotificationSender:
         """Записать отправленные уведомления в лог"""
         async with db_manager.async_session() as session:
             try:
-                current_time = datetime.now(self.moscow_tz)
+                current_time = datetime.now(timezone.utc)
                 
                 for data in deadlines_data:
                     deadline = data['deadline']

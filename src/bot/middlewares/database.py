@@ -8,6 +8,7 @@ from src.core.database import db_manager
 from src.core.models import User, UserNotificationSettings
 from src.utils import get_logger
 from sqlalchemy import select
+from src.utils.time import utc_now
 
 logger = get_logger()
 
@@ -45,9 +46,7 @@ class DatabaseMiddleware(BaseMiddleware):
                 stmt = select(User).where(User.tg_user_id == tg_user.id)
                 result = await session.execute(stmt)
                 user = result.scalar_one_or_none()
-                
-                moscow_tz = pytz.timezone('Europe/Moscow')
-                current_time = datetime.now(moscow_tz)
+                current_time = utc_now()
                 
                 if user:
                     # Обновляем информацию о пользователе
@@ -62,6 +61,7 @@ class DatabaseMiddleware(BaseMiddleware):
                         first_name=tg_user.first_name,
                         last_name=tg_user.last_name,
                         username=tg_user.username,
+                        subscribed_at=current_time,
                         last_activity_ts=current_time,
                         timezone='Europe/Moscow'
                     )

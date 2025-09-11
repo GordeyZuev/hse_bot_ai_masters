@@ -4,8 +4,8 @@
 -- Создание расширений
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Установка временной зоны
-SET timezone = 'Europe/Moscow';
+-- Установка временной зоны (унифицировано на UTC)
+SET timezone = 'UTC';
 
 -- Создание пользователя приложения (если нужно)
 -- DO $$ 

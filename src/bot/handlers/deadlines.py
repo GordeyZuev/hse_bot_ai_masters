@@ -16,16 +16,13 @@ router = Router()
 async def cmd_deadlines(message: Message, db_user):
     """Обработчик команды /deadlines [N]"""
     try:
-        # Парсим количество дней из команды
-        days = 15  # по умолчанию
+        days = 15
         
-        # Извлекаем число из текста команды
         text = message.text.strip()
         match = re.search(r'/deadlines\s+(\d+)', text)
         if match:
             try:
                 days = int(match.group(1))
-                # Ограничиваем разумными пределами
                 if days < 1:
                     days = 1
                 elif days > 365:
@@ -63,7 +60,7 @@ async def send_deadlines_list(message: Message, db_user, days: int, edit: bool =
         deadlines_data = await deadline_service.get_user_deadlines(db_user.tg_user_id, days)
         
         # Форматируем сообщение
-        text = deadline_service.format_deadlines_list(deadlines_data, days)
+        text = deadline_service.format_deadlines_list(deadlines_data, days, user_tz_name=db_user.timezone)
         
         # Создаем клавиатуру с периодами и действиями
         builder = InlineKeyboardBuilder()
@@ -107,89 +104,6 @@ async def send_deadlines_list(message: Message, db_user, days: int, edit: bool =
             await message.edit_text(error_text)
         else:
             await message.answer(error_text)
-
-@router.callback_query(F.data.startswith("deadlines_detailed_"))
-async def callback_detailed_deadlines(callback: CallbackQuery, db_user):
-    """Обработчик подробного просмотра дедлайнов"""
-    await callback.answer()
-    
-    try:
-        days = int(callback.data.split("_")[2])
-        deadlines_data = await deadline_service.get_user_deadlines(db_user.tg_user_id, days)
-        
-        if not deadlines_data:
-            await callback.answer("Дедлайны не найдены", show_alert=True)
-            return
-        
-        # Создаем подробное сообщение со всеми дедлайнами
-        detailed_text = f"📋 <b>Подробные дедлайны на {days} дней</b>\n\n"
-        
-        for i, data in enumerate(deadlines_data, 1):
-            detailed_text += f"<b>{i}. {data['subject'].name}</b>\n"
-            detailed_text += f"📝 <b>{data['deadline'].hw_name}</b>\n\n"
-            
-            # Текущее время для проверки актуальности
-            moscow_tz = pytz.timezone('Europe/Moscow')
-            now = datetime.now(moscow_tz)
-            
-            # Показываем все дедлайны с отметками о прошедших
-            if data['deadline'].soft_deadline_ts:
-                soft_moscow = data['deadline'].soft_deadline_ts.astimezone(moscow_tz)
-                soft_date = soft_moscow.strftime("%d.%m.%Y %H:%M МСК")
-                
-                if data['deadline'].soft_deadline_ts >= now:
-                    detailed_text += f"🟡 <b>Мягкий:</b> {soft_date}\n"
-                else:
-                    detailed_text += f"🟡 <b>Мягкий:</b> {soft_date} <i>(прошел)</i>\n"
-            
-            if data['deadline'].hard_deadline_ts:
-                hard_moscow = data['deadline'].hard_deadline_ts.astimezone(moscow_tz)
-                hard_date = hard_moscow.strftime("%d.%m.%Y %H:%M МСК")
-                
-                if data['deadline'].hard_deadline_ts >= now:
-                    detailed_text += f"🔴 <b>Жесткий:</b> {hard_date}\n"
-                else:
-                    detailed_text += f"🔴 <b>Жесткий:</b> {hard_date} <i>(прошел)</i>\n"
-            
-            # Время до ближайшего дедлайна
-            if 'nearest_deadline' in data:
-                time_left = data['nearest_deadline'] - now
-                days_left = time_left.days
-                hours_left = time_left.seconds // 3600
-                deadline_name = "мягкого" if data['deadline_type'] == "soft" else "жесткого"
-                
-                if days_left > 0:
-                    detailed_text += f"⏰ <b>До {deadline_name}:</b> {days_left} дн. {hours_left} ч.\n"
-                elif hours_left > 0:
-                    detailed_text += f"⏰ <b>До {deadline_name}:</b> {hours_left} ч.\n"
-                else:
-                    detailed_text += f"🚨 <b>{deadline_name.capitalize()} дедлайн сегодня!</b>\n"
-            
-            # Ссылка и комментарий
-            if data['deadline'].source_link and data['deadline'].source_link.strip():
-                detailed_text += f"🔗 <a href='{data['deadline'].source_link}'>Ссылка на задание</a>\n"
-            
-            if data['deadline'].note and data['deadline'].note.strip():
-                detailed_text += f"💬 <i>{data['deadline'].note}</i>\n"
-            
-            detailed_text += "\n" + "─" * 30 + "\n\n"
-        
-        # Создаем кнопку возврата
-        builder = InlineKeyboardBuilder()
-        builder.button(text="🔙 Назад к списку", callback_data=f"deadlines_{days}")
-        
-        # Отправляем подробное сообщение
-        await callback.message.edit_text(
-            detailed_text,
-            reply_markup=builder.as_markup(),
-            disable_web_page_preview=True
-        )
-        
-    except (ValueError, IndexError):
-        await callback.answer("Ошибка получения подробной информации", show_alert=True)
-    except Exception as e:
-        logger.error(f"Ошибка подробного просмотра дедлайнов: {e}")
-        await callback.answer("Произошла ошибка", show_alert=True)
 
 @router.callback_query(F.data.startswith("current_"))
 async def callback_current_period(callback: CallbackQuery):

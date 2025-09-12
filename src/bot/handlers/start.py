@@ -23,23 +23,20 @@ async def cmd_start(message: Message, db_user):
 Описание бота и функционал в виде команд можно найти в разделе «Помощь».
         """
         
-        # Создаем клавиатуру с быстрыми действиями
         builder = InlineKeyboardBuilder()
         builder.button(text="📚 Подписки", callback_data="quick_sub")
         builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
         builder.button(text="⚙️ Настройки", callback_data="quick_settings")
         builder.button(text="ℹ️ Помощь", callback_data="quick_help")
         
-        # Импортируем функцию проверки админа
         from src.bot.handlers.admin import is_admin
         
-        # Добавляем кнопку админ-панели для администраторов
         if is_admin(db_user.tg_user_id):
             builder.row()
             builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel")
-            builder.adjust(2, 2, 1)  # 2+2 основные кнопки, 1 админская
+            builder.adjust(2, 2, 1)
         else:
-            builder.adjust(2, 2)  # 2 кнопки в первом ряду, 2 во втором
+            builder.adjust(2, 2)
         
         await message.answer(
             text.strip(),

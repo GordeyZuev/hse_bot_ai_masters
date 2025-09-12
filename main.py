@@ -2,7 +2,6 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Добавляем текущую директорию в путь для импортов
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.core.scheduler import hse_scheduler
@@ -71,7 +70,6 @@ async def run_migrations():
     try:
         logger.info("Запуск миграций базы данных...")
         
-        # Запускаем alembic upgrade head
         result = subprocess.run(
             ["alembic", "upgrade", "head"],
             cwd=os.path.dirname(__file__),
@@ -96,7 +94,6 @@ async def restore_database():
     try:
         logger.info("Восстановление структуры базы данных...")
         
-        # Создаем менеджер БД и пересоздаем таблицы
         await db_manager.initialize(recreate_tables=True)
         
         logger.info("База данных успешно восстановлена!")

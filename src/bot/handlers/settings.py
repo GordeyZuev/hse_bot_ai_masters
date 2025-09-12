@@ -4,8 +4,10 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from datetime import datetime, timezone
 
 from src.bot.services.notification_service import notification_service
+from src.core.database import db_manager
 from src.utils import get_logger
 import re
 
@@ -15,6 +17,7 @@ router = Router()
 class SettingsStates(StatesGroup):
     choosing_notification = State()
     setting_offset = State()
+    choosing_timezone = State()
 
 @router.message(Command("settings"))
 @router.callback_query(F.data == "quick_settings")
@@ -29,52 +32,58 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         edit_mode = False
     
     try:
-        # Получаем текущие настройки пользователя
-        notifications = await notification_service.get_user_notifications(db_user.tg_user_id)
+        # Получаем актуальные данные пользователя и настройки
+        fresh_user = await db_manager.get_user_by_id(db_user.tg_user_id)
+        user_for_view = fresh_user or db_user
+        settings = await notification_service.get_user_notification_settings(db_user.tg_user_id)
         
         text = "⚙️ <b>Настройки уведомлений</b>\n\n"
         
-        if notifications:
+        if settings:
+            status_text = "✅ Включены" if settings.is_active else "❌ Выключены"
+            text += f"<b>Статус:</b> {status_text}\n\n"
+            
             text += "<b>Текущие настройки:</b>\n"
-            for notif in notifications:
-                status = "✅" if notif.is_enabled else "❌"
-                unit_text = {
-                    'days': 'дн.',
-                    'hours': 'ч.',
-                    'minutes': 'мин.'
-                }.get(notif.offset_unit, notif.offset_unit)
-                
-                text += f"{status} Уведомление {notif.notification_number}: за {notif.offset_value} {unit_text}\n"
+            
+            # Первое напоминание
+            unit1_text = {
+                'days': 'дн.',
+                'hours': 'ч.'
+            }.get(settings.reminder1_unit, settings.reminder1_unit)
+            text += f"🔔 Напоминание 1: за {settings.reminder1_offset} {unit1_text}\n"
+            
+            # Второе напоминание
+            unit2_text = {
+                'days': 'дн.',
+                'hours': 'ч.'
+            }.get(settings.reminder2_unit, settings.reminder2_unit)
+            text += f"🔔 Напоминание 2: за {settings.reminder2_offset} {unit2_text}\n"
         else:
             text += "<i>Настройки уведомлений не заданы</i>\n"
         
+        from src.utils.time import format_offset_from_moscow_label
+        msk_label = format_offset_from_moscow_label(user_for_view.timezone)
+        text += f"\n<b>Часовой пояс:</b> {user_for_view.timezone} ({msk_label})\n"
         text += "\n<b>Управление уведомлениями:</b>"
         
-        # Создаем клавиатуру
         builder = InlineKeyboardBuilder()
         
-        # Кнопки управления уведомлениями
-        builder.button(text="🔔 Уведомление 1", callback_data="setup_notification_1")
-        builder.button(text="🔔 Уведомление 2", callback_data="setup_notification_2")
+        builder.button(text="🔔 Напоминание 1", callback_data="setup_notification_1")
+        builder.button(text="🔔 Напоминание 2", callback_data="setup_notification_2")
         
-        if notifications:
-            # Кнопки включения/выключения
-            for notif in notifications:
-                if notif.is_enabled:
-                    builder.button(
-                        text=f"🔕 Выключить уведомление {notif.notification_number}",
-                        callback_data=f"disable_notification_{notif.notification_number}"
-                    )
-                else:
-                    builder.button(
-                        text=f"🔔 Включить уведомление {notif.notification_number}",
-                        callback_data=f"enable_notification_{notif.notification_number}"
-                    )
-        
-        # Кнопка сброса показывается только если есть настройки
-        if notifications:
-            builder.button(text="🗑 Сбросить все настройки", callback_data="reset_notifications")
-        
+        if settings:
+            if settings.is_active:
+                builder.button(
+                    text="🔕 Выключить уведомления",
+                    callback_data="disable_notifications"
+                )
+            else:
+                builder.button(
+                    text="🔔 Включить уведомления",
+                    callback_data="enable_notifications"
+                )
+            
+        builder.button(text="🌍 Часовой пояс", callback_data="choose_timezone")
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(2, 1)
         
@@ -87,6 +96,50 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         logger.error(f"Ошибка в обработчике /settings: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
 
+@router.callback_query(F.data == "choose_timezone")
+async def callback_choose_timezone(callback: CallbackQuery, db_user, state: FSMContext):
+    """Начало выбора часового пояса: пользователь вводит смещение относительно Москвы"""
+    await callback.answer()
+    try:
+        await state.set_state(SettingsStates.choosing_timezone)
+        text = (
+            "🌍 <b>Часовой пояс (смещение относительно UTC)</b>\n\n"
+            f"Текущий: <b>{db_user.timezone}</b>\n\n"
+            "Отправьте смещение относительно UTC в часах: <code>+N</code> или <code>-N</code>\n\n"
+            "Примеры: \n• Москва: <code>+3</code> \n• Сербия: <code>+2</code>"
+        )
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    except Exception as e:
+        logger.error(f"Ошибка запуска выбора часового пояса: {e}")
+        await callback.answer("Ошибка", show_alert=True)
+
+@router.message(SettingsStates.choosing_timezone)
+async def process_timezone_offset(message: Message, db_user, state: FSMContext):
+    """Обработка текстового ввода смещения относительно МСК"""
+    text = (message.text or "").strip()
+    try:
+        from src.utils.time import parse_utc_offset, propose_timezones_for_utc_offset
+        utc_total = parse_utc_offset(text)
+        top, fixed_label = propose_timezones_for_utc_offset(utc_total)
+        # Берём первый найденный IANA timezone, иначе фиксированный UTC
+        tz_to_save = top[0] if top else fixed_label
+        updated = await db_manager.update_user_timezone(db_user.tg_user_id, tz_to_save)
+        if updated:
+            await message.answer(f"✅ Часовой пояс обновлён: {tz_to_save}")
+            await state.clear()
+            await cmd_settings(message, db_user, state)
+        else:
+            await message.answer("❌ Не удалось обновить часовой пояс")
+    except ValueError:
+        await message.answer("❌ Формат: +N или -N. Пример: +3, -5")
+    except Exception as e:
+        logger.error(f"Ошибка обработки TZ: {e}")
+        await message.answer("Произошла ошибка. Попробуйте ещё раз.")
+
+# Удалены кнопки смещений и выбор из списка; выбор теперь автоматический
+
 @router.callback_query(F.data.startswith("setup_notification_"))
 async def callback_setup_notification(callback: CallbackQuery, db_user, state: FSMContext):
     """Обработчик настройки уведомления"""
@@ -95,21 +148,18 @@ async def callback_setup_notification(callback: CallbackQuery, db_user, state: F
     try:
         notification_number = int(callback.data.split("_")[-1])
         
-        text = f"🔔 <b>Настройка уведомления {notification_number}</b>\n\n"
-        text += "Выберите, за сколько времени до дедлайна присылать уведомление:"
+        text = f"🔔 <b>Настройка напоминания {notification_number}</b>\n\n"
+        text += "Выберите, за сколько времени до дедлайна присылать напоминание:"
         
         builder = InlineKeyboardBuilder()
         
-        # Предустановленные варианты (минимум 30 минут)
         presets = [
-            (1, "days", "За 1 день"),
+            (14, "days", "За 14 дней"),
+            (7, "days", "За 7 дней"),
             (3, "days", "За 3 дня"),
-            (7, "days", "За неделю"),
+            (1, "days", "За 1 день"),
             (12, "hours", "За 12 часов"),
             (6, "hours", "За 6 часов"),
-            (2, "hours", "За 2 часа"),
-            (1, "hours", "За 1 час"),
-            (30, "minutes", "За 30 минут")
         ]
         
         for offset_value, offset_unit, text_label in presets:
@@ -147,13 +197,11 @@ async def callback_set_notification(callback: CallbackQuery, db_user, state: FSM
         if success:
             unit_text = {
                 'days': 'дн.',
-                'hours': 'ч.',
-                'minutes': 'мин.'
+                'hours': 'ч.'
             }.get(offset_unit, offset_unit)
             
             await callback.answer(f"Уведомление настроено: за {offset_value} {unit_text}", show_alert=True)
             await state.clear()
-            # Возвращаемся к настройкам
             await cmd_settings(callback, db_user, state)
         else:
             await callback.answer(message_text, show_alert=True)
@@ -161,62 +209,43 @@ async def callback_set_notification(callback: CallbackQuery, db_user, state: FSM
     except (ValueError, IndexError):
         await callback.answer("Ошибка установки уведомления", show_alert=True)
 
-@router.callback_query(F.data.startswith("enable_notification_"))
-async def callback_enable_notification(callback: CallbackQuery, db_user):
-    """Обработчик включения уведомления"""
+@router.callback_query(F.data == "enable_notifications")
+async def callback_enable_notifications(callback: CallbackQuery, db_user):
+    """Обработчик включения всех уведомлений"""
     await callback.answer()
     
     try:
-        notification_number = int(callback.data.split("_")[-1])
-        success, message_text = await notification_service.toggle_notification(
-            db_user.tg_user_id, notification_number, True
+        success, message_text = await notification_service.toggle_notifications(
+            db_user.tg_user_id, True
         )
         
         await callback.answer(message_text, show_alert=True)
         
         if success:
-            # Обновляем интерфейс
-            await cmd_settings(callback, db_user, None)
-        
-    except (ValueError, IndexError):
-        await callback.answer("Ошибка включения уведомления", show_alert=True)
-
-@router.callback_query(F.data.startswith("disable_notification_"))
-async def callback_disable_notification(callback: CallbackQuery, db_user):
-    """Обработчик выключения уведомления"""
-    await callback.answer()
-    
-    try:
-        notification_number = int(callback.data.split("_")[-1])
-        success, message_text = await notification_service.toggle_notification(
-            db_user.tg_user_id, notification_number, False
-        )
-        
-        await callback.answer(message_text, show_alert=True)
-        
-        if success:
-            # Обновляем интерфейс
-            await cmd_settings(callback, db_user, None)
-        
-    except (ValueError, IndexError):
-        await callback.answer("Ошибка выключения уведомления", show_alert=True)
-
-@router.callback_query(F.data == "reset_notifications")
-async def callback_reset_notifications(callback: CallbackQuery, db_user):
-    """Обработчик сброса всех настроек"""
-    await callback.answer()
-    
-    try:
-        success, message_text = await notification_service.reset_user_notifications(db_user.tg_user_id)
-        await callback.answer(message_text, show_alert=True)
-        
-        if success:
-            # Обновляем интерфейс
             await cmd_settings(callback, db_user, None)
         
     except Exception as e:
-        logger.error(f"Ошибка сброса настроек: {e}")
-        await callback.answer("Произошла ошибка", show_alert=True)
+        logger.error(f"Ошибка включения уведомлений: {e}")
+        await callback.answer("Ошибка включения уведомлений", show_alert=True)
+
+@router.callback_query(F.data == "disable_notifications")
+async def callback_disable_notifications(callback: CallbackQuery, db_user):
+    """Обработчик выключения всех уведомлений"""
+    await callback.answer()
+    
+    try:
+        success, message_text = await notification_service.toggle_notifications(
+            db_user.tg_user_id, False
+        )
+        
+        await callback.answer(message_text, show_alert=True)
+        
+        if success:
+            await cmd_settings(callback, db_user, None)
+        
+    except Exception as e:
+        logger.error(f"Ошибка выключения уведомлений: {e}")
+        await callback.answer("Ошибка выключения уведомлений", show_alert=True)
 
 @router.callback_query(F.data == "back_to_settings")
 async def callback_back_to_settings(callback: CallbackQuery, db_user, state: FSMContext):
@@ -238,8 +267,7 @@ async def callback_custom_notification(callback: CallbackQuery, db_user, state: 
         text += "<code>число единица</code>\n\n"
         text += "<b>Примеры:</b>\n"
         text += "• <code>2 дня</code> или <code>2 дн</code>\n"
-        text += "• <code>6 часов</code> или <code>6 ч</code>\n"
-        text += "• <code>30 минут</code> или <code>30 мин</code>\n\n"
+        text += "• <code>6 часов</code> или <code>6 ч</code>\n\n"
         text += "Или нажмите 'Отмена' для возврата."
         
         builder = InlineKeyboardBuilder()
@@ -264,15 +292,11 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
             await state.clear()
             return
         
-        # Парсим введенный текст
         text = message.text.strip().lower()
         
-        
-        # Паттерны для разных единиц времени
         patterns = [
             (r'(\d+)\s*(?:дн|день|дня|дней|days?)', 'days'),
-            (r'(\d+)\s*(?:ч|час|часа|часов|hours?)', 'hours'),
-            (r'(\d+)\s*(?:мин|минут|минуты|minutes?)', 'minutes')
+            (r'(\d+)\s*(?:ч|час|часа|часов|hours?)', 'hours')
         ]
         
         offset_value = None
@@ -289,22 +313,20 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
             await message.answer(
                 "❌ Не удалось распознать формат.\n"
                 "Используйте формат: <code>число единица</code>\n"
-                "Например: <code>2 дня</code>, <code>6 часов</code>, <code>30 минут</code>"
+                "Например: <code>2 дня</code>, <code>6 часов</code>"
             )
             return
         
-        # Проверяем минимальное время (30 минут)
-        total_minutes = 0
-        if offset_unit == 'minutes':
-            total_minutes = offset_value
-        elif offset_unit == 'hours':
-            total_minutes = offset_value * 60
+        # Проверяем минимальное время (1 час)
+        total_hours = 0
+        if offset_unit == 'hours':
+            total_hours = offset_value
         elif offset_unit == 'days':
-            total_minutes = offset_value * 24 * 60
+            total_hours = offset_value * 24
         
-        if total_minutes < 15:
+        if total_hours < 1:
             await message.answer(
-                "❌ Минимальное время уведомления - 15 минут\n"
+                "❌ Минимальное время уведомления - 1 час\n"
             )
             return
         
@@ -315,9 +337,6 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
         elif offset_unit == 'hours' and offset_value > 24 * 7:
             await message.answer("❌ Максимум 168 часов (неделя)")
             return
-        elif offset_unit == 'minutes' and offset_value > 60 * 24:
-            await message.answer("❌ Максимум 1440 минут (сутки)")
-            return
         
         # Устанавливаем уведомление
         success, message_text = await notification_service.set_user_notification(
@@ -327,8 +346,7 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
         if success:
             unit_text = {
                 'days': 'дн.',
-                'hours': 'ч.',
-                'minutes': 'мин.'
+                'hours': 'ч.'
             }.get(offset_unit, offset_unit)
             
             await message.answer(f"✅ Уведомление настроено: за {offset_value} {unit_text}")

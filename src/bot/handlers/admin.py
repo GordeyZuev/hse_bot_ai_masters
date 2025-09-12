@@ -13,11 +13,9 @@ from src.core.sync.data_syncer import data_syncer
 logger = get_logger()
 router = Router()
 
-# Получаем список админов из переменных окружения
 ADMINS = []
 try:
     admins_str = os.getenv('ADMINS', '[]')
-    # Убираем квадратные скобки и разделяем по запятым
     admins_str = admins_str.strip('[]')
     if admins_str:
         ADMINS = [int(admin_id.strip()) for admin_id in admins_str.split(',')]
@@ -31,6 +29,138 @@ class BroadcastStates(StatesGroup):
 def is_admin(user_id: int) -> bool:
     """Проверка, является ли пользователь админом"""
     return user_id in ADMINS
+
+async def show_statistics(message_or_callback, db_user, show_back_button: bool = False):
+    """Общая функция для отображения статистики"""
+    try:
+        stats = await admin_service.get_bot_statistics()
+        text = await format_statistics_message(stats)
+        
+        # Создаем клавиатуру с дополнительными действиями
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔄 Обновить статистику", callback_data="admin_refresh_stats")
+        builder.button(text="📢 Массовая рассылка", callback_data="admin_broadcast")
+        
+        if show_back_button:
+            builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
+            builder.adjust(1, 1, 1)
+        else:
+            builder.adjust(1, 1)
+        
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup())
+        else:
+            await message_or_callback.answer(text, reply_markup=builder.as_markup())
+        
+        logger.info(f"Админ {db_user.tg_user_id} запросил статистику")
+        
+    except Exception as e:
+        # Проверяем, является ли ошибка "message is not modified"
+        if "message is not modified" in str(e):
+            # Если сообщение не изменилось, просто логируем и ничего не показываем
+            logger.info(f"Статистика для админа {db_user.tg_user_id} не изменилась")
+        else:
+            logger.error(f"Ошибка при получении статистики: {e}")
+            error_text = "Произошла ошибка при получении статистики."
+            
+            if show_back_button:
+                error_keyboard = InlineKeyboardBuilder().button(
+                    text="🔙 Назад",
+                    callback_data="admin_panel"
+                ).as_markup()
+            else:
+                error_keyboard = None
+            
+            if isinstance(message_or_callback, CallbackQuery):
+                await message_or_callback.message.edit_text(error_text, reply_markup=error_keyboard)
+            else:
+                await message_or_callback.answer(error_text)
+
+async def perform_sync(message_or_callback, db_user, show_back_button: bool = False):
+    """Общая функция для выполнения синхронизации"""
+    try:
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.answer("Запускаю синхронизацию...")
+        
+        logger.info(f"Админ {db_user.tg_user_id} запустил синхронизацию")
+        success = await data_syncer.sync_data()
+        
+        if success:
+            text = "✅ <b>Синхронизация завершена успешно!</b>\n\n"
+            text += "Данные из Google Sheets обновлены в базе данных."
+        else:
+            text = "❌ <b>Ошибка синхронизации</b>\n\n"
+            text += "Не удалось синхронизировать данные. Проверьте логи для подробностей."
+        
+        if show_back_button:
+            builder = InlineKeyboardBuilder()
+            builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
+            keyboard = builder.as_markup()
+        else:
+            keyboard = None
+        
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.edit_text(text, reply_markup=keyboard)
+        else:
+            # Для команды /fast_sync статусное сообщение редактируем напрямую
+            await message_or_callback.edit_text(text)
+        
+        logger.info(f"Синхронизация завершена. Результат: {'успех' if success else 'ошибка'}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении синхронизации: {e}")
+        error_text = "❌ <b>Произошла ошибка</b>\n\nНе удалось запустить синхронизацию."
+        
+        if show_back_button:
+            error_keyboard = InlineKeyboardBuilder().button(
+                text="🔙 Назад",
+                callback_data="admin_panel"
+            ).as_markup()
+        else:
+            error_keyboard = None
+        
+        if isinstance(message_or_callback, CallbackQuery):
+            await message_or_callback.message.edit_text(error_text, reply_markup=error_keyboard)
+        else:
+            await message_or_callback.answer(f"❌ Ошибка при выполнении синхронизации: {str(e)}")
+
+async def format_statistics_message(stats: dict) -> str:
+    """Форматирование сообщения со статистикой"""
+    text = "📊 <b>Статистика бота</b>\n\n"
+    
+    text += f"👥 <b>Пользователи:</b>\n"
+    text += f"• Всего пользователей: {stats.get('total_users', 0)}\n"
+    text += f"• Активных за неделю: {stats.get('active_users_week', 0)}\n"
+    text += f"• Активных за месяц: {stats.get('active_users_month', 0)}\n\n"
+    
+    # Статистика подписок
+    text += f"📚 <b>Подписки:</b>\n"
+    text += f"• Всего подписок: {stats.get('total_subscriptions', 0)}\n"
+    text += f"• Пользователей с подписками: {stats.get('users_with_subscriptions', 0)}\n"
+    
+    # Популярные предметы
+    popular_subjects = stats.get('popular_subjects', [])
+    if popular_subjects:
+        text += f"\n<b>Популярные предметы:</b>\n"
+        for i, (subject_name, count) in enumerate(popular_subjects[:5], 1):
+            text += f"{i}. {subject_name} ({count})\n"
+    
+    # Статистика уведомлений
+    text += f"\n🔔 <b>Уведомления:</b>\n"
+    text += f"• Всего настроек: {stats.get('total_notifications', 0)}\n"
+    text += f"• Активных настроек: {stats.get('active_notifications', 0)}\n"
+    text += f"• Пользователей с настройками: {stats.get('users_with_notifications', 0)}\n"
+    
+    # Статистика дедлайнов
+    text += f"\n📅 <b>Дедлайны:</b>\n"
+    text += f"• Всего дедлайнов: {stats.get('total_deadlines', 0)}\n"
+    text += f"• Активных дедлайнов: {stats.get('active_deadlines', 0)}\n"
+    
+    # Системная информация
+    text += f"\n⚙️ <b>Система:</b>\n"
+    text += f"• Последняя синхронизация: {stats.get('last_sync', 'Неизвестно')}\n"
+    
+    return text
 
 @router.message(Command("logs"))
 async def cmd_logs(message: Message, db_user):
@@ -54,28 +184,11 @@ async def cmd_fast_sync(message: Message, db_user):
         await message.answer("❌ У вас нет прав для выполнения этой команды.")
         return
     
-    try:
-        # Отправляем сообщение о начале синхронизации
-        status_message = await message.answer("🔄 <b>Запускаю синхронизацию...</b>")
-        
-        # Импортируем и запускаем синхронизацию
-        
-        logger.info(f"Админ {db_user.tg_user_id} запустил быструю синхронизацию через команду /fast_sync")
-        success = await data_syncer.sync_data()
-        
-        if success:
-            text = "✅ <b>Синхронизация завершена успешно!</b>\n\n"
-            text += "Данные из Google Sheets обновлены в базе данных."
-        else:
-            text = "❌ <b>Ошибка синхронизации</b>\n\n"
-            text += "Не удалось синхронизировать данные. Проверьте логи для подробностей."
-        
-        await status_message.edit_text(text)
-        logger.info(f"Быстрая синхронизация завершена. Результат: {'успех' if success else 'ошибка'}")
-        
-    except Exception as e:
-        logger.error(f"Ошибка в обработчике /fast_sync: {e}")
-        await message.answer(f"❌ Ошибка при выполнении синхронизации: {str(e)}")
+    # Создаем статусное сообщение
+    status_message = await message.answer("🔄 <b>Запускаю синхронизацию...</b>")
+    
+    # Используем общую функцию синхронизации
+    await perform_sync(status_message, db_user, show_back_button=False)
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, db_user):
@@ -84,180 +197,10 @@ async def cmd_stats(message: Message, db_user):
         await message.answer("❌ У вас нет прав для выполнения этой команды.")
         return
     
-    try:
-        # Получаем статистику
-        stats = await admin_service.get_bot_statistics()
-        
-        text = "📊 <b>Статистика бота</b>\n\n"
-        
-        # Общая статистика пользователей
-        text += f"👥 <b>Пользователи:</b>\n"
-        text += f"• Всего пользователей: {stats.get('total_users', 0)}\n"
-        text += f"• Активных за неделю: {stats.get('active_users_week', 0)}\n"
-        text += f"• Активных за месяц: {stats.get('active_users_month', 0)}\n\n"
-        
-        # Статистика подписок
-        text += f"📚 <b>Подписки:</b>\n"
-        text += f"• Всего подписок: {stats.get('total_subscriptions', 0)}\n"
-        text += f"• Пользователей с подписками: {stats.get('users_with_subscriptions', 0)}\n"
-        
-        # Популярные предметы
-        popular_subjects = stats.get('popular_subjects', [])
-        if popular_subjects:
-            text += f"\n<b>Популярные предметы:</b>\n"
-            for i, (subject_name, count) in enumerate(popular_subjects[:5], 1):
-                text += f"{i}. {subject_name} ({count})\n"
-        
-        # Статистика уведомлений
-        text += f"\n🔔 <b>Уведомления:</b>\n"
-        text += f"• Всего настроек: {stats.get('total_notifications', 0)}\n"
-        text += f"• Активных настроек: {stats.get('active_notifications', 0)}\n"
-        text += f"• Пользователей с настройками: {stats.get('users_with_notifications', 0)}\n"
-        
-        # Статистика дедлайнов
-        text += f"\n📅 <b>Дедлайны:</b>\n"
-        text += f"• Всего дедлайнов: {stats.get('total_deadlines', 0)}\n"
-        text += f"• Активных дедлайнов: {stats.get('active_deadlines', 0)}\n"
-        text += f"• Дедлайнов на неделю: {stats.get('deadlines_week', 0)}\n"
-        
-        # Системная информация
-        text += f"\n⚙️ <b>Система:</b>\n"
-        text += f"• Последняя синхронизация: {stats.get('last_sync', 'Неизвестно')}\n"
-        text += f"• Статус синхронизации: {stats.get('sync_status', 'Неизвестно')}\n"
-        
-        # Создаем клавиатуру с дополнительными действиями
-        builder = InlineKeyboardBuilder()
-        builder.button(text="🔄 Обновить", callback_data="admin_refresh_stats")
-        builder.button(text="📊 Подробно", callback_data="admin_detailed_stats")
-        builder.button(text="📢 Массовая рассылка", callback_data="admin_broadcast")
-        builder.adjust(2, 1)
-        
-        await message.answer(text, reply_markup=builder.as_markup())
-        
-        logger.info(f"Админ {db_user.tg_user_id} запросил статистику")
-        
-    except Exception as e:
-        logger.error(f"Ошибка в обработчике /stats: {e}")
-        await message.answer("Произошла ошибка при получении статистики.")
+    # Используем общую функцию отображения статистики
+    await show_statistics(message, db_user, show_back_button=False)
 
-@router.callback_query(F.data == "admin_refresh_stats")
-async def callback_refresh_stats(callback: CallbackQuery, db_user):
-    """Обновление статистики"""
-    if not is_admin(db_user.tg_user_id):
-        await callback.answer("❌ Нет прав доступа", show_alert=True)
-        return
-    
-    await callback.answer("Обновляю статистику...")
-    
-    try:
-        # Получаем основную и подробную статистику
-        stats = await admin_service.get_bot_statistics()
-        detailed_stats = await admin_service.get_detailed_statistics()
-        
-        text = "📊 <b>Статистика бота HSE</b>\n\n"
-        
-        # Общая статистика пользователей
-        text += f"👥 <b>Пользователи:</b>\n"
-        text += f"• Всего пользователей: {stats.get('total_users', 0)}\n"
-        text += f"• Активных за неделю: {stats.get('active_users_week', 0)}\n"
-        text += f"• Активных за месяц: {stats.get('active_users_month', 0)}\n\n"
-        
-        # Статистика подписок
-        text += f"📚 <b>Подписки:</b>\n"
-        text += f"• Всего подписок: {stats.get('total_subscriptions', 0)}\n"
-        text += f"• Пользователей с подписками: {stats.get('users_with_subscriptions', 0)}\n"
-        
-        # Популярные предметы
-        popular_subjects = stats.get('popular_subjects', [])
-        if popular_subjects:
-            text += f"\n<b>Популярные предметы:</b>\n"
-            for i, (subject_name, count) in enumerate(popular_subjects[:5], 1):
-                text += f"{i}. {subject_name} ({count})\n"
-        
-        # Статистика уведомлений
-        text += f"\n🔔 <b>Уведомления:</b>\n"
-        text += f"• Всего настроек: {stats.get('total_notifications', 0)}\n"
-        text += f"• Активных настроек: {stats.get('active_notifications', 0)}\n"
-        text += f"• Пользователей с настройками: {stats.get('users_with_notifications', 0)}\n"
-        
-        # Статистика дедлайнов
-        text += f"\n📅 <b>Дедлайны:</b>\n"
-        text += f"• Всего дедлайнов: {stats.get('total_deadlines', 0)}\n"
-        text += f"• Активных дедлайнов: {stats.get('active_deadlines', 0)}\n"
-        text += f"• Дедлайнов на неделю: {stats.get('deadlines_week', 0)}\n"
-        
-        # Активность по дням
-        daily_stats = detailed_stats.get('daily_activity', [])
-        if daily_stats:
-            text += f"\n<b>📈 Активность по дням:</b>\n"
-            for day_data in daily_stats[-7:]:  # Последние 7 дней
-                text += f"• {day_data['date']}: {day_data['users']} польз.\n"
-        
-        # Популярные настройки уведомлений
-        popular_settings = detailed_stats.get('popular_notification_settings', [])
-        if popular_settings:
-            text += f"\n<b>⏰ Популярные настройки уведомлений:</b>\n"
-            for setting in popular_settings[:5]:
-                offset_value, offset_unit, count = setting
-                unit_text = {'days': 'дн.', 'hours': 'ч.', 'minutes': 'мин.'}.get(offset_unit, offset_unit)
-                text += f"• За {offset_value} {unit_text}: {count} польз.\n"
-        
-        # Системная информация
-        text += f"\n⚙️ <b>Система:</b>\n"
-        text += f"• Последняя синхронизация: {stats.get('last_sync', 'Неизвестно')}\n"
-        text += f"• Статус синхронизации: {stats.get('sync_status', 'Неизвестно')}\n"
-        
-        # Создаем клавиатуру
-        builder = InlineKeyboardBuilder()
-        builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
-        
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
-        
-        logger.info(f"Админ {db_user.tg_user_id} запросил статистику")
-        
-    except Exception as e:
-        logger.error(f"Ошибка в обработчике статистики: {e}")
-        await callback.message.edit_text(
-            "Произошла ошибка при получении статистики.",
-            reply_markup=InlineKeyboardBuilder().button(
-                text="🔙 Назад",
-                callback_data="admin_panel"
-            ).as_markup()
-        )
 
-@router.callback_query(F.data == "admin_detailed_stats")
-async def callback_detailed_stats(callback: CallbackQuery, db_user):
-    """Подробная статистика"""
-    if not is_admin(db_user.tg_user_id):
-        await callback.answer("❌ Нет прав доступа", show_alert=True)
-        return
-    
-    await callback.answer()
-    
-    try:
-        detailed_stats = await admin_service.get_detailed_statistics()
-        
-        text = "📊 <b>Подробно</b>\n\n"
-        
-        # Статистика по дням
-        text += "<b>📈 Активность по дням:</b>\n"
-        daily_stats = detailed_stats.get('daily_activity', [])
-        for day_data in daily_stats[-7:]:  # Последние 7 дней
-            text += f"• {day_data['date']}: {day_data['users']} польз.\n"
-        
-        # Настройки уведомлений
-        text += "\n<b>⏰ Популярные настройки уведомлений:</b>\n"
-        popular_settings = detailed_stats.get('popular_notification_settings', [])
-        for setting in popular_settings[:5]:
-            offset_value, offset_unit, count = setting
-            unit_text = {'days': 'дн.', 'hours': 'ч.', 'minutes': 'мин.'}.get(offset_unit, offset_unit)
-            text += f"• За {offset_value} {unit_text}: {count} польз.\n"
-        
-        await callback.message.edit_text(text)
-        
-    except Exception as e:
-        logger.error(f"Ошибка получения подробной статистики: {e}")
-        await callback.answer("Ошибка получения данных", show_alert=True)
 
 @router.message(Command("broadcast"))
 @router.callback_query(F.data == "admin_broadcast")
@@ -393,7 +336,7 @@ async def callback_admin_panel(callback: CallbackQuery, db_user):
     text = "👨‍💼 <b>Админ-панель</b>\n\nВыберите действие:"
     
     builder = InlineKeyboardBuilder()
-    builder.button(text="📊 Статистика", callback_data="admin_refresh_stats")
+    builder.button(text="📊 Статистика", callback_data="admin_stats")
     builder.button(text="🔄 Синхронизация", callback_data="admin_sync")
     builder.button(text="📢 Broadcast", callback_data="admin_broadcast")
     builder.button(text="📄 Сегодняшние логи", callback_data="admin_logs")
@@ -401,6 +344,18 @@ async def callback_admin_panel(callback: CallbackQuery, db_user):
     builder.adjust(2, 2, 1)  # 2 кнопки в первых двух рядах, 1 в последнем
     
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
+
+@router.callback_query(F.data == "admin_stats")
+async def callback_admin_stats(callback: CallbackQuery, db_user):
+    """Обработчик кнопки статистики в админ-панели"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+    
+    await callback.answer("Загружаю статистику...")
+    
+    # Используем общую функцию отображения статистики
+    await show_statistics(callback.message, db_user, show_back_button=True)
 
 @router.callback_query(F.data == "admin_logs")
 async def callback_admin_logs(callback: CallbackQuery, db_user):
@@ -426,6 +381,18 @@ async def callback_admin_logs(callback: CallbackQuery, db_user):
         logger.error(f"Ошибка отправки логов: {e}")
         await callback.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
 
+@router.callback_query(F.data == "admin_refresh_stats")
+async def callback_admin_refresh_stats(callback: CallbackQuery, db_user):
+    """Обработчик кнопки обновления статистики"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+    
+    await callback.answer("Обновляю статистику...")
+    
+    # Используем общую функцию отображения статистики
+    await show_statistics(callback.message, db_user, show_back_button=True)
+
 @router.callback_query(F.data == "admin_sync")
 async def callback_admin_sync(callback: CallbackQuery, db_user):
     """Обработчик мгновенной синхронизации"""
@@ -433,36 +400,8 @@ async def callback_admin_sync(callback: CallbackQuery, db_user):
         await callback.answer("❌ Нет прав доступа", show_alert=True)
         return
     
-    await callback.answer("Запускаю синхронизацию...")
-    
-    try:
-        logger.info(f"Админ {db_user.tg_user_id} запустил мгновенную синхронизацию")
-        success = await data_syncer.sync_data()
-        
-        if success:
-            text = "✅ <b>Синхронизация завершена успешно!</b>\n\n"
-            text += "Данные из Google Sheets обновлены в базе данных."
-        else:
-            text = "❌ <b>Ошибка синхронизации</b>\n\n"
-            text += "Не удалось синхронизировать данные. Проверьте логи для подробностей."
-        
-        # Создаем клавиатуру для возврата
-        builder = InlineKeyboardBuilder()
-        builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
-        
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
-        
-        logger.info(f"Мгновенная синхронизация завершена. Результат: {'успех' if success else 'ошибка'}")
-        
-    except Exception as e:
-        logger.error(f"Ошибка в обработчике синхронизации: {e}")
-        await callback.message.edit_text(
-            "❌ <b>Произошла ошибка</b>\n\nНе удалось запустить синхронизацию.",
-            reply_markup=InlineKeyboardBuilder().button(
-                text="🔙 Назад",
-                callback_data="admin_panel"
-            ).as_markup()
-        )
+    # Используем общую функцию синхронизации
+    await perform_sync(callback, db_user, show_back_button=True)
 
 def register_admin_handlers(dp):
     """Регистрация admin handlers"""

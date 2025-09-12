@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, and_, or_
 import pytz
 
@@ -13,14 +13,14 @@ class DeadlineService:
     """Сервис для работы с дедлайнами"""
     
     def __init__(self):
-        self.moscow_tz = pytz.timezone('Europe/Moscow')
+        pass
     
     async def get_user_deadlines(self, user_id: int, days: int = 15) -> List[Dict[str, Any]]:
         """Получить дедлайны пользователя на указанное количество дней"""
         async with db_manager.async_session() as session:
             try:
-                # Вычисляем временной диапазон
-                now = datetime.now(self.moscow_tz)
+                # Вычисляем временной диапазон в UTC
+                now = datetime.now(timezone.utc)
                 end_date = now + timedelta(days=days)
                 
                 # Получаем подписки пользователя
@@ -60,7 +60,7 @@ class DeadlineService:
                     nearest_deadline = None
                     deadline_type = None
                     
-                    # Проверяем, какие дедлайны еще актуальны
+                    # Проверяем, какие дедлайны еще актуальны (все в UTC)
                     soft_valid = deadline.soft_deadline_ts and deadline.soft_deadline_ts >= now
                     hard_valid = deadline.hard_deadline_ts and deadline.hard_deadline_ts >= now
                     
@@ -82,7 +82,7 @@ class DeadlineService:
                         deadline_type = "hard"
                     
                     if nearest_deadline:
-                        # Вычисляем время до дедлайна
+                        # Вычисляем время до дедлайна (в UTC)
                         time_left = nearest_deadline - now
                         days_left = time_left.days
                         hours_left = time_left.seconds // 3600
@@ -110,7 +110,7 @@ class DeadlineService:
         """Получить все предстоящие дедлайны (для уведомлений)"""
         async with db_manager.async_session() as session:
             try:
-                now = datetime.now(self.moscow_tz)
+                now = datetime.now(timezone.utc)
                 end_date = now + timedelta(days=days)
                 
                 stmt = select(Deadline, Subject).join(Subject).where(
@@ -133,7 +133,7 @@ class DeadlineService:
                 
                 for deadline, subject in result.fetchall():
                     # Определяем ближайший актуальный дедлайн для сортировки
-                    now = datetime.now(self.moscow_tz)
+                    now = datetime.now(timezone.utc)
                     nearest_deadline = None
                     
                     # Проверяем, какие дедлайны еще актуальны
@@ -164,53 +164,8 @@ class DeadlineService:
                 logger.error(f"Ошибка получения всех дедлайнов: {e}")
                 return []
     
-    async def get_deadlines_for_notification(self, notification_hours: int = 24) -> List[Dict[str, Any]]:
-        """Получить дедлайны для отправки уведомлений"""
-        async with db_manager.async_session() as session:
-            try:
-                now = datetime.now(self.moscow_tz)
-                notification_time = now + timedelta(hours=notification_hours)
-                
-                # Получаем дедлайны, которые наступят в указанное время
-                stmt = select(Deadline, Subject).join(Subject).where(
-                    or_(
-                        and_(
-                            Deadline.soft_deadline_ts.isnot(None),
-                            Deadline.soft_deadline_ts >= now,
-                            Deadline.soft_deadline_ts <= notification_time
-                        ),
-                        and_(
-                            Deadline.hard_deadline_ts.isnot(None),
-                            Deadline.hard_deadline_ts >= now,
-                            Deadline.hard_deadline_ts <= notification_time
-                        )
-                    )
-                )
-                
-                result = await session.execute(stmt)
-                deadlines_data = []
-                
-                for deadline, subject in result.fetchall():
-                    # Получаем пользователей, подписанных на этот предмет
-                    users_stmt = select(User).join(Subscription).where(
-                        Subscription.subject_id == deadline.subject_id
-                    )
-                    users_result = await session.execute(users_stmt)
-                    users = users_result.scalars().all()
-                    
-                    deadlines_data.append({
-                        'deadline': deadline,
-                        'subject': subject,
-                        'users': list(users)
-                    })
-                
-                return deadlines_data
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения дедлайнов для уведомлений: {e}")
-                return []
     
-    def format_deadline_message(self, deadline_data: Dict[str, Any]) -> str:
+    def format_deadline_message(self, deadline_data: Dict[str, Any], user_tz_name: str = 'Europe/Moscow') -> str:
         """Форматирование сообщения о дедлайне"""
         deadline = deadline_data['deadline']
         subject = deadline_data['subject']
@@ -219,13 +174,14 @@ class DeadlineService:
         message = f"📚 <b>{subject.name}</b>\n"
         message += f"📝 <b>{deadline.hw_name}</b>\n\n"
         
-        # Текущее время для проверки актуальности дедлайнов
-        now = datetime.now(self.moscow_tz)
+        # Текущее время (UTC) и TZ пользователя
+        now = datetime.now(timezone.utc)
+        user_tz = pytz.timezone(user_tz_name)
         
         # Дедлайны с проверкой актуальности и правильным форматированием времени
         if deadline.soft_deadline_ts:
-            soft_moscow = deadline.soft_deadline_ts.astimezone(self.moscow_tz)
-            soft_date = soft_moscow.strftime("%d.%m.%Y %H:%M МСК")
+            soft_local = deadline.soft_deadline_ts.astimezone(user_tz)
+            soft_date = soft_local.strftime("%d.%m.%Y %H:%M")
             
             if deadline.soft_deadline_ts >= now:
                 message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date}\n"
@@ -233,8 +189,8 @@ class DeadlineService:
                 message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date} <i>(прошел)</i>\n"
         
         if deadline.hard_deadline_ts:
-            hard_moscow = deadline.hard_deadline_ts.astimezone(self.moscow_tz)
-            hard_date = hard_moscow.strftime("%d.%m.%Y %H:%M МСК")
+            hard_local = deadline.hard_deadline_ts.astimezone(user_tz)
+            hard_date = hard_local.strftime("%d.%m.%Y %H:%M")
             
             if deadline.hard_deadline_ts >= now:
                 message += f"🔴 <b>Жесткий дедлайн:</b> {hard_date}\n"
@@ -269,13 +225,14 @@ class DeadlineService:
         
         return message
     
-    def format_deadlines_list(self, deadlines_data: List[Dict[str, Any]], days: int) -> str:
+    def format_deadlines_list(self, deadlines_data: List[Dict[str, Any]], days: int, user_tz_name: str = 'Europe/Moscow') -> str:
         """Форматирование списка дедлайнов"""
         if not deadlines_data:
             return f"📅 <b>Дедлайны на {days} дней</b>\n\nДедлайнов не найдено.\nВозможно, у вас нет подписок на предметы."
         
         message = f"📅 <b>Дедлайны на {days} дней</b>\n\n"
         
+        user_tz = pytz.timezone(user_tz_name)
         for i, data in enumerate(deadlines_data, 1):
             deadline = data['deadline']
             subject = data['subject']
@@ -285,9 +242,9 @@ class DeadlineService:
             
             # Ближайший дедлайн с правильным цветом
             if data.get('nearest_deadline'):
-                # Форматируем время в московском часовом поясе
-                moscow_time = data['nearest_deadline'].astimezone(self.moscow_tz)
-                date_str = moscow_time.strftime("%d.%m %H:%M МСК")
+                # Форматируем время в часовом поясе пользователя
+                local_time = data['nearest_deadline'].astimezone(user_tz)
+                date_str = local_time.strftime("%d.%m %H:%M")
                 
                 # Выбираем цвет в зависимости от типа дедлайна
                 deadline_type_icon = "🟡" if data['deadline_type'] == "soft" else "🔴"

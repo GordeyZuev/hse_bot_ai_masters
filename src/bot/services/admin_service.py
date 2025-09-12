@@ -2,14 +2,14 @@ import asyncio
 import os
 import zipfile
 from typing import List, Dict, Any, Optional, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func
 from aiogram import Bot
 from aiogram.types import FSInputFile
 import pytz
 
 from src.core.database import db_manager
-from src.core.models import User, Deadline
+from src.core.models import User, Deadline, UserNotificationSettings
 from src.bot.services.subscription_service import subscription_service
 from src.bot.services.notification_service import notification_service
 from src.utils import get_logger
@@ -20,7 +20,7 @@ class AdminService:
     """Сервис для административных функций"""
     
     def __init__(self):
-        self.moscow_tz = pytz.timezone('Europe/Moscow')
+        pass
     
     async def get_bot_statistics(self) -> Dict[str, Any]:
         """Получить основную статистику бота"""
@@ -34,7 +34,7 @@ class AdminService:
                 stats['total_users'] = result.scalar() or 0
                 
                 # Активные пользователи за неделю
-                week_ago = datetime.now(self.moscow_tz) - timedelta(days=7)
+                week_ago = datetime.now(timezone.utc) - timedelta(days=7)
                 stmt = select(func.count(User.tg_user_id)).where(
                     User.last_activity_ts >= week_ago
                 )
@@ -42,7 +42,7 @@ class AdminService:
                 stats['active_users_week'] = result.scalar() or 0
                 
                 # Активные пользователи за месяц
-                month_ago = datetime.now(self.moscow_tz) - timedelta(days=30)
+                month_ago = datetime.now(timezone.utc) - timedelta(days=30)
                 stmt = select(func.count(User.tg_user_id)).where(
                     User.last_activity_ts >= month_ago
                 )
@@ -54,8 +54,17 @@ class AdminService:
                 stats.update(subscription_stats)
                 
                 # Статистика уведомлений
-                notification_stats = await notification_service.get_notification_stats()
-                stats.update(notification_stats)
+                stmt = select(func.count(UserNotificationSettings.id))
+                result = await session.execute(stmt)
+                stats['total_notifications'] = result.scalar() or 0
+                
+                stmt = select(func.count(UserNotificationSettings.id)).where(UserNotificationSettings.is_active == True)
+                result = await session.execute(stmt)
+                stats['active_notifications'] = result.scalar() or 0
+                
+                stmt = select(func.count(UserNotificationSettings.user_id.distinct()))
+                result = await session.execute(stmt)
+                stats['users_with_notifications'] = result.scalar() or 0
                 
                 # Статистика дедлайнов
                 stmt = select(func.count(Deadline.id))
@@ -63,7 +72,7 @@ class AdminService:
                 stats['total_deadlines'] = result.scalar() or 0
                 
                 # Активные дедлайны (в будущем)
-                now = datetime.now(self.moscow_tz)
+                now = datetime.now(timezone.utc)
                 stmt = select(func.count(Deadline.id)).where(
                     (Deadline.soft_deadline_ts >= now) | 
                     (Deadline.hard_deadline_ts >= now)
@@ -71,19 +80,13 @@ class AdminService:
                 result = await session.execute(stmt)
                 stats['active_deadlines'] = result.scalar() or 0
                 
-                # Дедлайны на неделю
-                week_later = now + timedelta(days=7)
-                stmt = select(func.count(Deadline.id)).where(
-                    ((Deadline.soft_deadline_ts >= now) & (Deadline.soft_deadline_ts <= week_later)) |
-                    ((Deadline.hard_deadline_ts >= now) & (Deadline.hard_deadline_ts <= week_later))
-                )
+                stmt = select(func.max(Deadline.last_updated))
                 result = await session.execute(stmt)
-                stats['deadlines_week'] = result.scalar() or 0
-                
-                # Информация о последней синхронизации
-                # Это можно получить из логов или добавить отдельную таблицу
-                stats['last_sync'] = "Недавно"  # Заглушка
-                stats['sync_status'] = "Активна"  # Заглушка
+                last_sync_dt = result.scalar()
+                if last_sync_dt:
+                    stats['last_sync'] = last_sync_dt.astimezone(timezone.utc).strftime('%H:%M:%S %d.%m.%y UTC')
+                else:
+                    stats['last_sync'] = 'Нет данных'
                 
                 return stats
                 
@@ -91,49 +94,13 @@ class AdminService:
                 logger.error(f"Ошибка получения статистики: {e}")
                 return {}
     
-    async def get_detailed_statistics(self) -> Dict[str, Any]:
-        """Получить подробную статистику"""
-        async with db_manager.async_session() as session:
-            try:
-                stats = {}
-                
-                # Активность по дням (последние 7 дней)
-                daily_activity = []
-                for i in range(7):
-                    date = datetime.now(self.moscow_tz) - timedelta(days=i)
-                    start_of_day = date.replace(hour=0, minute=0, second=0, microsecond=0)
-                    end_of_day = date.replace(hour=23, minute=59, second=59, microsecond=999999)
-                    
-                    stmt = select(func.count(User.tg_user_id.distinct())).where(
-                        (User.last_activity_ts >= start_of_day) &
-                        (User.last_activity_ts <= end_of_day)
-                    )
-                    result = await session.execute(stmt)
-                    user_count = result.scalar() or 0
-                    
-                    daily_activity.append({
-                        'date': date.strftime('%d.%m'),
-                        'users': user_count
-                    })
-                
-                stats['daily_activity'] = list(reversed(daily_activity))
-                
-                # Популярные настройки уведомлений
-                notification_stats = await notification_service.get_notification_stats()
-                stats['popular_notification_settings'] = notification_stats.get('popular_settings', [])
-                
-                return stats
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения подробной статистики: {e}")
-                return {}
     
     async def get_active_users_count(self) -> int:
         """Получить количество активных пользователей для рассылки"""
         async with db_manager.async_session() as session:
             try:
                 # Считаем пользователей, которые были активны в последний месяц
-                month_ago = datetime.now(self.moscow_tz) - timedelta(days=30)
+                month_ago = datetime.now(timezone.utc) - timedelta(days=30)
                 stmt = select(func.count(User.tg_user_id)).where(
                     User.last_activity_ts >= month_ago
                 )
@@ -149,7 +116,7 @@ class AdminService:
         async with db_manager.async_session() as session:
             try:
                 # Получаем активных пользователей за последний месяц
-                month_ago = datetime.now(self.moscow_tz) - timedelta(days=30)
+                month_ago = datetime.now(timezone.utc) - timedelta(days=30)
                 stmt = select(User).where(
                     User.last_activity_ts >= month_ago
                 ).order_by(User.tg_user_id)
@@ -218,41 +185,12 @@ class AdminService:
             logger.error(f"Ошибка выполнения рассылки: {e}")
             return {'success': 0, 'errors': 0}
     
-    async def get_user_info(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Получить подробную информацию о пользователе"""
-        async with db_manager.async_session() as session:
-            try:
-                # Основная информация о пользователе
-                stmt = select(User).where(User.tg_user_id == user_id)
-                result = await session.execute(stmt)
-                user = result.scalar_one_or_none()
-                
-                if not user:
-                    return None
-                
-                # Подписки пользователя
-                subscriptions = await subscription_service.get_user_subscriptions(user_id)
-                
-                # Настройки уведомлений
-                notifications = await notification_service.get_user_notifications(user_id)
-                
-                return {
-                    'user': user,
-                    'subscriptions_count': len(subscriptions),
-                    'subscriptions': subscriptions,
-                    'notifications_count': len(notifications),
-                    'notifications': notifications
-                }
-                
-            except Exception as e:
-                logger.error(f"Ошибка получения информации о пользователе {user_id}: {e}")
-                return None
     
     async def cleanup_inactive_users(self, days_inactive: int = 90) -> int:
         """Очистка неактивных пользователей"""
         async with db_manager.async_session() as session:
             try:
-                cutoff_date = datetime.now(self.moscow_tz) - timedelta(days=days_inactive)
+                cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_inactive)
                 
                 # Находим неактивных пользователей
                 stmt = select(User).where(
@@ -281,7 +219,7 @@ class AdminService:
     async def get_today_log_files(self) -> List[tuple]:
         """Получить пути к файлам логов за сегодня"""
         try:
-            today = datetime.now(self.moscow_tz).strftime('%Y-%m-%d')
+            today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
             
             # Пути к файлам логов
             log_files = []
@@ -326,7 +264,7 @@ class AdminService:
                 )
                 return False
             
-            today_str = datetime.now(self.moscow_tz).strftime('%d.%m.%Y')
+            today_str = datetime.now(timezone.utc).strftime('%d.%m.%Y UTC')
             
             for log_type, file_path in log_files:
                 try:
@@ -343,10 +281,10 @@ class AdminService:
                         )
                         continue
                     if log_type == 'app':
-                        filename = f"app_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
+                        filename = f"app_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.log"
                         caption = f"📄 <b>Основные логи за {today_str}</b>"
                     else:  # error
-                        filename = f"errors_{datetime.now(self.moscow_tz).strftime('%Y-%m-%d')}.log"
+                        filename = f"errors_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.log"
                         caption = f"🚨 <b>Логи ошибок за {today_str}</b>"
                     
                     document = FSInputFile(file_path, filename=filename)

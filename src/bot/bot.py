@@ -12,7 +12,6 @@ from src.core.scheduler import hse_scheduler
 from src.core.database import db_manager
 from src.utils import get_logger
 
-# Загружаем переменные окружения
 load_dotenv('src/config/.env')
 
 logger = get_logger()
@@ -25,13 +24,11 @@ class HSEBot:
         if not self.bot_token:
             raise ValueError("BOT_TOKEN не найден в переменных окружения")
         
-        # Создаем бота с настройками по умолчанию
         self.bot = Bot(
             token=self.bot_token,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML)
         )
         
-        # Создаем диспетчер с хранилищем состояний
         storage = MemoryStorage()
         self.dp = Dispatcher(storage=storage)
         
@@ -40,29 +37,24 @@ class HSEBot:
     async def setup(self, with_scheduler: bool = False):
         """Настройка бота перед запуском"""
         try:
-            # Инициализируем базу данных
             await db_manager.ensure_initialized()
             logger.info("База данных инициализирована")
             
-            # Регистрируем middleware
             register_middlewares(self.dp)
             logger.info("Middleware зарегистрированы")
             
-            # Регистрируем handlers
             register_handlers(self.dp)
             logger.info("Handlers зарегистрированы")
             
-            # Настраиваем планировщик если нужно
             if with_scheduler:
                 hse_scheduler.set_bot(self.bot)
                 hse_scheduler.add_sync_job(1)  # Синхронизация каждый час
-                hse_scheduler.add_notification_job(10)  # Уведомления каждые 10 минут
+                hse_scheduler.add_notification_job(interval_minutes=3)  # Уведомления каждые 10 минут # WARN
                 hse_scheduler.add_daily_cleanup_job(5, 0)  # Очистка в 5:00
                 hse_scheduler.add_immediate_sync()  # Немедленная синхронизация при старте
                 hse_scheduler.start()
                 logger.info("Планировщик настроен и запущен")
             
-            # Получаем информацию о боте
             bot_info = await self.bot.get_me()
             logger.info(f"Бот запущен: @{bot_info.username}")
             
@@ -85,7 +77,6 @@ class HSEBot:
     async def shutdown(self):
         """Корректное завершение работы бота"""
         try:
-            # Останавливаем планировщик если он запущен
             if hse_scheduler.is_running:
                 hse_scheduler.stop()
                 logger.info("Планировщик остановлен")
@@ -96,7 +87,6 @@ class HSEBot:
         except Exception as e:
             logger.error(f"Ошибка при завершении работы бота: {e}")
 
-# Создаем экземпляр бота
 hse_bot = HSEBot()
 
 async def main():

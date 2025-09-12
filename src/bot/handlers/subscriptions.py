@@ -67,11 +67,10 @@ async def cmd_subscriptions(event: Message | CallbackQuery, db_user, state: FSMC
         builder.row()
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         
-        # Настраиваем layout: первые 2 кнопки в ряд, остальные по одной
         if subscriptions:
-            builder.adjust(2, 1, 1)  # 2 кнопки курсов, 1 отписка, 1 назад
+            builder.adjust(2, 1, 1) 
         else:
-            builder.adjust(2, 1)     # 2 кнопки курсов, 1 назад
+            builder.adjust(2, 1)     
         
         await state.set_state(SubscriptionStates.choosing_year)
         
@@ -264,16 +263,16 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
     builder.button(text="⚙️ Настройки", callback_data="quick_settings")
     builder.button(text="ℹ️ Помощь", callback_data="quick_help")
     
-    # Импортируем функцию проверки админа
+    
     from src.bot.handlers.admin import is_admin
     
     # Добавляем кнопку админ-панели для администраторов
     if is_admin(callback.from_user.id):
         builder.row()
         builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel")
-        builder.adjust(2, 2, 1)  # 2+2 основные кнопки, 1 админская
+        builder.adjust(2, 2, 1)  
     else:
-        builder.adjust(2, 2)  # 2 кнопки в первом ряду, 2 во втором
+        builder.adjust(2, 2)  
     
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
 

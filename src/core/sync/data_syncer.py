@@ -1,19 +1,21 @@
 import asyncio
+import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import re
 from dateutil import parser
-import pytz
 
 from src.core.sync.gsheets_syncer import sheets_manager
 from src.core.database import db_manager
+from src.bot.services.notification_scheduler_service import notification_scheduler_service
 from src.utils import get_logger
+from src.utils.time import localize_naive_and_convert_to_utc
 
 logger = get_logger()
 
 class DataSyncer:
     def __init__(self):
-        self.moscow_tz = pytz.timezone('Europe/Moscow')
+        pass
     
     def parse_date(self, date_str: str) -> Optional[datetime]:
         """Парсинг даты из различных форматов"""
@@ -28,11 +30,8 @@ class DataSyncer:
             if parsed_date.time() == datetime.min.time():
                 parsed_date = parsed_date.replace(hour=23, minute=59)
             
-            # Добавляем московский часовой пояс если его нет
-            if parsed_date.tzinfo is None:
-                parsed_date = self.moscow_tz.localize(parsed_date)
-            
-            return parsed_date
+            source_tz = os.getenv('TIMEZONE', 'Europe/Moscow')
+            return localize_naive_and_convert_to_utc(parsed_date, source_tz)
         except Exception as e:
             logger.warning(f"Не удалось распарсить дату '{date_str}': {e}")
             return None
@@ -119,16 +118,25 @@ class DataSyncer:
             
             # Синхронизация
             synced_count = 0
+            scheduled_notifications_count = 0
             current_sheet_row_ids = []
             
             for deadline_data in db_data:
-                deadline = await db_manager.upsert_deadline(deadline_data)
+                deadline, was_changed = await db_manager.upsert_deadline(deadline_data)
                 if deadline:
                     synced_count += 1
                     current_sheet_row_ids.append(deadline.sheet_row_id)
+                    
+                    # Планируем уведомления только если были изменения или новая запись
+                    if was_changed:
+                        try:
+                            notifications_count = await notification_scheduler_service.reschedule_notifications_for_updated_deadline(deadline)
+                            scheduled_notifications_count += notifications_count
+                        except Exception as e:
+                            logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}")
             
             await db_manager.delete_outdated_deadlines(current_sheet_row_ids)
-            logger.success(f"Синхронизировано {synced_count} дедлайнов")
+            logger.info(f"Синхронизировано {synced_count} дедлайнов, запланировано {scheduled_notifications_count} уведомлений")
             return True
             
         except Exception as e:

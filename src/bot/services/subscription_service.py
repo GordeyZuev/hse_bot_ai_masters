@@ -11,17 +11,6 @@ logger = get_logger()
 class SubscriptionService:
     """Сервис для работы с подписками пользователей"""
     
-    async def get_available_subjects(self) -> List[Subject]:
-        """Получить все доступные предметы"""
-        async with db_manager.async_session() as session:
-            try:
-                stmt = select(Subject).where(Subject.is_active == True).order_by(Subject.year, Subject.name)
-                result = await session.execute(stmt)
-                return list(result.scalars().all())
-            except Exception as e:
-                logger.error(f"Ошибка получения предметов: {e}")
-                return []
-    
     async def get_subjects_by_year(self, year: int) -> List[Subject]:
         """Получить предметы по году обучения"""
         async with db_manager.async_session() as session:

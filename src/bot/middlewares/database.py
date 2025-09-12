@@ -5,9 +5,10 @@ from datetime import datetime
 import pytz
 
 from src.core.database import db_manager
-from src.core.models import User
+from src.core.models import User, UserNotificationSettings
 from src.utils import get_logger
 from sqlalchemy import select
+from src.utils.time import utc_now
 
 logger = get_logger()
 
@@ -20,22 +21,18 @@ class DatabaseMiddleware(BaseMiddleware):
         event: Message | CallbackQuery,
         data: Dict[str, Any]
     ) -> Any:
-        # Получаем пользователя из события
         user = event.from_user
         if not user:
             return await handler(event, data)
         
         try:
-            # Убеждаемся, что база данных инициализирована
             await db_manager.ensure_initialized()
             
-            # Создаем или обновляем пользователя в БД
             db_user = await self.get_or_create_user(user)
             data['db_user'] = db_user
             
         except Exception as e:
             logger.error(f"Ошибка в DatabaseMiddleware: {e}")
-            # Не создаем временного пользователя, пропускаем обработчик
             raise
         
         return await handler(event, data)
@@ -49,9 +46,7 @@ class DatabaseMiddleware(BaseMiddleware):
                 stmt = select(User).where(User.tg_user_id == tg_user.id)
                 result = await session.execute(stmt)
                 user = result.scalar_one_or_none()
-                
-                moscow_tz = pytz.timezone('Europe/Moscow')
-                current_time = datetime.now(moscow_tz)
+                current_time = utc_now()
                 
                 if user:
                     # Обновляем информацию о пользователе
@@ -66,11 +61,16 @@ class DatabaseMiddleware(BaseMiddleware):
                         first_name=tg_user.first_name,
                         last_name=tg_user.last_name,
                         username=tg_user.username,
+                        subscribed_at=current_time,
                         last_activity_ts=current_time,
                         timezone='Europe/Moscow'
                     )
                     session.add(user)
                     logger.info(f"Создан новый пользователь: {tg_user.id} (@{tg_user.username})")
+                    
+                    # Создаем настройки уведомлений по умолчанию для нового пользователя
+                    settings = await db_manager.create_user_notification_settings(tg_user.id)
+                    session.add(settings)
                 
                 await session.commit()
                 await session.refresh(user)

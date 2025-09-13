@@ -24,7 +24,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
 # Функция для логирования
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE" >&2
 }
 
 # Функция для проверки существования контейнера

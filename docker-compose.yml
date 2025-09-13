@@ -3,7 +3,6 @@ version: '3.8'
 networks:
   hse_bot_network:
     driver: bridge
-    internal: true
 
 volumes:
   postgres_data:

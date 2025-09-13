@@ -17,7 +17,7 @@ router = Router()
 class SettingsStates(StatesGroup):
     choosing_notification = State()
     setting_offset = State()
-    choosing_timezone = State()
+    waiting_for_location = State()
 
 @router.message(Command("settings"))
 @router.callback_query(F.data == "quick_settings")
@@ -98,47 +98,82 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
 
 @router.callback_query(F.data == "choose_timezone")
 async def callback_choose_timezone(callback: CallbackQuery, db_user, state: FSMContext):
-    """Начало выбора часового пояса: пользователь вводит смещение относительно Москвы"""
+    """Начало выбора часового пояса: предлагаем отправить геолокацию"""
     await callback.answer()
     try:
-        await state.set_state(SettingsStates.choosing_timezone)
         text = (
-            "🌍 <b>Часовой пояс (смещение относительно UTC)</b>\n\n"
+            "🌍 <b>Настройка часового пояса</b>\n\n"
             f"Текущий: <b>{db_user.timezone}</b>\n\n"
-            "Отправьте смещение относительно UTC в часах: <code>+N</code> или <code>-N</code>\n\n"
-            "Примеры: \n• Москва: <code>+3</code> \n• Сербия: <code>+2</code>"
+            "Для автоматического определения часового пояса отправьте ваше местоположение:\n\n"
+            "📍 <b>Способ 1:</b> Нажмите кнопку \"Отправить местоположение\"\n"
+            "📍 <b>Способ 2:</b> Отправьте геолокацию через меню Telegram\n\n"
+            "Ваши координаты будут использованы только для определения часового пояса и не сохраняются."
         )
         builder = InlineKeyboardBuilder()
+        builder.button(text="📍 Отправить местоположение", callback_data="request_location")
         builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
+        builder.adjust(1, 1)
         await callback.message.edit_text(text, reply_markup=builder.as_markup())
     except Exception as e:
         logger.error(f"Ошибка запуска выбора часового пояса: {e}")
         await callback.answer("Ошибка", show_alert=True)
 
-@router.message(SettingsStates.choosing_timezone)
-async def process_timezone_offset(message: Message, db_user, state: FSMContext):
-    """Обработка текстового ввода смещения относительно МСК"""
-    text = (message.text or "").strip()
+@router.callback_query(F.data == "request_location")
+async def callback_request_location(callback: CallbackQuery, db_user, state: FSMContext):
+    """Запрос местоположения для определения часового пояса"""
+    await callback.answer()
     try:
-        from src.utils.time import parse_utc_offset, propose_timezones_for_utc_offset
-        utc_total = parse_utc_offset(text)
-        top, fixed_label = propose_timezones_for_utc_offset(utc_total)
-        # Берём первый найденный IANA timezone, иначе фиксированный UTC
-        tz_to_save = top[0] if top else fixed_label
-        updated = await db_manager.update_user_timezone(db_user.tg_user_id, tz_to_save)
+        await state.set_state(SettingsStates.waiting_for_location)
+        text = (
+            "📍 <b>Отправьте ваше местоположение</b>\n\n"
+            "Нажмите кнопку \"Отправить местоположение\" или отправьте примерную геолокацию через меню Telegram.\n\n"
+            "Данные не сохряняются и будут использованы только для определения часового пояса."
+        )
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Назад", callback_data="choose_timezone")
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    except Exception as e:
+        logger.error(f"Ошибка запроса местоположения: {e}")
+        await callback.answer("Ошибка", show_alert=True)
+
+
+@router.message(SettingsStates.waiting_for_location)
+async def process_location(message: Message, db_user, state: FSMContext):
+    """Обработка полученной геолокации"""
+    try:
+        if not message.location:
+            await message.answer("❌ Пожалуйста, отправьте ваше местоположение.")
+            return
+        
+        latitude = message.location.latitude
+        longitude = message.location.longitude
+        
+        # Определяем часовой пояс по координатам
+        from src.utils.time import get_timezone_from_location_with_city
+        timezone_name, city_name = get_timezone_from_location_with_city(latitude, longitude)
+        
+        # Обновляем часовой пояс пользователя
+        updated = await db_manager.update_user_timezone(db_user.tg_user_id, timezone_name)
+        
         if updated:
-            await message.answer(f"✅ Часовой пояс обновлён: {tz_to_save}")
+            from src.utils.time import format_offset_from_moscow_label
+            msk_label = format_offset_from_moscow_label(timezone_name)
+            
+            await message.answer(
+                f"✅ <b>Часовой пояс обновлён!</b>\n\n"
+                f"📍 Местоположение: {city_name}\n"
+                f"🌍 Часовой пояс: <b>{timezone_name}</b>\n"
+                f"⏰ Относительно МСК: <b>{msk_label}</b>"
+            )
             await state.clear()
             await cmd_settings(message, db_user, state)
         else:
             await message.answer("❌ Не удалось обновить часовой пояс")
-    except ValueError:
-        await message.answer("❌ Формат: +N или -N. Пример: +3, -5")
+            
     except Exception as e:
-        logger.error(f"Ошибка обработки TZ: {e}")
-        await message.answer("Произошла ошибка. Попробуйте ещё раз.")
+        logger.error(f"Ошибка обработки геолокации: {e}")
+        await message.answer("❌ Произошла ошибка при обработке местоположения. Попробуйте ещё раз.")
 
-# Удалены кнопки смещений и выбор из списка; выбор теперь автоматический
 
 @router.callback_query(F.data.startswith("setup_notification_"))
 async def callback_setup_notification(callback: CallbackQuery, db_user, state: FSMContext):

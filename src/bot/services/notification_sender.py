@@ -298,28 +298,28 @@ class NotificationSender:
         }.get(offset_unit, offset_unit)
         
         message = f"🔔 <b>Напоминание о дедлайне</b>\n\n"
-        message += f"📚 <b>{subject.name}</b>\n"
-        message += f"📝 <b>{deadline.hw_name}</b>\n\n"
+        message += f"📚 <b>Предмет:</b> {subject.name}\n"
+        
+        # Задание с гиперссылкой, если есть ссылка
+        if deadline.source_link:
+            message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+        else:
+            message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
         
         # Информация о дедлайнах
         user_tz = pytz.timezone(getattr(user, 'timezone', '') or 'UTC')
         if deadline.soft_deadline_ts:
             soft_local = deadline.soft_deadline_ts.astimezone(user_tz)
-            soft_date = soft_local.strftime("%d.%m.%Y %H:%M")
-            message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date}\n"
+            soft_date = soft_local.strftime("%d.%m.%Y в %H:%M")
+            message += f"📅 🟡 <b>Дедлайн:</b> {soft_date} (Осталось {offset_value} {unit_text})\n"
         
         if deadline.hard_deadline_ts:
             hard_local = deadline.hard_deadline_ts.astimezone(user_tz)
-            hard_date = hard_local.strftime("%d.%m.%Y %H:%M")
-            message += f"🔴 <b>Жесткий дедлайн:</b> {hard_date}\n"
-        
-        message += f"\n⏰ <b>Осталось:</b> {offset_value} {unit_text}"
-        
-        if deadline.source_link:
-            message += f"\n\n🔗 <a href='{deadline.source_link}'>Перейти к заданию</a>"
+            hard_date = hard_local.strftime("%d.%m.%Y в %H:%M")
+            message += f"📅 🔴 <b>Дедлайн:</b> {hard_date} (Осталось {offset_value} {unit_text})\n"
         
         if deadline.note:
-            message += f"\n\n💬 <i>{deadline.note}</i>"
+            message += f"\n💬 <i>{deadline.note}</i>"
         
         return message
     
@@ -332,8 +332,7 @@ class NotificationSender:
             'hours': 'ч.'
         }.get(offset_unit, offset_unit)
         
-        message = f"🔔 <b>Напоминание о дедлайнах</b>\n\n"
-        message += f"У вас {len(deadlines_data)} дедлайнов через {offset_value} {unit_text}:\n\n"
+        message = f"🔔 <b>Напоминания о дедлайнах ({len(deadlines_data)})</b>\n\n"
         
         user_tz = pytz.timezone(getattr(user, 'timezone', '') or 'UTC')
         for i, data in enumerate(deadlines_data, 1):
@@ -341,20 +340,23 @@ class NotificationSender:
             subject = data['subject']
             
             message += f"<b>{i}. {subject.name}</b>\n"
-            message += f"📝 {deadline.hw_name}\n"
+            
+            # Задание с гиперссылкой, если есть ссылка
+            if deadline.source_link:
+                message += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+            else:
+                message += f"📝 {deadline.hw_name}\n"
             
             if deadline.soft_deadline_ts:
                 local_time = deadline.soft_deadline_ts.astimezone(user_tz)
-                date_str = local_time.strftime("%d.%m %H:%M")
-                message += f"🟡 {date_str}\n"
+                date_str = local_time.strftime("%d.%m.%Y в %H:%M")
+                message += f"📅 🟡 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
             elif deadline.hard_deadline_ts:
                 local_time = deadline.hard_deadline_ts.astimezone(user_tz)
-                date_str = local_time.strftime("%d.%m %H:%M")
-                message += f"🔴 {date_str}\n"
+                date_str = local_time.strftime("%d.%m.%Y в %H:%M")
+                message += f"📅 🔴 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
             
             message += "\n"
-        
-        message += "Используйте /deadlines для подробной информации."
         
         return message
     

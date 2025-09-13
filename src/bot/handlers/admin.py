@@ -355,7 +355,7 @@ async def callback_admin_stats(callback: CallbackQuery, db_user):
     await callback.answer("Загружаю статистику...")
     
     # Используем общую функцию отображения статистики
-    await show_statistics(callback.message, db_user, show_back_button=True)
+    await show_statistics(callback, db_user, show_back_button=True)
 
 @router.callback_query(F.data == "admin_logs")
 async def callback_admin_logs(callback: CallbackQuery, db_user):
@@ -391,7 +391,7 @@ async def callback_admin_refresh_stats(callback: CallbackQuery, db_user):
     await callback.answer("Обновляю статистику...")
     
     # Используем общую функцию отображения статистики
-    await show_statistics(callback.message, db_user, show_back_button=True)
+    await show_statistics(callback, db_user, show_back_button=True)
 
 @router.callback_query(F.data == "admin_sync")
 async def callback_admin_sync(callback: CallbackQuery, db_user):

@@ -238,13 +238,17 @@ class DeadlineService:
             subject = data['subject']
             
             message += f"<b>{i}. {subject.name}</b>\n"
-            message += f"📝 {deadline.hw_name}\n"
+            # Делаем название ДЗ гиперссылкой, если есть ссылка
+            if deadline.source_link:
+                message += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+            else:
+                message += f"📝 {deadline.hw_name}\n"
             
             # Ближайший дедлайн с правильным цветом
             if data.get('nearest_deadline'):
                 # Форматируем время в часовом поясе пользователя
                 local_time = data['nearest_deadline'].astimezone(user_tz)
-                date_str = local_time.strftime("%d.%m %H:%M")
+                date_str = local_time.strftime("%d.%m.%Y %H:%M")
                 
                 # Выбираем цвет в зависимости от типа дедлайна
                 deadline_type_icon = "🟡" if data['deadline_type'] == "soft" else "🔴"

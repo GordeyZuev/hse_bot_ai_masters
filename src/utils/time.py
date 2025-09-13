@@ -1,6 +1,7 @@
 from datetime import datetime, timezone, timedelta
 import pytz
 import re
+from timezonefinder import TimezoneFinder
 
 
 def utc_now() -> datetime:
@@ -65,61 +66,6 @@ def make_user_window_utc(days: int, user_tz_name: str) -> tuple[datetime, dateti
     return now_local, end_local, now_utc, end_utc
 
 
-# -------- Timezone selection helpers --------
-
-def format_fixed_utc_label(utc_total: float) -> str:
-    """Format a fixed UTC label like 'UTC+03' for given utc_total hours (float)."""
-    sign = '+' if utc_total >= 0 else '-'
-    abs_total = abs(int(utc_total))
-    return f"UTC{sign}{abs_total:02d}"
-
-
-def propose_timezones_for_utc_offset(utc_total: float, max_results: int = 12) -> tuple[list[str], str]:
-    """Return (candidate_iana_timezones, fixed_label) for given utc_total hours.
-    Candidates are sorted by common region preference and name.
-    """
-    now_utc = datetime.now(timezone.utc)
-    total_minutes = int(utc_total * 60)
-    candidates: list[str] = []
-    for tz_name in pytz.all_timezones:
-        try:
-            tzinfo = pytz.timezone(tz_name)
-            offset = now_utc.astimezone(tzinfo).utcoffset()
-            if offset is None:
-                continue
-            if int(offset.total_seconds() // 60) == total_minutes:
-                candidates.append(tz_name)
-        except Exception:
-            continue
-    priority_order = ['Europe/', 'Asia/', 'America/', 'Africa/', 'Australia/']
-    def prio(name: str) -> int:
-        for i, pref in enumerate(priority_order):
-            if name.startswith(pref):
-                return i
-        return len(priority_order)
-    candidates.sort(key=lambda n: (prio(n), n))
-    fixed_label = format_fixed_utc_label(utc_total)
-    return candidates[:max_results], fixed_label
-
-
-def parse_utc_offset(user_input: str) -> float:
-    """Parse input like '+N' or '-N' as hours relative to UTC and return utc_total hours as float.
-    Raises ValueError on invalid input or out-of-range.
-    """
-    text = (user_input or '').strip()
-    match = re.fullmatch(r"([+-]?)(\d{1,2})", text)
-    if not match:
-        raise ValueError("format")
-    sign, hours_str = match.groups()
-    hours = int(hours_str)
-    if hours > 14:
-        raise ValueError("range")
-    total = float(hours)
-    if sign == '-':
-        total = -total
-    if total < -12 or total > 14:
-        raise ValueError("utc_bounds")
-    return total
 
 
 def format_offset_from_moscow_label(tz_name: str) -> str:
@@ -139,5 +85,53 @@ def format_offset_from_moscow_label(tz_name: str) -> str:
         return f"МСК {sign}{abs(diff_hours)}"
     except Exception:
         return "МСК"
+
+
+# -------- Location-based timezone detection --------
+
+def get_timezone_from_location(latitude: float, longitude: float) -> str:
+    """Get timezone name from latitude and longitude coordinates.
+    Returns IANA timezone name or 'Europe/Moscow' as fallback.
+    """
+    try:
+        tf = TimezoneFinder()
+        timezone_name = tf.timezone_at(lat=latitude, lng=longitude)
+        
+        if timezone_name:
+            # Validate that the timezone exists in pytz
+            try:
+                pytz.timezone(timezone_name)
+                return timezone_name
+            except pytz.UnknownTimeZoneError:
+                pass
+        
+        # Fallback to Europe/Moscow if no timezone found or invalid
+        return 'Europe/Moscow'
+        
+    except Exception:
+        # Fallback to Europe/Moscow on any error
+        return 'Europe/Moscow'
+
+
+def get_timezone_from_location_with_city(latitude: float, longitude: float) -> tuple[str, str]:
+    """Get timezone name and city name from coordinates.
+    Returns (timezone_name, city_name) tuple.
+    """
+    timezone_name = get_timezone_from_location(latitude, longitude)
+    
+    # Try to get a more human-readable city name
+    try:
+        city_name = "Ваше местоположение"
+        
+        if timezone_name:
+            # Extract city from timezone name (e.g., "Europe/Moscow" -> "Moscow")
+            parts = timezone_name.split('/')
+            if len(parts) > 1:
+                city_name = parts[-1].replace('_', ' ')
+        
+        return timezone_name, city_name
+        
+    except Exception:
+        return timezone_name, "Ваше местоположение"
 
 

@@ -111,6 +111,26 @@ Scheduler → NotificationScheduler → ScheduledNotification → NotificationSe
 
 ### 🛠️ Utils (`src/utils/`)
 - **`logger.py`** - Настройка логирования
+- **`time.py`** - Утилиты для работы с временем и часовыми поясами
+
+## 📦 Зависимости
+
+### Основные библиотеки
+- **`aiogram`** (3.22.0) - Telegram Bot API framework
+- **`SQLAlchemy`** (2.0.43) - ORM для работы с базой данных
+- **`asyncpg`** (0.30.0) - Асинхронный PostgreSQL драйвер
+- **`APScheduler`** (3.11.0) - Планировщик задач
+- **`pytz`** (2025.2) - Работа с часовыми поясами
+- **`timezonefinder`** (8.0.0) - Определение часового пояса по координатам
+
+### Интеграции
+- **`gspread`** (6.0.2) - Google Sheets API
+- **`google-auth`** (2.40.3) - Аутентификация Google API
+
+### Утилиты
+- **`loguru`** (0.7.3) - Продвинутое логирование
+- **`python-dotenv`** (1.1.1) - Загрузка переменных окружения
+- **`alembic`** (1.16.4) - Миграции базы данных
 
 ## 📚 Связанная документация
 
@@ -125,9 +145,5 @@ Scheduler → NotificationScheduler → ScheduledNotification → NotificationSe
 **🔧 HSE AI Deadlines Bot - Technical Documentation**
 
 *Подробная техническая документация архитектуры и компонентов*
-
-[![Architecture](https://img.shields.io/badge/Architecture-Modular-blue.svg)](https://github.com)
-[![Database](https://img.shields.io/badge/Database-PostgreSQL-blue.svg)](https://postgresql.org)
-[![Async](https://img.shields.io/badge/Async-Await-green.svg)](https://python.org)
 
 </div>

@@ -164,7 +164,7 @@ class ScheduledNotificationSender:
         deadline = data['deadline']
         subject = data['subject']
         
-        deadline_type_text = "Мягкий дедлайн" if notification.deadline_type == 'soft' else "Жёсткий дедлайн"
+        deadline_type_icon = "🟡" if notification.deadline_type == 'soft' else "🔴"
         
         # Определяем какой дедлайн использовать
         if notification.deadline_type == 'soft':
@@ -192,17 +192,17 @@ class ScheduledNotificationSender:
         message = f"⏰ <b>Напоминание о дедлайне</b>\n\n"
         message += f"📚 <b>Предмет:</b> {subject.name}\n"
         
+        # Задание с гиперссылкой, если есть ссылка
         if deadline.hw_name:
-            message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
+            if deadline.source_link:
+                message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+            else:
+                message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
         
-        message += f"📅 <b>{deadline_type_text}:</b> {deadline_str}\n"
-        message += f"⏳ <b>Осталось:</b> {time_left_str}\n"
+        message += f"📅 {deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
         
         if deadline.note:
-            message += f"💬 <b>Примечание:</b> {deadline.note}\n"
-        
-        if deadline.source_link:
-            message += f"\n🔗 <a href='{deadline.source_link}'>Ссылка на задание</a>"
+            message += f"\n💬 <i>{deadline.note}</i>"
         
         return message
     
@@ -218,7 +218,7 @@ class ScheduledNotificationSender:
             deadline = data['deadline']
             subject = data['subject']
             
-            deadline_type_text = "мягкий" if notification.deadline_type == 'soft' else "жёсткий"
+            deadline_type_icon = "🟡" if notification.deadline_type == 'soft' else "🔴"
             
             # Определяем какой дедлайн использовать
             if notification.deadline_type == 'soft':
@@ -228,7 +228,7 @@ class ScheduledNotificationSender:
             
             # Форматируем дату в TZ пользователя
             local_deadline = deadline_ts.astimezone(user_tz)
-            deadline_str = local_deadline.strftime("%d.%m в %H:%M")
+            deadline_str = local_deadline.strftime("%d.%m.%Y в %H:%M")
             
             # Вычисляем время до дедлайна
             now = datetime.now(timezone.utc)
@@ -243,15 +243,16 @@ class ScheduledNotificationSender:
                 minutes = time_left.seconds // 60
                 time_left_str = f"{minutes} мин."
             
-            message += f"{i}. <b>{subject.name}</b>\n"
+            message += f"<b>{i}. {subject.name}</b>\n"
             
+            # Задание с гиперссылкой, если есть ссылка
             if deadline.hw_name:
-                message += f"   📝 {deadline.hw_name}\n"
+                if deadline.source_link:
+                    message += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                else:
+                    message += f"📝 {deadline.hw_name}\n"
             
-            message += f"   📅 {deadline_type_text}: {deadline_str} (через {time_left_str})\n"
-            
-            if deadline.source_link:
-                message += f"   🔗 <a href='{deadline.source_link}'>Ссылка</a>\n"
+            message += f"📅 {deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
             
             message += "\n"
         

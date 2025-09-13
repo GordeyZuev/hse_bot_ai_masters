@@ -30,7 +30,7 @@ class DataSyncer:
             if parsed_date.time() == datetime.min.time():
                 parsed_date = parsed_date.replace(hour=23, minute=59)
             
-            source_tz = os.getenv('TIMEZONE', 'Europe/Moscow')
+            source_tz = os.getenv('TZ', 'Europe/Moscow')
             return localize_naive_and_convert_to_utc(parsed_date, source_tz)
         except Exception as e:
             logger.warning(f"Не удалось распарсить дату '{date_str}': {e}")
@@ -72,7 +72,6 @@ class DataSyncer:
                     continue
                 
                 # Обработка предмета
-                #module = self.extract_module_from_subject(subject_name_raw)
                 subject_name = self.clean_subject_name(subject_name_raw)
                 
                 subject = await db_manager.get_or_create_subject(

@@ -14,27 +14,32 @@ from src.utils.time import utc_now
 from src.core.models import Base, Subject, Deadline, User, UserNotificationSettings, Subscription, ScheduledNotification, ALL_SUBJECTS
 from src.utils import get_logger
 
+# Загружаем переменные окружения
 load_dotenv('src/config/.env')
 logger = get_logger()
 
 class DatabaseManager:
     def __init__(self, auto_init: bool = False):
-        self.database_url = os.getenv('DATABASE_URL')
-        if not self.database_url:
-            logger.critical("DATABASE_URL не найден в переменных окружения")
-            raise ValueError("DATABASE_URL не найден в переменных окружения")
-        
+        # Базовые параметры БД
+        self.db_name = os.getenv('DB_NAME', os.getenv('POSTGRES_DB', 'hse_bot_db'))
+        self.db_user = os.getenv('DB_USER', os.getenv('POSTGRES_USER', 'postgres'))
+        self.db_password = os.getenv('DB_PASSWORD', os.getenv('POSTGRES_PASSWORD', 'password'))
         self.db_host = os.getenv('DB_HOST', 'localhost')
         self.db_port = os.getenv('DB_PORT', '5432')
-        self.db_name = os.getenv('DB_NAME', 'hse_bot_db')
-        self.db_user = os.getenv('DB_USER', 'postgres')
-        self.db_password = os.getenv('DB_PASSWORD', 'password')
+        
+        # Генерируем DATABASE_URL автоматически
+        self.database_url = os.getenv('DATABASE_URL')
+        if not self.database_url:
+            self.database_url = f"postgresql+asyncpg://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
+            # Логируем без пароля для безопасности
+            safe_url = f"postgresql+asyncpg://{self.db_user}:***@{self.db_host}:{self.db_port}/{self.db_name}"
+            logger.info(f"DATABASE_URL сгенерирован автоматически: {safe_url}")
         
         self.engine = None
         self.async_session = None
         self.auto_init = auto_init
         self.initialized = False
-        logger.info("Менеджер базы данных инициализирован")
+        logger.info(f"Менеджер базы данных инициализирован для БД: {self.db_name} на {self.db_host}:{self.db_port}")
 
     async def __aenter__(self):
         if not self.engine:
@@ -118,7 +123,6 @@ class DatabaseManager:
     async def check_tables_exist(self):
         """Проверяет наличие основных таблиц"""
         try:
-
             async with self.engine.begin() as conn:
                 result = await conn.execute(
                     text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')")

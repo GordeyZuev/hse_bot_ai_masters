@@ -6,9 +6,14 @@
 
 set -e  # Остановить выполнение при любой ошибке
 
-# Конфигурация
+# Загружаем переменные окружения из .env файла
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+if [ -f "$PROJECT_DIR/src/config/.env" ]; then
+    export $(grep -v '^#' "$PROJECT_DIR/src/config/.env" | xargs)
+fi
+
+# Конфигурация
 CONTAINER_NAME="hse_bot_db"
 LOG_FILE="$PROJECT_DIR/logs/restore.log"
 
@@ -165,7 +170,7 @@ verify_restore() {
     
     # Проверяем наличие основных таблиц
     local table_count=$(docker exec "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c \
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | tr -d ' ')
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | tr -d ' \n\r')
     
     if [ "$table_count" -gt 0 ]; then
         log "✅ Найдено $table_count таблиц в базе данных"

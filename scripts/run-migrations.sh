@@ -5,7 +5,23 @@
 
 set -e
 
+# Загружаем переменные окружения из .env файла
+if [ -f "src/config/.env" ]; then
+    export $(grep -v '^#' src/config/.env | xargs)
+fi
+
 echo "🔄 Запуск миграций базы данных..."
+
+# Проверка наличия необходимых инструментов
+if ! command -v pg_isready &> /dev/null; then
+    echo "❌ pg_isready не найден. Установите postgresql-client"
+    exit 1
+fi
+
+if ! command -v alembic &> /dev/null; then
+    echo "❌ alembic не найден. Установите alembic"
+    exit 1
+fi
 
 # Ожидание готовности базы данных
 echo "⏳ Ожидание готовности PostgreSQL..."
@@ -18,13 +34,16 @@ echo "✅ PostgreSQL готов!"
 
 # Запуск миграций Alembic
 echo "🔄 Применение миграций..."
-alembic upgrade head
+if ! alembic upgrade head; then
+    echo "❌ Ошибка при применении миграций"
+    exit 1
+fi
 
 echo "✅ Миграции успешно применены!"
 
 # Инициализация данных приложения (если нужно)
 echo "🔄 Инициализация данных приложения..."
-python -c "
+if ! python -c "
 import asyncio
 import sys
 sys.path.insert(0, '.')
@@ -35,6 +54,9 @@ async def init_data():
     print('✅ Данные приложения инициализированы!')
 
 asyncio.run(init_data())
-"
+"; then
+    echo "❌ Ошибка при инициализации данных приложения"
+    exit 1
+fi
 
 echo "🎉 Инициализация завершена успешно!"

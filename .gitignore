@@ -109,6 +109,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+src/config/.env
+
 
 
 # Spyder project settings
@@ -132,9 +134,7 @@ dmypy.json
 # Project specific
 logs/
 *.log
-src/config/.env.local
 src/config/creds.json
-config/.env.production
 config/creds.json
 
 # IDE

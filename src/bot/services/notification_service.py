@@ -49,6 +49,21 @@ class NotificationService:
             if total_hours < 1:
                 return False, "Минимальное время уведомления - 1 час"
             
+            # Получаем текущие настройки для проверки дублирования
+            current_settings = await self.get_user_notification_settings(user_id)
+            
+            # Проверяем, что первое и второе уведомления не настроены одинаково
+            if notification_number == 1:
+                # Настраиваем первое уведомление - проверяем, не совпадает ли со вторым
+                if (current_settings.reminder2_offset == offset_value and 
+                    current_settings.reminder2_unit == offset_unit):
+                    return False, "Первое и второе уведомления не могут быть настроены одинаково"
+            else:
+                # Настраиваем второе уведомление - проверяем, не совпадает ли с первым
+                if (current_settings.reminder1_offset == offset_value and 
+                    current_settings.reminder1_unit == offset_unit):
+                    return False, "Первое и второе уведомления не могут быть настроены одинаково"
+            
             # Готовим данные для обновления
             if notification_number == 1:
                 settings_data = {

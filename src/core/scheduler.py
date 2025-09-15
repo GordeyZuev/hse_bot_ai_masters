@@ -80,7 +80,8 @@ class HSEScheduler:
             total_processed = result.get('total_processed', 0)
             
             if total_processed > 0:
-                logger.info(f"Уведомления отправлены за {duration:.2f}с: {sent} успешно, {failed} неудачно, {skipped} пропущено из {total_processed}")
+                # Логируем только время выполнения, детали уже есть в сервисе
+                logger.info(f"Задача отправки уведомлений выполнена за {duration:.2f}с")
             else:
                 logger.debug(f"Нет уведомлений для отправки (проверка за {duration:.2f}с)")
             

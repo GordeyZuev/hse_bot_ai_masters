@@ -74,7 +74,8 @@ def setup_logging(
         retention=retention,
         compression="zip",
         encoding="utf-8",
-        enqueue=True
+        enqueue=True,
+        catch=True  # Перехватывать ошибки записи
     )
     
     # Отдельный файл для ошибок

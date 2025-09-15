@@ -162,7 +162,7 @@ async def process_toggle_subscription(callback: CallbackQuery, db_user, state: F
             action = "подписка"
         
         if success:
-            await callback.answer(f"✅ {message_text}", show_alert=False)
+            await callback.answer(f"✅ {message_text}", show_alert=True)
             # Обновляем интерфейс
             data = await state.get_data()
             year = data.get('year', 1)

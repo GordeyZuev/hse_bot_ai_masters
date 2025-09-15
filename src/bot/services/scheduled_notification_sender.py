@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from aiogram import Bot
@@ -41,31 +42,21 @@ class ScheduledNotificationSender:
             # Группируем уведомления по пользователям
             user_notifications = self._group_notifications_by_user(notifications)
             
-            for user_id, user_notifs in user_notifications.items():
-                try:
-                    success = await self._send_notifications_to_user(bot, user_id, user_notifs)
-                    
-                    if success:
-                        stats['sent'] += len(user_notifs)
-                        # Обновляем статус уведомлений на 'sent'
-                        for notification in user_notifs:
-                            await db_manager.update_notification_status(notification.id, 'sent')
-                    else:
-                        stats['failed'] += len(user_notifs)
-                        # Обновляем статус уведомлений на 'failed'
-                        for notification in user_notifs:
-                            await db_manager.update_notification_status(notification.id, 'failed')
-                    
-                    stats['total_processed'] += len(user_notifs)
-                    
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомлений пользователю {user_id}: {e}")
-                    stats['failed'] += len(user_notifs)
-                    stats['total_processed'] += len(user_notifs)
-                    
-                    # Отмечаем уведомления как неудачные
-                    for notification in user_notifs:
-                        await db_manager.update_notification_status(notification.id, 'failed')
+            # Обрабатываем пользователей батчами для лучшей производительности
+            batch_size = 10
+            user_items = list(user_notifications.items())
+            
+            for i in range(0, len(user_items), batch_size):
+                batch = user_items[i:i + batch_size]
+                
+                # Обрабатываем батч параллельно
+                tasks = []
+                for user_id, user_notifs in batch:
+                    task = self._process_user_notifications(bot, user_id, user_notifs, stats)
+                    tasks.append(task)
+                
+                # Ждем завершения всех задач в батче
+                await asyncio.gather(*tasks, return_exceptions=True)
             
             logger.info(f"Отправка завершена. Статистика: {stats}")
             return stats
@@ -86,23 +77,55 @@ class ScheduledNotificationSender:
         
         return user_notifications
     
+    async def _process_user_notifications(self, bot: Bot, user_id: int, user_notifs: List[ScheduledNotification], stats: Dict[str, int]):
+        """Обработать уведомления для одного пользователя"""
+        try:
+            success = await self._send_notifications_to_user(bot, user_id, user_notifs)
+            
+            if success:
+                stats['sent'] += len(user_notifs)
+                # Обновляем статус уведомлений на 'sent'
+                for notification in user_notifs:
+                    await db_manager.update_notification_status(notification.id, 'sent')
+            else:
+                stats['failed'] += len(user_notifs)
+                # Обновляем статус уведомлений на 'failed'
+                for notification in user_notifs:
+                    await db_manager.update_notification_status(notification.id, 'failed')
+            
+            stats['total_processed'] += len(user_notifs)
+            
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомлений пользователю {user_id}: {e}")
+            stats['failed'] += len(user_notifs)
+            stats['total_processed'] += len(user_notifs)
+            
+            # Отмечаем уведомления как неудачные
+            for notification in user_notifs:
+                await db_manager.update_notification_status(notification.id, 'failed')
+    
     async def _send_notifications_to_user(self, bot: Bot, user_id: int, notifications: List[ScheduledNotification]) -> bool:
         """Отправить уведомления конкретному пользователю"""
         try:
-            # Загружаем полную информацию о дедлайнах
+            # Загружаем полную информацию о дедлайнах одним запросом
             notification_data = []
             
-            for notification in notifications:
-                # Получаем информацию о дедлайне и предмете
-                async with db_manager.async_session() as session:
-                    stmt = select(Deadline, Subject).join(Subject).where(
-                        Deadline.id == notification.deadline_id
-                    )
-                    result = await session.execute(stmt)
-                    deadline_subject = result.first()
-                    
-                    if deadline_subject:
-                        deadline, subject = deadline_subject
+            # Собираем все ID дедлайнов для одного запроса
+            deadline_ids = [notification.deadline_id for notification in notifications]
+            
+            async with db_manager.async_session() as session:
+                stmt = select(Deadline, Subject).join(Subject).where(
+                    Deadline.id.in_(deadline_ids)
+                )
+                result = await session.execute(stmt)
+                deadline_subjects = result.all()
+                
+                # Создаем словарь для быстрого поиска
+                deadline_dict = {deadline.id: (deadline, subject) for deadline, subject in deadline_subjects}
+                
+                for notification in notifications:
+                    if notification.deadline_id in deadline_dict:
+                        deadline, subject = deadline_dict[notification.deadline_id]
                         notification_data.append({
                             'notification': notification,
                             'deadline': deadline,
@@ -199,7 +222,7 @@ class ScheduledNotificationSender:
             else:
                 message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
         
-        message += f"📅 {deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
+        message += f"{deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
         
         if deadline.note:
             message += f"\n💬 <i>{deadline.note}</i>"
@@ -252,7 +275,7 @@ class ScheduledNotificationSender:
                 else:
                     message += f"📝 {deadline.hw_name}\n"
             
-            message += f"📅 {deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
+            message += f"{deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
             
             message += "\n"
         

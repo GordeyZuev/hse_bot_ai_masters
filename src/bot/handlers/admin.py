@@ -145,16 +145,15 @@ async def format_statistics_message(stats: dict) -> str:
         for i, (subject_name, count) in enumerate(popular_subjects[:5], 1):
             text += f"{i}. {subject_name} ({count})\n"
     
-    # Статистика уведомлений
-    text += f"\n🔔 <b>Уведомления:</b>\n"
-    text += f"• Всего настроек: {stats.get('total_notifications', 0)}\n"
-    text += f"• Активных настроек: {stats.get('active_notifications', 0)}\n"
-    text += f"• Пользователей с настройками: {stats.get('users_with_notifications', 0)}\n"
     
     # Статистика дедлайнов
     text += f"\n📅 <b>Дедлайны:</b>\n"
     text += f"• Всего дедлайнов: {stats.get('total_deadlines', 0)}\n"
     text += f"• Активных дедлайнов: {stats.get('active_deadlines', 0)}\n"
+    
+    # Статистика уведомлений
+    text += f"\n🔔 <b>Уведомления:</b>\n"
+    text += f"• Запланированных: {stats.get('scheduled_notifications', 0)}\n"
     
     # Системная информация
     text += f"\n⚙️ <b>Система:</b>\n"

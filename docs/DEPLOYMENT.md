@@ -996,8 +996,4 @@ echo "Отчет сохранен в system-report.txt"
 
 *Подробное руководство по развертыванию и эксплуатации*
 
-[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://docker.com)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-blue.svg)](https://postgresql.org)
-[![Nginx](https://img.shields.io/badge/Nginx-Reverse%20Proxy-green.svg)](https://nginx.org)
-
 </div>

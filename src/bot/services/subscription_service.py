@@ -5,6 +5,7 @@ from src.core.database import db_manager
 from src.core.models import Subject, Subscription
 from src.utils import get_logger
 from sqlalchemy import func
+from src.bot.services.notification_scheduler_service import notification_scheduler_service
 
 logger = get_logger()
 
@@ -64,7 +65,10 @@ class SubscriptionService:
                 subject = result.scalar_one_or_none()
                 subject_name = subject.name if subject else f"ID:{subject_id}"
                 
-                logger.info(f"Пользователь {user_id} подписался на {subject_name}")
+                # Планируем уведомления для новой подписки
+                scheduled_count = await notification_scheduler_service.schedule_notifications_for_user_subscription(user_id, subject_id)
+                
+                logger.info(f"Пользователь {user_id} подписался на {subject_name}. Запланировано {scheduled_count} уведомлений")
                 return True, "Подписка успешно оформлена!"
                 
             except Exception as e:
@@ -91,7 +95,10 @@ class SubscriptionService:
                 await session.commit()
                 
                 if result.rowcount > 0:
-                    logger.info(f"Пользователь {user_id} отписался от {subject_name}")
+                    # Отменяем уведомления по этому предмету
+                    cancelled_count = await notification_scheduler_service.cancel_notifications_for_user_subscription(user_id, subject_id)
+                    
+                    logger.info(f"Пользователь {user_id} отписался от {subject_name}. Отменено {cancelled_count} уведомлений")
                     return True, "Подписка успешно отменена!"
                 else:
                     return False, "Вы не были подписаны на этот предмет"
@@ -111,7 +118,10 @@ class SubscriptionService:
                 
                 count = result.rowcount
                 if count > 0:
-                    logger.info(f"Пользователь {user_id} отписался от всех предметов ({count})")
+                    # Отменяем все уведомления пользователя
+                    cancelled_count = await notification_scheduler_service.cancel_all_notifications_for_user(user_id)
+                    
+                    logger.info(f"Пользователь {user_id} отписался от всех предметов ({count}). Отменено {cancelled_count} уведомлений")
                     return True, f"Отменено {count} подписок"
                 else:
                     return False, "У вас нет активных подписок"

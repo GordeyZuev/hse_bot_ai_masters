@@ -311,12 +311,12 @@ class NotificationSender:
         if deadline.soft_deadline_ts:
             soft_local = deadline.soft_deadline_ts.astimezone(user_tz)
             soft_date = soft_local.strftime("%d.%m.%Y в %H:%M")
-            message += f"📅 🟡 <b>Дедлайн:</b> {soft_date} (Осталось {offset_value} {unit_text})\n"
+            message += f"🟡 <b>Дедлайн:</b> {soft_date} (Осталось {offset_value} {unit_text})\n"
         
         if deadline.hard_deadline_ts:
             hard_local = deadline.hard_deadline_ts.astimezone(user_tz)
             hard_date = hard_local.strftime("%d.%m.%Y в %H:%M")
-            message += f"📅 🔴 <b>Дедлайн:</b> {hard_date} (Осталось {offset_value} {unit_text})\n"
+            message += f"🔴 <b>Дедлайн:</b> {hard_date} (Осталось {offset_value} {unit_text})\n"
         
         if deadline.note:
             message += f"\n💬 <i>{deadline.note}</i>"
@@ -350,11 +350,11 @@ class NotificationSender:
             if deadline.soft_deadline_ts:
                 local_time = deadline.soft_deadline_ts.astimezone(user_tz)
                 date_str = local_time.strftime("%d.%m.%Y в %H:%M")
-                message += f"📅 🟡 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
+                message += f"🟡 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
             elif deadline.hard_deadline_ts:
                 local_time = deadline.hard_deadline_ts.astimezone(user_tz)
                 date_str = local_time.strftime("%d.%m.%Y в %H:%M")
-                message += f"📅 🔴 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
+                message += f"🔴 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
             
             message += "\n"
         

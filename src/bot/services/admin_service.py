@@ -9,7 +9,7 @@ from aiogram.types import FSInputFile
 import pytz
 
 from src.core.database import db_manager
-from src.core.models import User, Deadline, UserNotificationSettings
+from src.core.models import User, Deadline, UserNotificationSettings, ScheduledNotification
 from src.bot.services.subscription_service import subscription_service
 from src.bot.services.notification_service import notification_service
 from src.utils import get_logger
@@ -53,18 +53,6 @@ class AdminService:
                 subscription_stats = await subscription_service.get_subscription_stats()
                 stats.update(subscription_stats)
                 
-                # Статистика уведомлений
-                stmt = select(func.count(UserNotificationSettings.id))
-                result = await session.execute(stmt)
-                stats['total_notifications'] = result.scalar() or 0
-                
-                stmt = select(func.count(UserNotificationSettings.id)).where(UserNotificationSettings.is_active == True)
-                result = await session.execute(stmt)
-                stats['active_notifications'] = result.scalar() or 0
-                
-                stmt = select(func.count(UserNotificationSettings.user_id.distinct()))
-                result = await session.execute(stmt)
-                stats['users_with_notifications'] = result.scalar() or 0
                 
                 # Статистика дедлайнов
                 stmt = select(func.count(Deadline.id))
@@ -79,6 +67,13 @@ class AdminService:
                 )
                 result = await session.execute(stmt)
                 stats['active_deadlines'] = result.scalar() or 0
+                
+                # Статистика запланированных уведомлений
+                stmt = select(func.count(ScheduledNotification.id)).where(
+                    ScheduledNotification.status == 'scheduled'
+                )
+                result = await session.execute(stmt)
+                stats['scheduled_notifications'] = result.scalar() or 0
                 
                 stmt = select(func.max(Deadline.last_updated))
                 result = await session.execute(stmt)

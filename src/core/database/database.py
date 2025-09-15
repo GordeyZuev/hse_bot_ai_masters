@@ -247,10 +247,24 @@ class DatabaseManager:
                 outdated_deadlines = result.scalars().all()
                 
                 if outdated_deadlines:
+                    # Подсчитываем количество уведомлений, которые будут отменены
+                    total_notifications = 0
+                    for deadline in outdated_deadlines:
+                        notifications_stmt = select(ScheduledNotification).where(
+                            and_(
+                                ScheduledNotification.deadline_id == deadline.id,
+                                ScheduledNotification.status == 'scheduled'
+                            )
+                        )
+                        notifications_result = await session.execute(notifications_stmt)
+                        total_notifications += len(notifications_result.scalars().all())
+                    
+                    # Удаляем дедлайны (уведомления удалятся автоматически из-за каскада)
                     for deadline in outdated_deadlines:
                         await session.delete(deadline)
                     await session.commit()
-                    logger.info(f"Удалено {len(outdated_deadlines)} устаревших дедлайнов")
+                    
+                    logger.info(f"Удалено {len(outdated_deadlines)} устаревших дедлайнов. Отменено {total_notifications} уведомлений")
                     
             except Exception as e:
                 await session.rollback()
@@ -317,7 +331,18 @@ class DatabaseManager:
 
     async def create_user_notification_settings(self, user_id: int) -> UserNotificationSettings:
         """Создать настройки уведомлений для пользователя"""
-        return UserNotificationSettings(user_id=user_id)
+        settings = UserNotificationSettings(user_id=user_id)
+        
+        # Планируем уведомления для существующих подписок пользователя
+        try:
+            from src.bot.services.notification_scheduler_service import notification_scheduler_service
+            scheduled_count = await notification_scheduler_service.schedule_notifications_for_user_settings_creation(user_id)
+            if scheduled_count > 0:
+                logger.info(f"При создании настроек уведомлений для пользователя {user_id} запланировано {scheduled_count} уведомлений")
+        except Exception as e:
+            logger.error(f"Ошибка планирования уведомлений при создании настроек для пользователя {user_id}: {e}")
+        
+        return settings
 
     async def get_user_notification_settings(self, user_id: int) -> UserNotificationSettings:
         """Получить настройки уведомлений пользователя"""

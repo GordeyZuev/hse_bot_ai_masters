@@ -32,7 +32,6 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         edit_mode = False
     
     try:
-        # Получаем актуальные данные пользователя и настройки
         fresh_user = await db_manager.get_user_by_id(db_user.tg_user_id)
         user_for_view = fresh_user or db_user
         settings = await notification_service.get_user_notification_settings(db_user.tg_user_id)
@@ -45,14 +44,12 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
             
             text += "<b>Текущие настройки:</b>\n"
             
-            # Первое напоминание
             unit1_text = {
                 'days': 'дн.',
                 'hours': 'ч.'
             }.get(settings.reminder1_unit, settings.reminder1_unit)
             text += f"🔔 Напоминание 1: за {settings.reminder1_offset} {unit1_text}\n"
             
-            # Второе напоминание
             unit2_text = {
                 'days': 'дн.',
                 'hours': 'ч.'
@@ -148,11 +145,9 @@ async def process_location(message: Message, db_user, state: FSMContext):
         latitude = message.location.latitude
         longitude = message.location.longitude
         
-        # Определяем часовой пояс по координатам
         from src.utils.time import get_timezone_from_location_with_city
         timezone_name, city_name = get_timezone_from_location_with_city(latitude, longitude)
         
-        # Обновляем часовой пояс пользователя
         updated = await db_manager.update_user_timezone(db_user.tg_user_id, timezone_name)
         
         if updated:
@@ -217,8 +212,6 @@ async def callback_setup_notification(callback: CallbackQuery, db_user, state: F
 @router.callback_query(F.data.startswith("set_notification_"))
 async def callback_set_notification(callback: CallbackQuery, db_user, state: FSMContext):
     """Обработчик установки уведомления"""
-    await callback.answer()
-    
     try:
         parts = callback.data.split("_")
         notification_number = int(parts[2])
@@ -352,7 +345,6 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
             )
             return
         
-        # Проверяем минимальное время (1 час)
         total_hours = 0
         if offset_unit == 'hours':
             total_hours = offset_value
@@ -365,7 +357,6 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
             )
             return
         
-        # Проверяем разумные пределы
         if offset_unit == 'days' and offset_value > 30:
             await message.answer("❌ Максимум 30 дней")
             return
@@ -373,7 +364,6 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
             await message.answer("❌ Максимум 168 часов (неделя)")
             return
         
-        # Устанавливаем уведомление
         success, message_text = await notification_service.set_user_notification(
             db_user.tg_user_id, notification_number, offset_value, offset_unit
         )
@@ -387,7 +377,6 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
             await message.answer(f"✅ Уведомление настроено: за {offset_value} {unit_text}")
             await state.clear()
             
-            # Показываем обновленные настройки
             await cmd_settings(message, db_user, state)
         else:
             await message.answer(f"❌ {message_text}")

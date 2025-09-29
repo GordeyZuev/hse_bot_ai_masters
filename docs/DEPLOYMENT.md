@@ -200,7 +200,7 @@ GOOGLE_CREDENTIALS_PATH=src/config/creds.json
 SYNC_INTERVAL_HOURS=1
 
 # Интервал проверки уведомлений (минуты)
-NOTIFICATION_CHECK_MINUTES=10
+NOTIFICATION_CHECK_MINUTES=15  # отправка по кратным 15 минутам (UTC)
 
 # ===========================================
 # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ

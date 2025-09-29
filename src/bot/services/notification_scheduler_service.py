@@ -28,26 +28,34 @@ class NotificationSchedulerService:
     async def _get_subject_deadlines(self, subject_id: int) -> List[Deadline]:
         """Получить все активные дедлайны по предмету"""
         async with db_manager.async_session() as session:
-            stmt = select(Deadline).where(
-                and_(
-                    Deadline.subject_id == subject_id,
-                    Subject.is_active == True
-                )
-            ).join(Subject)
+            stmt = select(Deadline).where(Deadline.subject_id == subject_id)
             result = await session.execute(stmt)
             return list(result.scalars().all())
     
     async def _get_user_and_settings(self, user_id: int) -> tuple[User, UserNotificationSettings]:
-        """Получить пользователя и его настройки уведомлений"""
-        user = await db_manager.get_user_by_id(user_id)
-        if not user:
-            raise ValueError(f"Пользователь {user_id} не найден")
-        
-        settings = await db_manager.get_user_notification_settings(user_id)
-        if not settings.is_active:
-            raise ValueError(f"Уведомления отключены для пользователя {user_id}")
-        
-        return user, settings
+        """Получить пользователя и его настройки уведомлений одним запросом"""
+        async with db_manager.async_session() as session:
+            try:
+                stmt = select(User, UserNotificationSettings).join(
+                    UserNotificationSettings, User.tg_user_id == UserNotificationSettings.user_id
+                ).where(User.tg_user_id == user_id)
+                
+                result = await session.execute(stmt)
+                row = result.first()
+                
+                if not row:
+                    raise ValueError(f"Пользователь {user_id} не найден")
+                
+                user, settings = row
+                
+                if not settings.is_active:
+                    raise ValueError(f"Уведомления отключены для пользователя {user_id}")
+                
+                return user, settings
+                
+            except Exception as e:
+                logger.error(f"Ошибка получения пользователя и настроек {user_id}: {e}")
+                raise
     
     async def _schedule_notifications_for_deadlines(
         self, user: User, deadlines: List[Deadline], settings: UserNotificationSettings
@@ -280,6 +288,8 @@ class NotificationSchedulerService:
         except Exception as e:
             logger.error(f"Ошибка перепланирования уведомлений для пользователя {user_id}: {e}")
             return 0
+
+    
     
     async def schedule_notifications_for_user_subscription(self, user_id: int, subject_id: int) -> int:
         """Создать уведомления для пользователя при подписке на предмет"""

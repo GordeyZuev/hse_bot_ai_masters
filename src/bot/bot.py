@@ -48,10 +48,10 @@ class HSEBot:
             
             if with_scheduler:
                 hse_scheduler.set_bot(self.bot)
-                hse_scheduler.add_sync_job(1)  # Синхронизация каждый час
-                hse_scheduler.add_notification_job(interval_minutes=10)  # Уведомления каждые 10 минуты
-                hse_scheduler.add_daily_cleanup_job(5, 0)  # Очистка в 5:00
-                hse_scheduler.add_immediate_sync()  # Немедленная синхронизация при старте
+                hse_scheduler.add_sync_job(1)
+                hse_scheduler.add_notification_job(15)
+                hse_scheduler.add_daily_cleanup_job(5, 0)
+                hse_scheduler.add_immediate_sync()
                 hse_scheduler.start()
                 logger.info("Планировщик настроен и запущен")
             

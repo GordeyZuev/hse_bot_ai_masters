@@ -1,6 +1,6 @@
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import select, text, and_
+from sqlalchemy import select, text, and_, func
 from typing import Optional, List, Dict, Any, Tuple
 import os
 from dotenv import load_dotenv
@@ -189,7 +189,8 @@ class DatabaseManager:
                 raise
     
     async def upsert_deadline(self, deadline_data: Dict[str, Any]) -> Tuple[Optional[Deadline], bool]:
-        """Создать или обновить дедлайн. Возвращает (deadline, was_changed)."""
+        """Создать или обновить дедлайн.
+        Возвращает (deadline, was_changed)."""
         async with self.async_session() as session:
             try:
                 sheet_row_id = deadline_data.get('sheet_row_id')
@@ -247,17 +248,16 @@ class DatabaseManager:
                 outdated_deadlines = result.scalars().all()
                 
                 if outdated_deadlines:
-                    # Подсчитываем количество уведомлений, которые будут отменены
-                    total_notifications = 0
-                    for deadline in outdated_deadlines:
-                        notifications_stmt = select(ScheduledNotification).where(
-                            and_(
-                                ScheduledNotification.deadline_id == deadline.id,
-                                ScheduledNotification.status == 'scheduled'
-                            )
+                    # Подсчет уведомлений
+                    deadline_ids = [deadline.id for deadline in outdated_deadlines]
+                    notifications_stmt = select(func.count(ScheduledNotification.id)).where(
+                        and_(
+                            ScheduledNotification.deadline_id.in_(deadline_ids),
+                            ScheduledNotification.status == 'scheduled'
                         )
-                        notifications_result = await session.execute(notifications_stmt)
-                        total_notifications += len(notifications_result.scalars().all())
+                    )
+                    notifications_result = await session.execute(notifications_stmt)
+                    total_notifications = notifications_result.scalar() or 0
                     
                     # Удаляем дедлайны (уведомления удалятся автоматически из-за каскада)
                     for deadline in outdated_deadlines:

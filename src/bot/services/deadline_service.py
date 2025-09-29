@@ -23,20 +23,10 @@ class DeadlineService:
                 now = datetime.now(timezone.utc)
                 end_date = now + timedelta(days=days)
                 
-                # Получаем подписки пользователя
-                subscriptions_stmt = select(Subscription.subject_id).where(
-                    Subscription.user_id == user_id
-                )
-                subscriptions_result = await session.execute(subscriptions_stmt)
-                subscribed_subject_ids = [row[0] for row in subscriptions_result.fetchall()]
-                
-                if not subscribed_subject_ids:
-                    return []
-                
-                # Получаем дедлайны по подписанным предметам
-                stmt = select(Deadline, Subject).join(Subject).where(
+                # Дедлайны по подписанным предметам
+                stmt = select(Deadline, Subject).join(Subject).join(Subscription).where(
                     and_(
-                        Deadline.subject_id.in_(subscribed_subject_ids),
+                        Subscription.user_id == user_id,
                         or_(
                             and_(
                                 Deadline.soft_deadline_ts.isnot(None),

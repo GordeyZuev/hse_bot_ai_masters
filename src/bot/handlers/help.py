@@ -25,42 +25,44 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
     """Отправка сообщения с помощью"""
     try:
         fcs_wiki_url = os.getenv('FCS_WIKI_URL', 'https://wiki.cs.hse.ru')
-        google_sheets_url = os.getenv('GOOGLE_SHEETS_URL', 'https://docs.google.com/spreadsheets')
         
         text = f"""
-📖 <b>Подробная справка по боту</b>
+<b>📖 Справка по боту:</b>
+Бот автоматически присылает уведомления о приближающихся дедлайнах. Информация о дедлайнах берется из таблиц в ведомостях.
+
+<b>🔍 Легенда по типам дедлайнов:</b>
+• Мягкий дедлайн – 🟡
+• Жёсткий дедлайн – 🔴
 
 🔗 <a href="{fcs_wiki_url}">ФКН Вики - страничка программы</a>
-📊 <a href="{google_sheets_url}">Табличка с дедлайнами</a>
 
 <b>🎯 Основные команды:</b>
-
+<blockquote expandable>
 <b>📚 Управление подписками:</b>
-• /sub - подписаться на предметы
-• /unsub - отписаться от предмета
-• /unsuball - отписаться от всех предметов
-• /mysubs - показать мои подписки
+• /sub — подписаться на предметы.
+• /unsub — отписаться от предмета.
+• /unsuball — отписаться от всех предметов.
+• /mysubs — показать мои подписки.
 
 <b>📅 Дедлайны:</b>
-• /deadlines N - дедлайны в ближайшие N дней (N = 15 по умолчанию)
+• /deadlines N — дедлайны в ближайшие N дней (по умолчанию N = 15).
 
 <b>⚙️ Настройки:</b>
-• /settings - настройки уведомлений
+• /settings — настройки времени уведомлений и часового пояса.
 
 <b>ℹ️ Информация:</b>
-• /start - главное меню
-• /help - эта справка
+• /start — главное меню.
+• /help — эта справка.
+""" + ("""
 
-<b>🔔 Уведомления:</b>
-Бот автоматически присылает уведомления о приближающихся дедлайнах.
-Настроить время и частоту уведомлений можно в /settings.
-        """ + ("""
 <b>📊 Для администраторов:</b>
-• /stats - статистика использования и админ-панель
-• /fast_sync - быстрая синхронизация с Google Sheets
-• /broadcast - массовая рассылка
-• /logs - получить файлы логов
+• /stats — статистика использования и админ-панель.
+• /fast_sync — быстрая синхронизация с Google Sheets.
+• /broadcast — массовая рассылка.
+• /logs — получить файлы логов.
 """ if is_admin(db_user.tg_user_id) else "") + """
+</blockquote>
+
 <b>💡 Совет:</b> Начните с подписок на предметы!
         """
         
@@ -75,12 +77,14 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
         if edit_mode:
             await message.edit_text(
                 text.strip(),
-                reply_markup=builder.as_markup()
+                reply_markup=builder.as_markup(),
+                disable_web_page_preview=True
             )
         else:
             await message.answer(
                 text.strip(),
-                reply_markup=builder.as_markup()
+                reply_markup=builder.as_markup(),
+                disable_web_page_preview=True
             )
         
         logger.info(f"Пользователь {db_user.tg_user_id} запросил помощь")

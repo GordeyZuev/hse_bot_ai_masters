@@ -2,6 +2,7 @@ import asyncio
 from typing import List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from aiogram import Bot
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import pytz
 
@@ -151,12 +152,18 @@ class ScheduledNotificationSender:
             if is_delayed:
                 message = "⚠️ <i>Отправлено с задержкой (>30 мин)</i>\n\n" + message
             
+            # Клавиатура для быстрого перехода к дедлайнам
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📅 Дедлайны", callback_data="quick_deadlines")]
+            ])
+            
             # Отправляем сообщение
             await bot.send_message(
                 chat_id=user_id,
                 text=message,
                 parse_mode='HTML',
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
+                reply_markup=keyboard
             )
             
             logger.info(f"Отправлено {len(notifications)} уведомлений пользователю {user_id}")
@@ -228,6 +235,8 @@ class ScheduledNotificationSender:
             message += f"\n💬 <i>{deadline.note}</i>"
         
         return message
+
+    
     
     def _format_multiple_notifications(self, notification_data: List[Dict[str, Any]], user_tz) -> str:
         """Форматировать множественные уведомления"""

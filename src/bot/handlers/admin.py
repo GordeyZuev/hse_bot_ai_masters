@@ -9,6 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from src.bot.services.admin_service import admin_service
 from src.utils import get_logger
 from src.core.sync.data_syncer import data_syncer
+from src.bot.services.notification_sender import notification_sender
 
 logger = get_logger()
 router = Router()
@@ -39,7 +40,6 @@ async def show_statistics(message_or_callback, db_user, show_back_button: bool =
         # Создаем клавиатуру с дополнительными действиями
         builder = InlineKeyboardBuilder()
         builder.button(text="🔄 Обновить статистику", callback_data="admin_refresh_stats")
-        builder.button(text="📢 Массовая рассылка", callback_data="admin_broadcast")
         
         if show_back_button:
             builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
@@ -83,11 +83,24 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
             await message_or_callback.answer("Запускаю синхронизацию...")
         
         logger.info(f"Админ {db_user.tg_user_id} запустил синхронизацию")
-        success = await data_syncer.sync_data()
+        sync_result = await data_syncer.sync_data()
+        success = bool(sync_result.get('success')) if isinstance(sync_result, dict) else bool(sync_result)
         
         if success:
             text = "✅ <b>Синхронизация завершена успешно!</b>\n\n"
             text += "Данные из Google Sheets обновлены в базе данных."
+            try:
+                # Отправка мгновенных уведомлений об изменениях при ручной синхронизации
+                if isinstance(sync_result, dict):
+                    changes = sync_result.get('changes', [])
+                    if changes:
+                        deadlines = [item['deadline'] for item in changes if 'deadline' in item]
+                        if deadlines:
+                            bot = message_or_callback.bot
+                            await notification_sender.send_immediate_deadline_changes(bot, deadlines)
+                            logger.info(f"Отправлены мгновенные уведомления об изменениях: {len(deadlines)} дедлайнов")
+            except Exception as e:
+                logger.warning(f"Ошибка отправки мгновенных уведомлений при ручной синхронизации: {e}")
         else:
             text = "❌ <b>Ошибка синхронизации</b>\n\n"
             text += "Не удалось синхронизировать данные. Проверьте логи для подробностей."
@@ -199,8 +212,6 @@ async def cmd_stats(message: Message, db_user):
     # Используем общую функцию отображения статистики
     await show_statistics(message, db_user, show_back_button=False)
 
-
-
 @router.message(Command("broadcast"))
 @router.callback_query(F.data == "admin_broadcast")
 async def cmd_broadcast(event: Message | CallbackQuery, db_user, state: FSMContext):
@@ -217,7 +228,7 @@ async def cmd_broadcast(event: Message | CallbackQuery, db_user, state: FSMConte
     
     try:
         # Получаем количество пользователей для рассылки
-        user_count = await admin_service.get_active_users_count()
+        user_count = await admin_service.get_users_count()
         
         text = f"📢 <b>Массовая рассылка</b>\n\n"
         text += f"Сообщение будет отправлено <b>{user_count}</b> пользователям.\n\n"
@@ -248,7 +259,7 @@ async def process_broadcast_message(message: Message, db_user, state: FSMContext
             broadcast_entities=message.entities
         )
         
-        user_count = await admin_service.get_active_users_count()
+        user_count = await admin_service.get_users_count()
         
         text = f"📢 <b>Подтверждение рассылки</b>\n\n"
         text += f"<b>Получателей:</b> {user_count} пользователей\n\n"

@@ -3,7 +3,7 @@ import os
 import zipfile
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from aiogram import Bot
 from aiogram.types import FSInputFile
 import pytz
@@ -28,31 +28,25 @@ class AdminService:
             try:
                 stats = {}
                 
-                # Общее количество пользователей
-                stmt = select(func.count(User.tg_user_id))
-                result = await session.execute(stmt)
-                stats['total_users'] = result.scalar() or 0
-                
-                # Активные пользователи за неделю
+                # Статистика пользователей
                 week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-                stmt = select(func.count(User.tg_user_id)).where(
-                    User.last_activity_ts >= week_ago
-                )
-                result = await session.execute(stmt)
-                stats['active_users_week'] = result.scalar() or 0
-                
-                # Активные пользователи за месяц
                 month_ago = datetime.now(timezone.utc) - timedelta(days=30)
-                stmt = select(func.count(User.tg_user_id)).where(
-                    User.last_activity_ts >= month_ago
+                
+                stmt = select(
+                    func.count(User.tg_user_id).label('total_users'),
+                    func.count(case((User.last_activity_ts >= week_ago, 1), else_=None)).label('active_week'),
+                    func.count(case((User.last_activity_ts >= month_ago, 1), else_=None)).label('active_month')
                 )
                 result = await session.execute(stmt)
-                stats['active_users_month'] = result.scalar() or 0
+                row = result.first()
+                
+                stats['total_users'] = row.total_users or 0
+                stats['active_users_week'] = row.active_week or 0
+                stats['active_users_month'] = row.active_month or 0
                 
                 # Статистика подписок
                 subscription_stats = await subscription_service.get_subscription_stats()
                 stats.update(subscription_stats)
-                
                 
                 # Статистика дедлайнов
                 stmt = select(func.count(Deadline.id))
@@ -90,31 +84,25 @@ class AdminService:
                 return {}
     
     
-    async def get_active_users_count(self) -> int:
-        """Получить количество активных пользователей для рассылки"""
+    async def get_users_count(self) -> int:
+        """Получить количество пользователей для рассылки"""
         async with db_manager.async_session() as session:
             try:
-                # Считаем пользователей, которые были активны в последний месяц
-                month_ago = datetime.now(timezone.utc) - timedelta(days=30)
-                stmt = select(func.count(User.tg_user_id)).where(
-                    User.last_activity_ts >= month_ago
-                )
+                # Считаем всех пользователей (рассылаем всем)
+                stmt = select(func.count(User.tg_user_id))
                 result = await session.execute(stmt)
                 return result.scalar() or 0
                 
             except Exception as e:
-                logger.error(f"Ошибка получения количества активных пользователей: {e}")
+                logger.error(f"Ошибка получения количества пользователей: {e}")
                 return 0
     
     async def get_users_for_broadcast(self) -> List[User]:
         """Получить список пользователей для рассылки"""
         async with db_manager.async_session() as session:
             try:
-                # Получаем активных пользователей за последний месяц
-                month_ago = datetime.now(timezone.utc) - timedelta(days=30)
-                stmt = select(User).where(
-                    User.last_activity_ts >= month_ago
-                ).order_by(User.tg_user_id)
+                # Получаем всех пользователей
+                stmt = select(User)
                 
                 result = await session.execute(stmt)
                 return list(result.scalars().all())
@@ -179,37 +167,7 @@ class AdminService:
         except Exception as e:
             logger.error(f"Ошибка выполнения рассылки: {e}")
             return {'success': 0, 'errors': 0}
-    
-    
-    async def cleanup_inactive_users(self, days_inactive: int = 90) -> int:
-        """Очистка неактивных пользователей"""
-        async with db_manager.async_session() as session:
-            try:
-                cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_inactive)
-                
-                # Находим неактивных пользователей
-                stmt = select(User).where(
-                    (User.last_activity_ts < cutoff_date) |
-                    (User.last_activity_ts.is_(None))
-                )
-                result = await session.execute(stmt)
-                inactive_users = result.scalars().all()
-                
-                count = 0
-                for user in inactive_users:
-                    # Удаляем связанные данные (подписки, уведомления)
-                    # Каскадное удаление должно работать автоматически
-                    await session.delete(user)
-                    count += 1
-                
-                await session.commit()
-                logger.info(f"Удалено {count} неактивных пользователей")
-                return count
-                
-            except Exception as e:
-                await session.rollback()
-                logger.error(f"Ошибка очистки неактивных пользователей: {e}")
-                return 0
+
     
     async def get_today_log_files(self) -> List[tuple]:
         """Получить пути к файлам логов за сегодня"""

@@ -98,8 +98,8 @@ class DataSyncer:
         logger.info(f"Преобразовано {len(transformed_data)} записей из {len(sheets_data)}")
         return transformed_data
     
-    async def sync_data(self) -> bool:
-        """Основная функция синхронизации данных"""
+    async def sync_data(self) -> Dict[str, Any]:
+        """Основная функция синхронизации данных."""
         try:
             logger.info("Начало синхронизации данных")
             await db_manager.ensure_initialized()
@@ -108,17 +108,18 @@ class DataSyncer:
             sheets_data = await sheets_manager.get_deadlines_data()
             if not sheets_data:
                 logger.warning("Нет данных из Google Sheets")
-                return False
+                return {'success': False, 'synced_count': 0, 'scheduled_notifications_count': 0, 'changes': []}
             
             db_data = await self.transform_sheets_data_to_db_format(sheets_data)
             if not db_data:
                 logger.warning("Нет данных для синхронизации")
-                return False
+                return {'success': False, 'synced_count': 0, 'scheduled_notifications_count': 0, 'changes': []}
             
             # Синхронизация
             synced_count = 0
             scheduled_notifications_count = 0
             current_sheet_row_ids = []
+            changes: List[Dict[str, Any]] = []
             
             for deadline_data in db_data:
                 deadline, was_changed = await db_manager.upsert_deadline(deadline_data)
@@ -131,16 +132,22 @@ class DataSyncer:
                         try:
                             notifications_count = await notification_scheduler_service.reschedule_notifications_for_updated_deadline(deadline)
                             scheduled_notifications_count += notifications_count
+                            changes.append({'deadline': deadline})
                         except Exception as e:
                             logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}")
             
             await db_manager.delete_outdated_deadlines(current_sheet_row_ids)
             logger.info(f"Синхронизировано {synced_count} дедлайнов, запланировано {scheduled_notifications_count} уведомлений")
-            return True
+            return {
+                'success': True,
+                'synced_count': synced_count,
+                'scheduled_notifications_count': scheduled_notifications_count,
+                'changes': changes
+            }
             
         except Exception as e:
             logger.error(f"Ошибка синхронизации: {e}")
-            return False
+            return {'success': False, 'synced_count': 0, 'scheduled_notifications_count': 0, 'changes': []}
 
 data_syncer = DataSyncer()
 

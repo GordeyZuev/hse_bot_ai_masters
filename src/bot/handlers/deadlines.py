@@ -90,9 +90,9 @@ async def send_deadlines_list(message: Message, db_user, days: int, edit: bool =
         builder.adjust(3, 2)
         
         if edit:
-            await message.edit_text(text, reply_markup=builder.as_markup())
+            await message.edit_text(text, reply_markup=builder.as_markup(), disable_web_page_preview=True)
         else:
-            await message.answer(text, reply_markup=builder.as_markup())
+            await message.answer(text, reply_markup=builder.as_markup(), disable_web_page_preview=True)
         
         logger.info(f"Пользователь {db_user.tg_user_id} запросил дедлайны на {days} дней")
         

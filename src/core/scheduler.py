@@ -1,6 +1,6 @@
 import asyncio
 import atexit
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
@@ -10,6 +10,8 @@ from aiogram import Bot
 
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
+from src.bot.services.scheduled_notification_sender import scheduled_notification_sender
+from src.bot.services.notification_sender import notification_sender
 from src.bot.services.scheduled_notification_sender import scheduled_notification_sender
 from src.utils import get_logger
 
@@ -51,11 +53,18 @@ class HSEScheduler:
         """Задача синхронизации данных с Google Sheets"""
         try:
             start_time = datetime.now(timezone.utc)
-            success = await data_syncer.sync_data()
+            sync_result = await data_syncer.sync_data()
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             
-            if success:
+            if sync_result.get('success'):
                 logger.success(f"Синхронизация завершена за {duration:.2f}с")
+                if self.bot:
+                    changes = sync_result.get('changes', [])
+                    try:
+                        deadlines = [item['deadline'] for item in changes]
+                        await notification_sender.send_immediate_deadline_changes(self.bot, deadlines)
+                    except Exception as e:
+                        logger.warning(f"Ошибка групповой мгновенной отправки: {e}")
             else:
                 logger.error(f"Синхронизация завершилась с ошибкой за {duration:.2f}с")
                 
@@ -74,13 +83,9 @@ class HSEScheduler:
             result = await scheduled_notification_sender.send_scheduled_notifications(self.bot)
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             
-            sent = result.get('sent', 0)
-            failed = result.get('failed', 0)
-            skipped = result.get('skipped', 0)
             total_processed = result.get('total_processed', 0)
             
             if total_processed > 0:
-                # Логируем только время выполнения, детали уже есть в сервисе
                 logger.info(f"Задача отправки уведомлений выполнена за {duration:.2f}с")
             else:
                 logger.debug(f"Нет уведомлений для отправки (проверка за {duration:.2f}с)")
@@ -105,34 +110,32 @@ class HSEScheduler:
             logger.error(f"Ошибка очистки: {e}")
     
     def add_sync_job(self, interval_hours: int = 1):
-        """Добавить задачу синхронизации данных"""
+        """Добавить задачу синхронизации по cron: каждые N часов на :00 (UTC)."""
+        cron_hours = f"*/{interval_hours}" if interval_hours and interval_hours > 0 else "*"
         self.scheduler.add_job(
             self.sync_job,
-            trigger=IntervalTrigger(hours=interval_hours),
+            trigger=CronTrigger(hour=cron_hours, minute=0, second=0),
             id='data_sync',
-            name=f'Синхронизация данных каждые {interval_hours} ч.',
+            name=f'Синхронизация данных каждые {interval_hours} ч. на :00',
             replace_existing=True,
             max_instances=1
         )
-        logger.info(f"Добавлена задача синхронизации каждые {interval_hours} ч.")
+        logger.info(f"Добавлена задача синхронизации каждые {interval_hours} ч. на :00 (UTC)")
     
-    def add_notification_job(self, interval_minutes: int = 10):
-        """Добавить задачу отправки уведомлений"""
+    def add_notification_job(self, interval_minutes: int = 15):
+        """Добавить задачу отправки уведомлений каждые N минут на минуте кратной N (UTC)."""
         if not self.bot:
             logger.warning("Бот не установлен, задача уведомлений не добавлена")
             return
-        
-        job = self.scheduler.add_job(
+        self.scheduler.add_job(
             self.notification_job,
-            trigger=IntervalTrigger(minutes=interval_minutes),
+            trigger=CronTrigger(minute=f'*/{interval_minutes}', second=0),
             id='send_notifications',
-            name=f'Отправка уведомлений каждые {interval_minutes} мин.',
+            name=f'Отправка уведомлений каждые {interval_minutes} минут (UTC)',
             replace_existing=True,
             max_instances=1
         )
-        logger.info(
-            f"Добавлена задача уведомлений каждые {interval_minutes} мин., next_run_time={getattr(job, 'next_run_time', None)}"
-        )
+        logger.info(f"Добавлена задача уведомлений каждые {interval_minutes} мин. (UTC)")
     
     def add_daily_cleanup_job(self, hour: int = 5, minute: int = 0):
         """Добавить ежедневную задачу очистки"""

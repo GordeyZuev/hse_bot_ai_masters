@@ -2,6 +2,7 @@ from typing import List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import pytz
 
 from src.core.database import db_manager
@@ -14,9 +15,6 @@ logger = get_logger()
 
 class NotificationSender:
     """Сервис для отправки уведомлений о дедлайнах"""
-    
-    def __init__(self):
-        pass
     
     async def send_deadline_notifications(self, bot: Bot) -> Dict[str, int]:
         """Отправить уведомления о приближающихся дедлайнах"""
@@ -258,18 +256,21 @@ class NotificationSender:
         """Отправить уведомление пользователю"""
         try:
             if len(deadlines_data) == 1:
-                # Одиночное уведомление
                 data = deadlines_data[0]
                 message_text = self._format_single_deadline_notification(user, data, notification_number, offset_value, offset_unit)
             else:
-                # Групповое уведомление
                 message_text = self._format_multiple_deadlines_notification(user, deadlines_data, notification_number, offset_value, offset_unit)
             
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📅 Дедлайны", callback_data="quick_deadlines")]
+            ])
+
             await bot.send_message(
                 chat_id=user.tg_user_id,
                 text=message_text,
                 parse_mode='HTML',
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
+                reply_markup=keyboard
             )
             
             logger.info(f"Уведомление отправлено пользователю {user.tg_user_id}")
@@ -321,6 +322,171 @@ class NotificationSender:
         if deadline.note:
             message += f"\n💬 <i>{deadline.note}</i>"
         
+        return message
+
+    async def send_immediate_deadline_change(self, bot: Bot, deadline: Deadline) -> int:
+        """Отправить мгновенное уведомление подписчикам о создании/изменении дедлайна"""
+        try:
+            async with db_manager.async_session() as session:
+                stmt_users = select(User).join(Subscription).where(Subscription.subject_id == deadline.subject_id)
+                res_users = await session.execute(stmt_users)
+                users = list(res_users.scalars().all())
+
+                stmt_subject = select(Subject).where(Subject.id == deadline.subject_id)
+                res_subject = await session.execute(stmt_subject)
+                subject = res_subject.scalar_one_or_none()
+
+            if not users:
+                return 0
+
+            action_text = 'Дедлайн обновлён'
+            subject_name = subject.name if subject else 'Предмет'
+            soft = deadline.soft_deadline_ts
+            hard = deadline.hard_deadline_ts
+
+            sent = 0
+            for user in users:
+                try:
+                    settings = await db_manager.get_user_notification_settings(user.tg_user_id)
+                    if not settings.is_active:
+                        continue
+                    user_tz = pytz.timezone(user.timezone) if user and user.timezone else pytz.UTC
+
+                    message = f"📌 <b>{action_text}</b>\n\n"
+                    message += f"📚 <b>Предмет:</b> {subject_name}\n"
+                    if deadline.source_link:
+                        message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                    else:
+                        message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
+                    if soft:
+                        soft_local = soft.astimezone(user_tz)
+                        soft_str = soft_local.strftime("%d.%m.%Y в %H:%M")
+                        message += f"🟡 <b>Мягкий дедлайн:</b> {soft_str}\n"
+                    if hard:
+                        hard_local = hard.astimezone(user_tz)
+                        hard_str = hard_local.strftime("%d.%m.%Y в %H:%M")
+                        message += f"🔴 <b>Жёсткий дедлайн:</b> {hard_str}\n"
+                    if deadline.note:
+                        message += f"\n💬 <i>{deadline.note}</i>"
+
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📅 Дедлайны", callback_data="quick_deadlines")]
+                    ])
+                    
+                    await bot.send_message(user.tg_user_id, message, parse_mode='HTML', disable_web_page_preview=True, reply_markup=keyboard)
+                    sent += 1
+                except TelegramForbiddenError:
+                    logger.warning(f"Пользователь {user.tg_user_id} заблокировал бота")
+                except TelegramBadRequest as e:
+                    logger.warning(f"Ошибка отправки пользователю {user.tg_user_id}: {e}")
+                except Exception as e:
+                    logger.error(f"Неожиданная ошибка отправки пользователю {user.tg_user_id}: {e}")
+
+            logger.info(f"Отправлено {sent} мгновенных уведомлений об обновлении дедлайна {deadline.id}")
+            return sent
+        except Exception as e:
+            logger.error(f"Ошибка мгновенной отправки для дедлайна {deadline.id}: {e}")
+            return 0
+
+    async def send_immediate_deadline_changes(self, bot: Bot, deadlines: List[Deadline]) -> Dict[str, int]:
+        """Отправить одно групповое сообщение пользователю, если за синхронизацию изменилось несколько дедлайнов."""
+        stats = { 'users_processed': 0, 'messages_sent': 0 }
+        try:
+            if not deadlines:
+                return stats
+
+            # Загружаем Subjects одним запросом
+            subject_ids = list({d.subject_id for d in deadlines if d and d.subject_id})
+            async with db_manager.async_session() as session:
+                sub_stmt = select(Subject).where(Subject.id.in_(subject_ids))
+                sub_res = await session.execute(sub_stmt)
+                subjects = {s.id: s for s in sub_res.scalars().all()}
+
+                # Подписки пользователей на эти предметы
+                from src.core.models import Subscription
+                subs_stmt = select(Subscription.user_id, Subscription.subject_id).where(Subscription.subject_id.in_(subject_ids))
+                subs_res = await session.execute(subs_stmt)
+                user_to_subjects: Dict[int, set] = {}
+                for uid, sid in subs_res.fetchall():
+                    user_to_subjects.setdefault(uid, set()).add(sid)
+
+            if not user_to_subjects:
+                return stats
+
+            # Готовим данные по пользователям: какие дедлайны им релевантны
+            user_entries: Dict[int, List[Dict[str, Any]]] = {}
+            for d in deadlines:
+                sid = d.subject_id
+                for uid, sids in user_to_subjects.items():
+                    if sid in sids:
+                        user_entries.setdefault(uid, []).append({'deadline': d, 'subject': subjects.get(sid)})
+
+            # Загружаем пользователей и их настройки единым запросом
+            user_ids = list(user_entries.keys())
+            async with db_manager.async_session() as session:
+                usr_stmt = select(User, UserNotificationSettings).join(
+                    UserNotificationSettings, User.tg_user_id == UserNotificationSettings.user_id
+                ).where(User.tg_user_id.in_(user_ids))
+                usr_res = await session.execute(usr_stmt)
+                rows = usr_res.fetchall()
+
+            for user, settings in rows:
+                try:
+                    if not settings or not settings.is_active:
+                        continue
+                    entries = user_entries.get(user.tg_user_id) or []
+                    if not entries:
+                        continue
+
+                    # Формируем единое сообщение о нескольких обновлениях
+                    user_tz = pytz.timezone(user.timezone) if user and user.timezone else pytz.UTC
+                    message = self._format_multiple_deadline_updates(entries, user_tz)
+                    
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📅 Дедлайны", callback_data="quick_deadlines")]
+                    ])
+                    
+                    await bot.send_message(user.tg_user_id, message, parse_mode='HTML', disable_web_page_preview=True, reply_markup=keyboard)
+                    stats['messages_sent'] += 1
+                    stats['users_processed'] += 1
+                except TelegramForbiddenError:
+                    logger.warning(f"Пользователь {user.tg_user_id} заблокировал бота")
+                except TelegramBadRequest as e:
+                    logger.warning(f"Ошибка отправки пользователю {user.tg_user_id}: {e}")
+                except Exception as e:
+                    logger.error(f"Неожиданная ошибка отправки пользователю {user.tg_user_id}: {e}")
+
+            return stats
+        except Exception as e:
+            logger.error(f"Ошибка групповой мгновенной отправки: {e}")
+            return stats
+
+    def _format_multiple_deadline_updates(self, entries: List[Dict[str, Any]], user_tz) -> str:
+        """Сформировать сообщение о нескольких обновлениях дедлайнов (без расчётов \"осталось\")."""
+        message = f"📌 <b>Обновлены дедлайны ({len(entries)})</b>\n\n"
+        # Сортируем по ближайшему времени дедлайна (soft/hard, что доступно)
+        def deadline_key(e):
+            d: Deadline = e['deadline']
+            return min([dt for dt in [d.soft_deadline_ts, d.hard_deadline_ts] if dt is not None] or [datetime.max.replace(tzinfo=timezone.utc)])
+        entries_sorted = sorted(entries, key=deadline_key)
+
+        for i, e in enumerate(entries_sorted, 1):
+            d: Deadline = e['deadline']
+            s: Subject = e['subject']
+            message += f"<b>{i}. {s.name if s else 'Предмет'}</b>\n"
+            if d.source_link:
+                message += f"📝 <a href='{d.source_link}'>{d.hw_name}</a>\n"
+            else:
+                message += f"📝 {d.hw_name}\n"
+            if d.soft_deadline_ts:
+                soft_local = d.soft_deadline_ts.astimezone(user_tz)
+                message += f"🟡 <b>Мягкий дедлайн:</b> {soft_local.strftime('%d.%m.%Y в %H:%M')}\n"
+            if d.hard_deadline_ts:
+                hard_local = d.hard_deadline_ts.astimezone(user_tz)
+                message += f"🔴 <b>Жёсткий дедлайн:</b> {hard_local.strftime('%d.%m.%Y в %H:%M')}\n"
+            if d.note:
+                message += f"💬 <i>{d.note}</i>\n"
+            message += "\n"
         return message
     
     def _format_multiple_deadlines_notification(

@@ -12,6 +12,7 @@
 - [API и интеграции](#-api-и-интеграции)
 - [Планировщик задач](#-планировщик-задач)
 - [Система уведомлений](#-система-уведомлений)
+- [Система мгновенных уведомлений об изменениях](#-система-мгновенных-уведомлений-об-изменениях)
 - [Безопасность](#-безопасность)
 - [Производительность](#-производительность)
 - [Мониторинг и логирование](#-мониторинг-и-логирование)
@@ -70,6 +71,13 @@ Scheduler → NotificationScheduler → ScheduledNotification → NotificationSe
   Timer        Planning                Database              HTTP API
 ```
 
+#### 4. **Система мгновенных уведомлений об изменениях**
+```
+Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_deadline_changes → Telegram
+    ↓                    ↓                           ↓
+  Sheets            Diff by rows                 Group & send
+```
+
 ## 🧩 Компоненты и слои
 
 ### 🤖 Bot Layer (`src/bot/`)
@@ -85,6 +93,7 @@ Scheduler → NotificationScheduler → ScheduledNotification → NotificationSe
 - **`notification_service.py`** - Управление настройками уведомлений
 - **`notification_scheduler_service.py`** - Планирование уведомлений
 - **`scheduled_notification_sender.py`** - Отправка уведомлений
+- Батч‑обработка по пользователям, параллельная отправка (`asyncio.gather`), fail‑safe пометка задержек и кнопка «📅 Дедлайны» в сообщениях
 - **`admin_service.py`** - Админские функции
 - **`deadline_service.py`** - Работа с дедлайнами
 - **`subscription_service.py`** - Управление подписками
@@ -108,6 +117,7 @@ Scheduler → NotificationScheduler → ScheduledNotification → NotificationSe
 
 #### Scheduler (`src/core/scheduler.py`)
 - **`scheduler.py`** - Единый планировщик задач (APScheduler)
+- Cron‑триггеры: синхронизация **ежечасно на :00 (UTC)**, уведомления **каждые 15 минут (UTC)**, ежедневная очистка. Настройки надёжности: `coalesce=true`, `misfire_grace_time=900`.
 
 ### 🛠️ Utils (`src/utils/`)
 - **`logger.py`** - Настройка логирования

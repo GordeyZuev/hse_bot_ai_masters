@@ -57,4 +57,4 @@ services:
       - ./src/config/creds.json:/app/src/config/creds.json:ro
     networks:
       - hse_bot_network
-    command: ["python", "main.py", "full"]
+    command: ["uv", "run", "python", "main.py", "full"]

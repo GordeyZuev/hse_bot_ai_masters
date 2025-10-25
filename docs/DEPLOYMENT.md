@@ -200,15 +200,27 @@ Makefile упрощает выполнение основных команд п�
 
 ```bash
 make help           # Показать все доступные команды
+
+# Установка
+make install-uv     # Установить uv менеджер пакетов
+make setup          # Полная установка (uv + зависимости)
 make install        # Установить зависимости
 make install-dev    # Установить зависимости для разработки
+
+# Запуск
 make run            # Запустить бота с синхронизацией и уведомлениями
+make logs           # Просмотреть логи за сегодня
+
+# Проверка кода
 make lint           # Проверить код с помощью ruff
 make lint-fix       # Автоматически исправить проблемы с кодом
 make format         # Отформатировать код
+
+# Обслуживание
 make clean          # Очистить временные файлы
-make logs           # Просмотреть логи за сегодня
 make update         # Обновить проект (остановить, git pull, перезапустить)
+make clean-docker   # Очистить неиспользуемые Docker образы и контейнеры
+make db             # Подключиться к базе данных PostgreSQL
 ```
 
 ### 📦 Управление зависимостями с uv
@@ -634,6 +646,8 @@ make format         # Отформатировать код
 # Обслуживание
 make clean          # Очистить временные файлы
 make update         # Обновить проект (остановить, git pull, перезапустить)
+make clean-docker   # Очистить неиспользуемые Docker образы и контейнеры
+make db             # Подключиться к базе данных PostgreSQL
 ```
 
 ## ✅ Проверка работы
@@ -667,8 +681,10 @@ docker-compose logs --tail=100 app
 ### 🗄️ Проверка базы данных
 
 ```bash
-# Подключение к БД
+# Подключение к БД (или используйте: make db)
 docker-compose exec db psql -U postgres -d hse_bot_db
+# Или через Makefile:
+make db
 
 # Проверка таблиц
 docker-compose exec db psql -U postgres -d hse_bot_db -c "\dt"

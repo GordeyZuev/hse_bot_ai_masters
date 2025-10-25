@@ -1,4 +1,4 @@
-.PHONY: help install-uv install install-dev setup run lint lint-fix format clean logs update
+.PHONY: help install-uv install install-dev setup run lint lint-fix format clean logs update clean-docker db
 
 help: ## Show help message
 	@echo "Available commands:"
@@ -62,3 +62,13 @@ update: ## Stop containers, git pull, restart containers
 	@echo "Starting containers..."
 	docker-compose up -d
 	@echo "Done! Check logs with: make logs"
+
+clean-docker: ## Clean unused Docker images, containers, and build cache
+	@echo "Cleaning unused Docker data..."
+	docker builder prune -a -f
+	docker image prune -a -f
+	docker container prune -f
+	@echo "Docker cleanup complete! Run 'docker system df' to see freed space."
+
+db: ## Connect to PostgreSQL database
+	docker-compose exec db psql -U postgres -d hse_bot_db

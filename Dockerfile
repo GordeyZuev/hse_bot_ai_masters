@@ -20,6 +20,9 @@ RUN useradd --create-home --shell /bin/bash app
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
+# Создаем директорию и даем права пользователю app
+RUN mkdir -p /app && chown -R app:app /app
+
 # Копируем все файлы проекта (от root)
 COPY --chown=app:app pyproject.toml uv.lock* README.md ./
 

@@ -27,7 +27,7 @@ def setup_logging(
     log_format = (
         "<green>{time:YY-MM-DD HH:mm:ss}</green> | "
         "<level>{level: <5}</level> | "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:{line} | "
+        "<cyan>{module}</cyan>:<cyan>{function}</cyan>:{line} | "
         "<level>{message}</level>"
     )
 

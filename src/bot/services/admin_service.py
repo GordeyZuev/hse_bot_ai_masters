@@ -1,89 +1,99 @@
 import asyncio
 import os
-import zipfile
-from typing import List, Dict, Any, Optional, Callable
-from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func, case
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 from aiogram import Bot
 from aiogram.types import FSInputFile
-import pytz
+from sqlalchemy import case, func, select
 
-from src.core.database import db_manager
-from src.core.models import User, Deadline, UserNotificationSettings, ScheduledNotification
 from src.bot.services.subscription_service import subscription_service
-from src.bot.services.notification_service import notification_service
+from src.core.database import db_manager
+from src.core.models import (
+    Deadline,
+    ScheduledNotification,
+    User,
+)
 from src.utils import get_logger
+
 
 logger = get_logger()
 
+
 class AdminService:
     """Сервис для административных функций"""
-    
+
     def __init__(self):
         pass
-    
-    async def get_bot_statistics(self) -> Dict[str, Any]:
+
+    async def get_bot_statistics(self) -> dict[str, Any]:
         """Получить основную статистику бота"""
         async with db_manager.async_session() as session:
             try:
                 stats = {}
-                
+
                 # Статистика пользователей
-                week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-                month_ago = datetime.now(timezone.utc) - timedelta(days=30)
-                
+                week_ago = datetime.now(UTC) - timedelta(days=7)
+                month_ago = datetime.now(UTC) - timedelta(days=30)
+
                 stmt = select(
-                    func.count(User.tg_user_id).label('total_users'),
-                    func.count(case((User.last_activity_ts >= week_ago, 1), else_=None)).label('active_week'),
-                    func.count(case((User.last_activity_ts >= month_ago, 1), else_=None)).label('active_month')
+                    func.count(User.tg_user_id).label("total_users"),
+                    func.count(
+                        case((User.last_activity_ts >= week_ago, 1), else_=None)
+                    ).label("active_week"),
+                    func.count(
+                        case((User.last_activity_ts >= month_ago, 1), else_=None)
+                    ).label("active_month"),
                 )
                 result = await session.execute(stmt)
                 row = result.first()
-                
-                stats['total_users'] = row.total_users or 0
-                stats['active_users_week'] = row.active_week or 0
-                stats['active_users_month'] = row.active_month or 0
-                
+
+                stats["total_users"] = row.total_users or 0
+                stats["active_users_week"] = row.active_week or 0
+                stats["active_users_month"] = row.active_month or 0
+
                 # Статистика подписок
                 subscription_stats = await subscription_service.get_subscription_stats()
                 stats.update(subscription_stats)
-                
+
                 # Статистика дедлайнов
                 stmt = select(func.count(Deadline.id))
                 result = await session.execute(stmt)
-                stats['total_deadlines'] = result.scalar() or 0
-                
+                stats["total_deadlines"] = result.scalar() or 0
+
                 # Активные дедлайны (в будущем)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 stmt = select(func.count(Deadline.id)).where(
-                    (Deadline.soft_deadline_ts >= now) | 
-                    (Deadline.hard_deadline_ts >= now)
+                    (Deadline.soft_deadline_ts >= now)
+                    | (Deadline.hard_deadline_ts >= now)
                 )
                 result = await session.execute(stmt)
-                stats['active_deadlines'] = result.scalar() or 0
-                
+                stats["active_deadlines"] = result.scalar() or 0
+
                 # Статистика запланированных уведомлений
                 stmt = select(func.count(ScheduledNotification.id)).where(
-                    ScheduledNotification.status == 'scheduled'
+                    ScheduledNotification.status == "scheduled"
                 )
                 result = await session.execute(stmt)
-                stats['scheduled_notifications'] = result.scalar() or 0
-                
+                stats["scheduled_notifications"] = result.scalar() or 0
+
                 stmt = select(func.max(Deadline.last_updated))
                 result = await session.execute(stmt)
                 last_sync_dt = result.scalar()
                 if last_sync_dt:
-                    stats['last_sync'] = last_sync_dt.astimezone(timezone.utc).strftime('%H:%M:%S %d.%m.%y UTC')
+                    stats["last_sync"] = last_sync_dt.astimezone(UTC).strftime(
+                        "%H:%M:%S %d.%m.%y UTC"
+                    )
                 else:
-                    stats['last_sync'] = 'Нет данных'
-                
+                    stats["last_sync"] = "Нет данных"
+
                 return stats
-                
+
             except Exception as e:
                 logger.error(f"Ошибка получения статистики: {e}")
                 return {}
-    
-    
+
     async def get_users_count(self) -> int:
         """Получить количество пользователей для рассылки"""
         async with db_manager.async_session() as session:
@@ -92,181 +102,176 @@ class AdminService:
                 stmt = select(func.count(User.tg_user_id))
                 result = await session.execute(stmt)
                 return result.scalar() or 0
-                
+
             except Exception as e:
                 logger.error(f"Ошибка получения количества пользователей: {e}")
                 return 0
-    
-    async def get_users_for_broadcast(self) -> List[User]:
+
+    async def get_users_for_broadcast(self) -> list[User]:
         """Получить список пользователей для рассылки"""
         async with db_manager.async_session() as session:
             try:
                 # Получаем всех пользователей
                 stmt = select(User)
-                
+
                 result = await session.execute(stmt)
                 return list(result.scalars().all())
-                
+
             except Exception as e:
                 logger.error(f"Ошибка получения пользователей для рассылки: {e}")
                 return []
-    
+
     async def send_broadcast(
-        self, 
-        message_text: str, 
-        bot: Bot, 
-        progress_callback: Optional[Callable[[int, int], None]] = None
-    ) -> Dict[str, int]:
+        self,
+        message_text: str,
+        bot: Bot,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> dict[str, int]:
         """Отправить массовую рассылку"""
         try:
             users = await self.get_users_for_broadcast()
             total_users = len(users)
-            
+
             if total_users == 0:
-                return {'success': 0, 'errors': 0}
-            
+                return {"success": 0, "errors": 0}
+
             success_count = 0
             error_count = 0
-            
+
             logger.info(f"Начинаю рассылку для {total_users} пользователей")
-            
+
             # Отправляем сообщения с задержкой для избежания лимитов
             for i, user in enumerate(users, 1):
                 try:
                     await bot.send_message(
-                        chat_id=user.tg_user_id,
-                        text=message_text,
-                        parse_mode='HTML'
+                        chat_id=user.tg_user_id, text=message_text, parse_mode="HTML"
                     )
                     success_count += 1
-                    
+
                     # Задержка между отправками (30 сообщений в секунду - лимит Telegram)
                     if i % 30 == 0:
                         await asyncio.sleep(1)
-                    
+
                     # Обновляем прогресс каждые 10 сообщений
                     if progress_callback and i % 10 == 0:
                         progress_callback(i, total_users)
-                        
+
                 except Exception as e:
                     error_count += 1
-                    logger.warning(f"Ошибка отправки пользователю {user.tg_user_id}: {e}")
-                    
+                    logger.warning(
+                        f"Ошибка отправки пользователю {user.tg_user_id}: {e}"
+                    )
+
                     # Если пользователь заблокировал бота, можно пометить его как неактивного
                     if "bot was blocked" in str(e).lower():
                         # Можно добавить логику деактивации пользователя
                         pass
-            
-            logger.info(f"Рассылка завершена: {success_count} успешно, {error_count} ошибок")
-            
-            return {
-                'success': success_count,
-                'errors': error_count
-            }
-            
+
+            logger.info(
+                f"Рассылка завершена: {success_count} успешно, {error_count} ошибок"
+            )
+
+            return {"success": success_count, "errors": error_count}
+
         except Exception as e:
             logger.error(f"Ошибка выполнения рассылки: {e}")
-            return {'success': 0, 'errors': 0}
+            return {"success": 0, "errors": 0}
 
-    
-    async def get_today_log_files(self) -> List[tuple]:
+    async def get_today_log_files(self) -> list[tuple]:
         """Получить пути к файлам логов за сегодня"""
         try:
-            today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-            
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
+
             # Пути к файлам логов
             log_files = []
-            
+
             # Основные логи
             main_log_paths = [
                 f"logs/app_{today}.log",
                 f"app_{today}.log",
             ]
-            
+
             for path in main_log_paths:
                 if os.path.exists(path):
-                    log_files.append(('app', path))
+                    log_files.append(("app", path))
                     break
-            
+
             # Логи ошибок
             error_log_paths = [
                 f"logs/errors_{today}.log",
                 f"errors_{today}.log",
             ]
-            
+
             for path in error_log_paths:
                 if os.path.exists(path):
-                    log_files.append(('error', path))
+                    log_files.append(("error", path))
                     break
-            
+
             return log_files
-            
+
         except Exception as e:
             logger.error(f"Ошибка поиска файлов логов: {e}")
             return []
-    
+
     async def send_logs_to_admin(self, bot: Bot, admin_id: int) -> bool:
         """Отправить файлы логов администратору"""
         try:
             log_files = await self.get_today_log_files()
-            
+
             if not log_files:
                 await bot.send_message(
-                    admin_id,
-                    "📄 <b>Логи за сегодня</b>\n\n❌ Файлы логов не найдены"
+                    admin_id, "📄 <b>Логи за сегодня</b>\n\n❌ Файлы логов не найдены"
                 )
                 return False
-            
-            today_str = datetime.now(timezone.utc).strftime('%d.%m.%Y UTC')
-            
+
+            today_str = datetime.now(UTC).strftime("%d.%m.%Y UTC")
+
             for log_type, file_path in log_files:
                 try:
                     if not os.path.exists(file_path):
                         logger.warning(f"Файл {file_path} не существует")
                         continue
-                    
+
                     file_size = os.path.getsize(file_path)
                     if file_size == 0:
                         logger.warning(f"Файл {file_path} пустой, пропускаем отправку")
                         await bot.send_message(
                             admin_id,
-                            f"📄 <b>Файл {log_type} логов за {today_str}</b>\n\n⚠️ Файл пустой"
+                            f"📄 <b>Файл {log_type} логов за {today_str}</b>\n\n⚠️ Файл пустой",
                         )
                         continue
-                    if log_type == 'app':
-                        filename = f"app_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.log"
+                    if log_type == "app":
+                        filename = f"app_{datetime.now(UTC).strftime('%Y-%m-%d')}.log"
                         caption = f"📄 <b>Основные логи за {today_str}</b>"
                     else:  # error
-                        filename = f"errors_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.log"
+                        filename = (
+                            f"errors_{datetime.now(UTC).strftime('%Y-%m-%d')}.log"
+                        )
                         caption = f"🚨 <b>Логи ошибок за {today_str}</b>"
-                    
+
                     document = FSInputFile(file_path, filename=filename)
-                    
-                    await bot.send_document(
-                        admin_id,
-                        document,
-                        caption=caption
-                    )
-                    
+
+                    await bot.send_document(admin_id, document, caption=caption)
+
                     logger.info(f"Отправлен файл логов {log_type}: {file_path}")
-                    
+
                 except Exception as e:
                     logger.error(f"Ошибка отправки файла {log_type}: {e}")
                     await bot.send_message(
-                        admin_id,
-                        f"❌ Ошибка отправки файла {log_type}: {str(e)}"
+                        admin_id, f"❌ Ошибка отправки файла {log_type}: {e!s}"
                     )
-            
+
             logger.info(f"Логи отправлены администратору {admin_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Ошибка отправки логов: {e}")
             await bot.send_message(
                 admin_id,
-                f"📄 <b>Логи за сегодня</b>\n\n❌ Ошибка при отправке логов: {str(e)}"
+                f"📄 <b>Логи за сегодня</b>\n\n❌ Ошибка при отправке логов: {e!s}",
             )
             return False
+
 
 # Создаем экземпляр сервиса
 admin_service = AdminService()

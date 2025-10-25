@@ -49,7 +49,7 @@ sleep 10
 
 # Выполнение миграций
 echo "🗄️  Выполнение миграций базы данных..."
-if ! docker exec hse_bot_app python main.py migrate; then
+if ! docker exec hse_bot_app uv run python main.py migrate; then
     echo "❌ Ошибка при выполнении миграций"
     exit 1
 fi

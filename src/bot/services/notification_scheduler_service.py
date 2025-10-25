@@ -1,222 +1,267 @@
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta, timezone
-import pytz
-from sqlalchemy import select, and_
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import and_, select
 
 from src.core.database import db_manager
-from src.core.models import User, Deadline, Subject, Subscription, UserNotificationSettings, ScheduledNotification
+from src.core.models import (
+    Deadline,
+    ScheduledNotification,
+    Subject,
+    Subscription,
+    User,
+    UserNotificationSettings,
+)
 from src.utils import get_logger
 from src.utils.time import utc_now
 
+
 logger = get_logger()
+
 
 class NotificationSchedulerService:
     """Сервис для планирования уведомлений о дедлайнах"""
-    
-    async def _get_user_deadlines(self, user_id: int) -> List[Deadline]:
+
+    async def _get_user_deadlines(self, user_id: int) -> list[Deadline]:
         """Получить все активные дедлайны пользователя"""
         async with db_manager.async_session() as session:
-            stmt = select(Deadline).join(Subject).join(Subscription).where(
-                and_(
-                    Subscription.user_id == user_id,
-                    Subject.is_active == True
-                )
+            stmt = (
+                select(Deadline)
+                .join(Subject)
+                .join(Subscription)
+                .where(and_(Subscription.user_id == user_id, Subject.is_active))
             )
             result = await session.execute(stmt)
             return list(result.scalars().all())
-    
-    async def _get_subject_deadlines(self, subject_id: int) -> List[Deadline]:
+
+    async def _get_subject_deadlines(self, subject_id: int) -> list[Deadline]:
         """Получить все активные дедлайны по предмету"""
         async with db_manager.async_session() as session:
             stmt = select(Deadline).where(Deadline.subject_id == subject_id)
             result = await session.execute(stmt)
             return list(result.scalars().all())
-    
-    async def _get_user_and_settings(self, user_id: int) -> tuple[User, UserNotificationSettings]:
+
+    async def _get_user_and_settings(
+        self, user_id: int
+    ) -> tuple[User, UserNotificationSettings]:
         """Получить пользователя и его настройки уведомлений одним запросом"""
         async with db_manager.async_session() as session:
             try:
-                stmt = select(User, UserNotificationSettings).join(
-                    UserNotificationSettings, User.tg_user_id == UserNotificationSettings.user_id
-                ).where(User.tg_user_id == user_id)
-                
+                stmt = (
+                    select(User, UserNotificationSettings)
+                    .join(
+                        UserNotificationSettings,
+                        User.tg_user_id == UserNotificationSettings.user_id,
+                    )
+                    .where(User.tg_user_id == user_id)
+                )
+
                 result = await session.execute(stmt)
                 row = result.first()
-                
+
                 if not row:
                     raise ValueError(f"Пользователь {user_id} не найден")
-                
+
                 user, settings = row
-                
+
                 if not settings.is_active:
-                    raise ValueError(f"Уведомления отключены для пользователя {user_id}")
-                
+                    raise ValueError(
+                        f"Уведомления отключены для пользователя {user_id}"
+                    )
+
                 return user, settings
-                
+
             except Exception as e:
                 logger.error(f"Ошибка получения пользователя и настроек {user_id}: {e}")
                 raise
-    
+
     async def _schedule_notifications_for_deadlines(
-        self, user: User, deadlines: List[Deadline], settings: UserNotificationSettings
+        self, user: User, deadlines: list[Deadline], settings: UserNotificationSettings
     ) -> int:
         """Планировать уведомления для списка дедлайнов"""
         total_scheduled = 0
-        
+
         for deadline in deadlines:
             if deadline.soft_deadline_ts:
                 count = await self._schedule_notifications_for_user_deadline(
-                    user, deadline, 'soft', deadline.soft_deadline_ts, settings
+                    user, deadline, "soft", deadline.soft_deadline_ts, settings
                 )
                 total_scheduled += count
-            
+
             if deadline.hard_deadline_ts:
                 count = await self._schedule_notifications_for_user_deadline(
-                    user, deadline, 'hard', deadline.hard_deadline_ts, settings
+                    user, deadline, "hard", deadline.hard_deadline_ts, settings
                 )
                 total_scheduled += count
-        
+
         return total_scheduled
-    
+
     async def _cancel_notifications_for_deadlines(
-        self, user_id: int, deadlines: List[Deadline]
+        self, user_id: int, deadlines: list[Deadline]
     ) -> int:
         """Отменить уведомления пользователя для списка дедлайнов"""
         total_cancelled = 0
-        
+
         for deadline in deadlines:
             async with db_manager.async_session() as session:
                 cancel_stmt = select(ScheduledNotification).where(
                     and_(
                         ScheduledNotification.user_id == user_id,
                         ScheduledNotification.deadline_id == deadline.id,
-                        ScheduledNotification.status == 'scheduled'
+                        ScheduledNotification.status == "scheduled",
                     )
                 )
                 result = await session.execute(cancel_stmt)
                 notifications_to_cancel = result.scalars().all()
-                
+
                 for notification in notifications_to_cancel:
-                    notification.status = 'cancelled'
+                    notification.status = "cancelled"
                     notification.updated_at = utc_now()
                     total_cancelled += 1
-                
+
                 await session.commit()
-        
+
         return total_cancelled
-    
+
     async def schedule_notifications_for_deadline(self, deadline: Deadline) -> int:
         """Создать запланированные уведомления для дедлайна"""
         try:
             subscribed_users = await self._get_subscribed_users(deadline.subject_id)
-            
+
             if not subscribed_users:
                 logger.info(f"Нет подписчиков на предмет дедлайна {deadline.id}")
                 return 0
-            
+
             total_scheduled = 0
-            
+
             for user in subscribed_users:
-                settings = await db_manager.get_user_notification_settings(user.tg_user_id)
-                
+                settings = await db_manager.get_user_notification_settings(
+                    user.tg_user_id
+                )
+
                 if not settings.is_active:
                     continue
-                
+
                 if deadline.soft_deadline_ts:
                     soft_count = await self._schedule_notifications_for_user_deadline(
-                        user, deadline, 'soft', deadline.soft_deadline_ts, settings
+                        user, deadline, "soft", deadline.soft_deadline_ts, settings
                     )
                     total_scheduled += soft_count
-                
+
                 if deadline.hard_deadline_ts:
                     hard_count = await self._schedule_notifications_for_user_deadline(
-                        user, deadline, 'hard', deadline.hard_deadline_ts, settings
+                        user, deadline, "hard", deadline.hard_deadline_ts, settings
                     )
                     total_scheduled += hard_count
-            
-            logger.info(f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id}")
+
+            logger.info(
+                f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id}"
+            )
             return total_scheduled
-            
+
         except Exception as e:
-            logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}")
+            logger.error(
+                f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}"
+            )
             return 0
-    
-    async def _get_subscribed_users(self, subject_id: int) -> List[User]:
+
+    async def _get_subscribed_users(self, subject_id: int) -> list[User]:
         """Получить пользователей, подписанных на предмет"""
         async with db_manager.async_session() as session:
             try:
-                stmt = select(User).join(Subscription).where(
-                    Subscription.subject_id == subject_id
+                stmt = (
+                    select(User)
+                    .join(Subscription)
+                    .where(Subscription.subject_id == subject_id)
                 )
                 result = await session.execute(stmt)
                 return list(result.scalars().all())
-                
+
             except Exception as e:
                 logger.error(f"Ошибка получения подписчиков предмета {subject_id}: {e}")
                 return []
-    
+
     async def _schedule_notifications_for_user_deadline(
-        self, user: User, deadline: Deadline, deadline_type: str, 
-        deadline_ts: datetime, settings: UserNotificationSettings
+        self,
+        user: User,
+        deadline: Deadline,
+        deadline_type: str,
+        deadline_ts: datetime,
+        settings: UserNotificationSettings,
     ) -> int:
         """Создать уведомления для пользователя и конкретного дедлайна"""
         try:
             scheduled_count = 0
-            
+
             reminder1_time = self._calculate_notification_time(
                 deadline_ts, settings.reminder1_offset, settings.reminder1_unit
             )
-            
-            if reminder1_time and reminder1_time > datetime.now(timezone.utc):
+
+            if reminder1_time and reminder1_time > datetime.now(UTC):
                 await self._create_scheduled_notification(
-                    user.tg_user_id, deadline.id, deadline_type, 1,
-                    deadline_ts, reminder1_time
+                    user.tg_user_id,
+                    deadline.id,
+                    deadline_type,
+                    1,
+                    deadline_ts,
+                    reminder1_time,
                 )
                 scheduled_count += 1
-            
+
             reminder2_time = self._calculate_notification_time(
                 deadline_ts, settings.reminder2_offset, settings.reminder2_unit
             )
-            
-            if reminder2_time and reminder2_time > datetime.now(timezone.utc):
+
+            if reminder2_time and reminder2_time > datetime.now(UTC):
                 await self._create_scheduled_notification(
-                    user.tg_user_id, deadline.id, deadline_type, 2,
-                    deadline_ts, reminder2_time
+                    user.tg_user_id,
+                    deadline.id,
+                    deadline_type,
+                    2,
+                    deadline_ts,
+                    reminder2_time,
                 )
                 scheduled_count += 1
-            
+
             return scheduled_count
-            
+
         except Exception as e:
-            logger.error(f"Ошибка планирования уведомлений для пользователя {user.tg_user_id}: {e}")
+            logger.error(
+                f"Ошибка планирования уведомлений для пользователя {user.tg_user_id}: {e}"
+            )
             return 0
-    
-    def _calculate_notification_time(self, deadline_ts: datetime, offset: int, unit: str) -> Optional[datetime]:
+
+    def _calculate_notification_time(
+        self, deadline_ts: datetime, offset: int, unit: str
+    ) -> datetime | None:
         """Вычислить время отправки уведомления"""
         try:
-            if unit == 'days':
+            if unit == "days":
                 delta = timedelta(days=offset)
-            elif unit == 'hours':
+            elif unit == "hours":
                 delta = timedelta(hours=offset)
             else:
                 logger.warning(f"Неизвестная единица времени: {unit}")
                 return None
-            
+
             notification_time = deadline_ts - delta
-            
-            if notification_time <= datetime.now(timezone.utc):
+
+            if notification_time <= datetime.now(UTC):
                 return None
-            
+
             return notification_time
-            
+
         except Exception as e:
             logger.error(f"Ошибка вычисления времени уведомления: {e}")
             return None
-    
+
     async def _create_scheduled_notification(
-        self, user_id: int, deadline_id: int, deadline_type: str,
-        notification_number: int, original_deadline_ts: datetime,
-        planned_delivery_time: datetime
+        self,
+        user_id: int,
+        deadline_id: int,
+        deadline_type: str,
+        notification_number: int,
+        original_deadline_ts: datetime,
+        planned_delivery_time: datetime,
     ) -> bool:
         """Создать запись запланированного уведомления"""
         try:
@@ -226,128 +271,173 @@ class NotificationSchedulerService:
                         ScheduledNotification.user_id == user_id,
                         ScheduledNotification.deadline_id == deadline_id,
                         ScheduledNotification.deadline_type == deadline_type,
-                        ScheduledNotification.notification_number == notification_number
+                        ScheduledNotification.notification_number
+                        == notification_number,
                     )
                 )
                 result = await session.execute(existing_stmt)
                 existing = result.scalar_one_or_none()
-                
+
                 if existing:
                     existing.original_deadline_ts = original_deadline_ts
                     existing.planned_delivery_time = planned_delivery_time
-                    existing.status = 'scheduled'
+                    existing.status = "scheduled"
                     existing.updated_at = utc_now()
                     await session.commit()
                     return True
-            
+
             notification_data = {
-                'user_id': user_id,
-                'deadline_id': deadline_id,
-                'deadline_type': deadline_type,
-                'notification_number': notification_number,
-                'original_deadline_ts': original_deadline_ts,
-                'planned_delivery_time': planned_delivery_time,
-                'status': 'scheduled'
+                "user_id": user_id,
+                "deadline_id": deadline_id,
+                "deadline_type": deadline_type,
+                "notification_number": notification_number,
+                "original_deadline_ts": original_deadline_ts,
+                "planned_delivery_time": planned_delivery_time,
+                "status": "scheduled",
             }
-            
+
             await db_manager.create_scheduled_notification(notification_data)
             return True
-            
+
         except Exception as e:
             logger.error(f"Ошибка создания запланированного уведомления: {e}")
             return False
-    
-    async def reschedule_notifications_for_updated_deadline(self, deadline: Deadline) -> int:
+
+    async def reschedule_notifications_for_updated_deadline(
+        self, deadline: Deadline
+    ) -> int:
         """Перепланировать уведомления для обновленного дедлайна"""
         try:
-            cancelled_count = await db_manager.cancel_scheduled_notifications_for_deadline(deadline.id)
-            logger.info(f"Отменено {cancelled_count} уведомлений для обновленного дедлайна {deadline.id}")
-            
+            cancelled_count = (
+                await db_manager.cancel_scheduled_notifications_for_deadline(
+                    deadline.id
+                )
+            )
+            logger.info(
+                f"Отменено {cancelled_count} уведомлений для обновленного дедлайна {deadline.id}"
+            )
+
             scheduled_count = await self.schedule_notifications_for_deadline(deadline)
-            
+
             return scheduled_count
-            
+
         except Exception as e:
-            logger.error(f"Ошибка перепланирования уведомлений для дедлайна {deadline.id}: {e}")
+            logger.error(
+                f"Ошибка перепланирования уведомлений для дедлайна {deadline.id}: {e}"
+            )
             return 0
-    
-    async def reschedule_notifications_for_user_settings_change(self, user_id: int) -> int:
+
+    async def reschedule_notifications_for_user_settings_change(
+        self, user_id: int
+    ) -> int:
         """Перепланировать все уведомления пользователя при изменении настроек"""
         try:
             user_deadlines = await self._get_user_deadlines(user_id)
             await self._cancel_notifications_for_deadlines(user_id, user_deadlines)
             user, settings = await self._get_user_and_settings(user_id)
-            total_rescheduled = await self._schedule_notifications_for_deadlines(user, user_deadlines, settings)
-            
-            logger.info(f"Перепланировано {total_rescheduled} уведомлений для пользователя {user_id}")
+            total_rescheduled = await self._schedule_notifications_for_deadlines(
+                user, user_deadlines, settings
+            )
+
+            logger.info(
+                f"Перепланировано {total_rescheduled} уведомлений для пользователя {user_id}"
+            )
             return total_rescheduled
-            
+
         except ValueError as e:
             logger.info(str(e))
             return 0
         except Exception as e:
-            logger.error(f"Ошибка перепланирования уведомлений для пользователя {user_id}: {e}")
+            logger.error(
+                f"Ошибка перепланирования уведомлений для пользователя {user_id}: {e}"
+            )
             return 0
 
-    
-    
-    async def schedule_notifications_for_user_subscription(self, user_id: int, subject_id: int) -> int:
+    async def schedule_notifications_for_user_subscription(
+        self, user_id: int, subject_id: int
+    ) -> int:
         """Создать уведомления для пользователя при подписке на предмет"""
         try:
             user, settings = await self._get_user_and_settings(user_id)
             subject_deadlines = await self._get_subject_deadlines(subject_id)
-            total_scheduled = await self._schedule_notifications_for_deadlines(user, subject_deadlines, settings)
-            
-            logger.info(f"Запланировано {total_scheduled} уведомлений для пользователя {user_id} по предмету {subject_id}")
+            total_scheduled = await self._schedule_notifications_for_deadlines(
+                user, subject_deadlines, settings
+            )
+
+            logger.info(
+                f"Запланировано {total_scheduled} уведомлений для пользователя {user_id} по предмету {subject_id}"
+            )
             return total_scheduled
-            
+
         except ValueError as e:
             logger.info(str(e))
             return 0
         except Exception as e:
-            logger.error(f"Ошибка планирования уведомлений для подписки пользователя {user_id} на предмет {subject_id}: {e}")
+            logger.error(
+                f"Ошибка планирования уведомлений для подписки пользователя {user_id} на предмет {subject_id}: {e}"
+            )
             return 0
-    
-    async def schedule_notifications_for_user_settings_creation(self, user_id: int) -> int:
+
+    async def schedule_notifications_for_user_settings_creation(
+        self, user_id: int
+    ) -> int:
         """Создать уведомления для пользователя при создании настроек уведомлений"""
         try:
             user_deadlines = await self._get_user_deadlines(user_id)
-            
+
             if not user_deadlines:
-                logger.info(f"Нет дедлайнов для планирования уведомлений пользователя {user_id}")
+                logger.info(
+                    f"Нет дедлайнов для планирования уведомлений пользователя {user_id}"
+                )
                 return 0
-            
+
             user, settings = await self._get_user_and_settings(user_id)
-            total_scheduled = await self._schedule_notifications_for_deadlines(user, user_deadlines, settings)
-            
-            logger.info(f"Запланировано {total_scheduled} уведомлений для пользователя {user_id} при создании настроек")
+            total_scheduled = await self._schedule_notifications_for_deadlines(
+                user, user_deadlines, settings
+            )
+
+            logger.info(
+                f"Запланировано {total_scheduled} уведомлений для пользователя {user_id} при создании настроек"
+            )
             return total_scheduled
-            
+
         except ValueError as e:
             logger.info(str(e))
             return 0
         except Exception as e:
-            logger.error(f"Ошибка планирования уведомлений для пользователя {user_id} при создании настроек: {e}")
+            logger.error(
+                f"Ошибка планирования уведомлений для пользователя {user_id} при создании настроек: {e}"
+            )
             return 0
-    
-    async def cancel_notifications_for_user_subscription(self, user_id: int, subject_id: int) -> int:
+
+    async def cancel_notifications_for_user_subscription(
+        self, user_id: int, subject_id: int
+    ) -> int:
         """Отменить уведомления пользователя при отписке от предмета"""
         try:
             subject_deadlines = await self._get_subject_deadlines(subject_id)
-            
+
             if not subject_deadlines:
-                logger.info(f"Нет дедлайнов для отмены уведомлений по предмету {subject_id}")
+                logger.info(
+                    f"Нет дедлайнов для отмены уведомлений по предмету {subject_id}"
+                )
                 return 0
-            
-            total_cancelled = await self._cancel_notifications_for_deadlines(user_id, subject_deadlines)
-            
-            logger.info(f"Отменено {total_cancelled} уведомлений для пользователя {user_id} по предмету {subject_id}")
+
+            total_cancelled = await self._cancel_notifications_for_deadlines(
+                user_id, subject_deadlines
+            )
+
+            logger.info(
+                f"Отменено {total_cancelled} уведомлений для пользователя {user_id} по предмету {subject_id}"
+            )
             return total_cancelled
-            
+
         except Exception as e:
-            logger.error(f"Ошибка отмены уведомлений для пользователя {user_id} по предмету {subject_id}: {e}")
+            logger.error(
+                f"Ошибка отмены уведомлений для пользователя {user_id} по предмету {subject_id}: {e}"
+            )
             return 0
-    
+
     async def cancel_all_notifications_for_user(self, user_id: int) -> int:
         """Отменить все уведомления пользователя при отписке от всех предметов"""
         try:
@@ -355,25 +445,30 @@ class NotificationSchedulerService:
                 cancel_stmt = select(ScheduledNotification).where(
                     and_(
                         ScheduledNotification.user_id == user_id,
-                        ScheduledNotification.status == 'scheduled'
+                        ScheduledNotification.status == "scheduled",
                     )
                 )
                 result = await session.execute(cancel_stmt)
                 notifications_to_cancel = result.scalars().all()
-                
+
                 total_cancelled = 0
                 for notification in notifications_to_cancel:
-                    notification.status = 'cancelled'
+                    notification.status = "cancelled"
                     notification.updated_at = utc_now()
                     total_cancelled += 1
-                
+
                 await session.commit()
-            
-            logger.info(f"Отменено {total_cancelled} уведомлений для пользователя {user_id}")
+
+            logger.info(
+                f"Отменено {total_cancelled} уведомлений для пользователя {user_id}"
+            )
             return total_cancelled
-            
+
         except Exception as e:
-            logger.error(f"Ошибка отмены всех уведомлений для пользователя {user_id}: {e}")
+            logger.error(
+                f"Ошибка отмены всех уведомлений для пользователя {user_id}: {e}"
+            )
             return 0
+
 
 notification_scheduler_service = NotificationSchedulerService()

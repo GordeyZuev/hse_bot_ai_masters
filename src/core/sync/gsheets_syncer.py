@@ -1,29 +1,33 @@
 import asyncio
-from gspread_asyncio import AsyncioGspreadClientManager
-from google.oauth2.service_account import Credentials
 import os
+from typing import Any
+
 from dotenv import load_dotenv
-from typing import List, Dict, Any
+from google.oauth2.service_account import Credentials
+from gspread_asyncio import AsyncioGspreadClientManager
+
 from src.utils import get_logger
 
-load_dotenv('src/config/.env')
+
+load_dotenv("src/config/.env")
 logger = get_logger()
 
+
 class AsyncGoogleSheetsManager:
-    SHEET_NAMES = ['1_Курс_Дедлайны', '2_Курс_Дедлайны']
+    SHEET_NAMES = ["1_Курс_Дедлайны", "2_Курс_Дедлайны"]
     SCOPES = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
+        "https://www.googleapis.com/auth/drive",
     ]
-    
+
     def __init__(self):
-        self.sheet_url = os.getenv('GOOGLE_SHEETS_URL')
+        self.sheet_url = os.getenv("GOOGLE_SHEETS_URL")
         if not self.sheet_url:
             raise ValueError("GOOGLE_SHEETS_URL не найден в переменных окружения")
-        
-        self.creds_file = os.getenv('GOOGLE_CREDS_FILE', 'src/config/creds.json')
+
+        self.creds_file = os.getenv("GOOGLE_CREDS_FILE", "src/config/creds.json")
         self.client_manager = AsyncioGspreadClientManager(self.get_credentials)
-    
+
     def get_credentials(self):
         """Получение учетных данных Google API"""
         try:
@@ -32,8 +36,8 @@ class AsyncGoogleSheetsManager:
         except Exception as e:
             logger.error(f"Ошибка загрузки учетных данных из {self.creds_file}: {e}")
             raise
-    
-    async def get_sheet_data(self, sheet_name: str) -> List[Dict[str, Any]]:
+
+    async def get_sheet_data(self, sheet_name: str) -> list[dict[str, Any]]:
         """Асинхронное получение данных из листа"""
         try:
             client = await self.client_manager.authorize()
@@ -43,16 +47,16 @@ class AsyncGoogleSheetsManager:
         except Exception as e:
             logger.error(f"Ошибка получения данных из '{sheet_name}': {e}")
             return []
-    
-    async def get_deadlines_data(self) -> List[Dict[str, Any]]:
+
+    async def get_deadlines_data(self) -> list[dict[str, Any]]:
         """Получение данных дедлайнов с нужных листов"""
         try:
             # Параллельное получение данных
             results = await asyncio.gather(
                 *[self.get_sheet_data(name) for name in self.SHEET_NAMES],
-                return_exceptions=True
+                return_exceptions=True,
             )
-            
+
             # Обработка результатов и фильтрация
             all_data = []
             for i, data in enumerate(results):
@@ -60,24 +64,28 @@ class AsyncGoogleSheetsManager:
                     logger.error(f"Ошибка листа {self.SHEET_NAMES[i]}: {data}")
                 else:
                     filtered = [
-                        item for item in data
-                        if item.get('Дисциплина') and item.get('Название ДЗ')
+                        item
+                        for item in data
+                        if item.get("Дисциплина") and item.get("Название ДЗ")
                     ]
                     all_data.extend(filtered)
-            
+
             logger.info(f"Получено {len(all_data)} дедлайнов")
             return all_data
-            
+
         except Exception as e:
             logger.exception(f"Ошибка получения дедлайнов: {e}")
             return []
 
+
 # Создаем экземпляр менеджера
 sheets_manager = AsyncGoogleSheetsManager()
+
 
 async def main():
     """Основная асинхронная функция"""
     return await sheets_manager.get_deadlines_data()
+
 
 # Запуск
 if __name__ == "__main__":

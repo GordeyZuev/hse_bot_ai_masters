@@ -1,0 +1,222 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[project]
+name = "hse-bot-ai-masters"
+version = "1.0.0"
+description = "Telegram bot for HSE AI Masters deadline notifications"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "HSE Bot Team"},
+]
+keywords = ["telegram", "bot", "hse", "deadlines", "notifications"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Topic :: Education",
+]
+
+dependencies = [
+    "aiofiles==24.1.0",
+    "aiogram==3.22.0",
+    "aiohappyeyeballs==2.6.1",
+    "aiohttp==3.12.15",
+    "aiosignal==1.4.0",
+    "aiosqlite==0.21.0",
+    "alembic==1.16.4",
+    "annotated-types==0.7.0",
+    "APScheduler==3.11.0",
+    "asyncpg==0.30.0",
+    "attrs==25.3.0",
+    "cachetools==5.5.2",
+    "certifi==2025.8.3",
+    "charset-normalizer==3.4.3",
+    "frozenlist==1.7.0",
+    "google-auth==2.40.3",
+    "google-auth-oauthlib==1.2.2",
+    "greenlet==3.2.4",
+    "gspread==6.0.2",
+    "gspread_asyncio==2.0.0",
+    "idna==3.10",
+    "loguru==0.7.3",
+    "magic-filter==1.0.12",
+    "Mako==1.3.10",
+    "MarkupSafe==3.0.2",
+    "multidict==6.6.4",
+    "oauthlib==3.3.1",
+    "propcache==0.3.2",
+    "psycopg2-binary==2.9.10",
+    "pyasn1==0.6.1",
+    "pyasn1_modules==0.4.2",
+    "pydantic==2.11.7",
+    "pydantic_core==2.33.2",
+    "python-dateutil==2.9.0.post0",
+    "python-dotenv==1.1.1",
+    "pytz==2025.2",
+    "requests==2.32.5",
+    "requests-oauthlib==2.0.0",
+    "rsa==4.9.1",
+    "six==1.17.0",
+    "SQLAlchemy==2.0.43",
+    "StrEnum==0.4.15",
+    "typing-inspection==0.4.1",
+    "typing_extensions==4.14.1",
+    "tzlocal==5.3.1",
+    "timezonefinder==8.0.0",
+    "urllib3==2.5.0",
+    "yarl==1.20.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+hse-bot = "main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.8.0",
+    "mypy>=1.0.0",
+]
+
+[tool.ruff]
+# Длина строки
+line-length = 88
+
+# Версия Python
+target-version = "py311"
+
+# Исключения
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+
+# Включаемые файлы
+extend-include = ["*.py", "*.pyi"]
+
+[tool.ruff.lint]
+# Игнорируемые правила
+ignore = [
+    "E501",  # line too long, handled by formatter
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+    "RUF001", # ambiguous-unicode-character-string
+    "RUF002", # ambiguous-unicode-character-docstring
+    "RUF003", # ambiguous-unicode-character-comment
+    "RUF013", # implicit-optional
+    "RUF012", # mutable-class-default
+    "RUF046", # unnecessary-cast-to-int
+    "RUF059", # unused-unpacked-variable
+]
+
+# Включаемые правила
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+    "ARG001", # unused-function-args
+    "SIM", # flake8-simplify
+    "TCH", # flake8-type-checking
+    "TID", # flake8-tidy-imports
+    "Q",  # flake8-quotes
+    "RUF", # ruff-specific rules
+]
+
+
+
+# Настройки для конкретных правил
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*.py" = ["S101", "ARG", "FBT", "PLR2004"]
+
+# Настройки isort
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+force-single-line = false
+lines-after-imports = 2
+
+# Настройки pyupgrade
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+# Настройки flake8-quotes
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+inline-quotes = "double"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "aiogram.*",
+    "gspread.*",
+    "gspread_asyncio.*",
+    "alembic.*",
+    "APScheduler.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

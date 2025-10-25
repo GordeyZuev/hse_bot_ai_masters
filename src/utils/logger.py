@@ -1,27 +1,28 @@
 # logger.py
-import sys
-from pathlib import Path
-from loguru import logger
 import os
-from datetime import datetime, timezone
-import pytz
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+from loguru import logger
+
 
 def setup_logging(
     log_level: str = "INFO",
     rotation: str = "00:00",  # Ротация в полночь по московскому времени
     retention: str = "30 days",
-    log_dir: Path = Path("logs")
+    log_dir: Path = Path("logs"),
 ) -> None:
     """
     Настройка логгера для продакшн-окружения
     """
-    
+
     # Создаем директорию для логов если не существует
     log_dir.mkdir(exist_ok=True)
-    
+
     # Текущее время в UTC
-    current_utc_time = datetime.now(timezone.utc)
-    
+    current_utc_time = datetime.now(UTC)
+
     # Формат для логов
     log_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
@@ -29,7 +30,7 @@ def setup_logging(
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
         "<level>{message}</level>"
     )
-    
+
     # Правильный JSON формат (убраны лишние кавычки)
     json_format = (
         '{{"timestamp": "{time:YYYY-MM-DD HH:mm:ss.SSS}", '
@@ -39,10 +40,10 @@ def setup_logging(
         '"line": {line}, '
         '"message": "{message}"}}'
     )
-    
+
     # Удаляем стандартный обработчик
     logger.remove()
-    
+
     # Консольный вывод
     logger.add(
         sys.stdout,
@@ -50,9 +51,9 @@ def setup_logging(
         format=log_format,
         colorize=True,
         backtrace=True,
-        diagnose=True
+        diagnose=True,
     )
-    
+
     # Файловый вывод (ротация по времени в полночь)
     logger.add(
         log_dir / "app_{time:YYYY-MM-DD}.log",
@@ -62,9 +63,9 @@ def setup_logging(
         retention=retention,
         compression="zip",
         encoding="utf-8",
-        enqueue=True  # Асинхронная запись для лучшей производительности
+        enqueue=True,  # Асинхронная запись для лучшей производительности
     )
-    
+
     # JSON лог для машинной обработки
     logger.add(
         log_dir / "app_json_{time:YYYY-MM-DD}.log",
@@ -75,9 +76,9 @@ def setup_logging(
         compression="zip",
         encoding="utf-8",
         enqueue=True,
-        catch=True  # Перехватывать ошибки записи
+        catch=True,  # Перехватывать ошибки записи
     )
-    
+
     # Отдельный файл для ошибок
     logger.add(
         log_dir / "errors_{time:YYYY-MM-DD}.log",
@@ -87,9 +88,9 @@ def setup_logging(
         retention="90 days",
         compression="zip",
         encoding="utf-8",
-        enqueue=True
+        enqueue=True,
     )
-    
+
     # Логирование старта с диагностикой
     logger.info("Логгер успешно настроен")
     logger.info(f"Директория логов: {log_dir.absolute()}")
@@ -97,12 +98,13 @@ def setup_logging(
     logger.info(f"Ротация настроена на: {rotation}")
     logger.info(f"Текущий файл лога: app_{current_utc_time.strftime('%Y-%m-%d')}.log")
 
+
 def get_logger() -> logger:
     """Получить настроенный логгер"""
     return logger
 
+
 # Инициализация при импорте
 setup_logging(
-    log_level=os.getenv("LOG_LEVEL", "INFO"),
-    log_dir=Path(os.getenv("LOG_DIR", "logs"))
+    log_level=os.getenv("LOG_LEVEL", "INFO"), log_dir=Path(os.getenv("LOG_DIR", "logs"))
 )

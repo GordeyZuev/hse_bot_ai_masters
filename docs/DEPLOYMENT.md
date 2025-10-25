@@ -41,35 +41,62 @@ chmod 600 src/config/creds.json
 
 4. **Запустите:**
 ```bash
+# С помощью Makefile
+make run
+
+# Или напрямую
 docker-compose up -d --build
 ```
 
 5. **Проверьте работу:**
 ```bash
+# С помощью Makefile
+make logs
+
+# Или напрямую
 docker-compose logs -f app
 ```
 
 ### 🐍 Локальный запуск
 
-1. **Установите зависимости:**
+1. **Установите uv:**
 ```bash
-pip install -r requirements.txt
+# Установка uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# или через pip
+pip install uv
 ```
 
-2. **Настройте PostgreSQL:**
+2. **Установите зависимости:**
+```bash
+# Автоматическая настройка проекта
+./scripts/setup-uv.sh
+
+# Или вручную
+uv sync
+```
+
+3. **Настройте PostgreSQL:**
 ```bash
 # Создайте базу данных
 createdb hse_bot_db
 ```
 
-3. **Настройте конфигурацию:**
+4. **Настройте конфигурацию:**
 ```bash
 cp src/config/.env.example src/config/.env
 # Отредактируйте .env файл
 ```
 
-4. **Запустите:**
+5. **Запустите:**
 ```bash
+# С помощью Makefile (рекомендуется)
+make run
+
+# Или напрямую через uv
+uv run python main.py full
+
+# Или напрямую (если виртуальное окружение активировано)
 python main.py full
 ```
 
@@ -132,6 +159,122 @@ brew install git nano htop curl wget
 
 ## ⚙️ Настройка окружения
 
+### 🚀 Установка uv
+
+`uv` - это современный и быстрый менеджер пакетов Python, который мы используем для управления зависимостями.
+
+#### Установка на разных платформах
+
+**Linux/macOS:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows:**
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Через pip:**
+```bash
+pip install uv
+```
+
+**Через Homebrew (macOS):**
+```bash
+brew install uv
+```
+
+#### Проверка установки
+```bash
+uv --version
+```
+
+### 🔧 Управление проектом с Makefile
+
+Makefile упрощает выполнение основных команд проекта:
+
+#### Основные команды
+
+```bash
+make help           # Показать все доступные команды
+make install        # Установить зависимости
+make install-dev    # Установить зависимости для разработки
+make run            # Запустить бота с синхронизацией и уведомлениями
+make lint           # Проверить код с помощью ruff
+make lint-fix       # Автоматически исправить проблемы с кодом
+make format         # Отформатировать код
+make clean          # Очистить временные файлы
+make logs           # Просмотреть логи за сегодня
+make update         # Обновить проект (остановить, git pull, перезапустить)
+```
+
+### 📦 Управление зависимостями с uv
+
+#### Основные команды
+
+```bash
+# Синхронизация зависимостей (установка всех пакетов из pyproject.toml)
+uv sync
+
+# Установка зависимостей для разработки
+uv sync --dev
+
+# Добавление новой зависимости
+uv add package-name
+
+# Добавление dev зависимости
+uv add --dev package-name
+
+# Удаление зависимости
+uv remove package-name
+
+# Обновление зависимостей
+uv lock --upgrade
+
+# Запуск команд в виртуальном окружении
+uv run python main.py full
+uv run alembic upgrade head
+
+# Проверка качества кода
+uv run ruff check .            # проверка кода
+uv run ruff check --fix .      # автоисправление
+uv run ruff format .           # форматирование
+```
+
+#### Преимущества uv
+
+- **Скорость**: В 10-100 раз быстрее pip
+- **Надежность**: Детерминированные сборки с lock-файлом
+- **Совместимость**: Полная совместимость с pip и PyPI
+- **Простота**: Один инструмент для всех задач Python
+- **Безопасность**: Автоматическое управление виртуальными окружениями
+
+### 🔍 Проверка качества кода с ruff
+
+`ruff` - это современный и быстрый линтер и форматтер для Python, который заменяет несколько инструментов сразу.
+
+#### Основные команды
+
+```bash
+# Проверка кода
+uv run ruff check .            # проверка кода
+uv run ruff check --fix .      # автоисправление проблем
+uv run ruff format .           # форматирование кода
+
+# Использование скриптов
+./scripts/lint.sh              # полная проверка качества кода
+./scripts/fix-code.sh          # автоисправление и форматирование
+```
+
+#### Преимущества ruff
+
+- **Скорость**: В 10-100 раз быстрее black, isort, flake8
+- **Все в одном**: Заменяет black, isort, flake8, pyupgrade
+- **Автоисправление**: Может исправлять большинство проблем автоматически
+- **Совместимость**: Полная совместимость с существующими инструментами
+- **Настраиваемость**: Гибкая конфигурация через pyproject.toml
+
 ### 📁 Структура проекта
 
 ```
@@ -147,7 +290,11 @@ hse_bot_ai_masters/
 ├── logs/                     # Логи (создается автоматически)
 ├── backups/                  # Бэкапы (создается автоматически)
 ├── docker-compose.yml        # Docker конфигурация
-└── requirements.txt          # Python зависимости
+├── pyproject.toml            # Конфигурация проекта и зависимости (uv)
+├── uv.lock                   # Lock-файл зависимостей (создается автоматически)
+├── Makefile                  # Команды для управления проектом
+├── requirements.txt          # Python зависимости (legacy, для совместимости)
+└── README.md                 # Основная документация
 ```
 
 ### 🔐 Конфигурация (.env)
@@ -289,8 +436,14 @@ GRANT ALL PRIVILEGES ON DATABASE hse_bot_db TO hse_bot_user;
 ## 🚀 Режимы работы
 
 ### 🎯 **Полный режим** (рекомендуется)
+Через Makefile:
 ```bash
-python main.py full
+make run
+```
+
+Или напрямую:
+```bash
+uv run python main.py full
 ```
 - Бот + синхронизация + уведомления
 - Автоматическое планирование задач
@@ -298,7 +451,7 @@ python main.py full
 
 ### 🤖 **Только бот**
 ```bash
-python main.py bot
+uv run python main.py bot
 ```
 - Только интерфейс пользователя
 - Без автоматической синхронизации
@@ -306,7 +459,7 @@ python main.py bot
 
 ### 🔄 **Только синхронизация**
 ```bash
-python main.py scheduler
+uv run python main.py scheduler
 ```
 - Планировщик синхронизации
 - Без интерфейса бота
@@ -314,7 +467,7 @@ python main.py scheduler
 
 ### ⚡ **Одиночная синхронизация**
 ```bash
-python main.py sync
+uv run python main.py sync
 ```
 - Выполнить синхронизацию один раз
 - Полезно для тестирования
@@ -322,8 +475,9 @@ python main.py sync
 
 ### 🗄️ **Управление БД**
 ```bash
-python main.py migrate    # Применить миграции
-python main.py restore    # Восстановить БД
+uv run python main.py migrate    # Применить миграции (если нужно)
+uv run python main.py restore    # Восстановить БД
+uv run alembic upgrade head      # Применить миграции через alembic
 ```
 
 ## 🚀 Развертывание
@@ -344,8 +498,11 @@ nano src/config/.env  # отредактируйте настройки
 # Добавление Google Service Account
 # Поместите creds.json в src/config/
 
-# Запуск автоматического развертывания
-./scripts/deploy.sh
+# Запуск через Makefile
+make run
+
+# Или вручную
+docker-compose up -d --build
 ```
 
 #### Ручное развертывание
@@ -371,21 +528,29 @@ docker exec hse_bot_app python main.py migrate
 ### 🐍 Локальное развертывание
 
 ```bash
+# Установка uv (если не установлен)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Установка зависимостей
-pip install -r requirements.txt
+uv sync
 
 # Настройка переменных окружения
 export $(cat src/config/.env | xargs)
 
-# Применение миграций
-python main.py migrate
-
 # Запуск в полном режиме
-python main.py full
+make run
+# или
+uv run python main.py full
 ```
 
 ### 🔄 Обновление
 
+С помощью Makefile (рекомендуется):
+```bash
+make update
+```
+
+Или вручную:
 ```bash
 # Остановка сервисов
 docker-compose down
@@ -396,9 +561,21 @@ git pull
 # Пересборка и запуск
 docker-compose build --no-cache
 docker-compose up -d
+```
 
-# Применение новых миграций
-docker exec hse_bot_app python main.py migrate
+### 📋 Основные команды Makefile
+
+```bash
+make help           # Показать все доступные команды
+make install        # Установить зависимости
+make install-dev    # Установить зависимости для разработки
+make run            # Запустить бота с синхронизацией и уведомлениями
+make lint           # Проверить код с помощью ruff
+make lint-fix       # Автоматически исправить проблемы с кодом
+make format         # Отформатировать код
+make clean          # Очистить временные файлы
+make logs           # Просмотреть логи за сегодня
+make update         # Обновить проект (остановить, git pull, перезапустить)
 ```
 
 ## ✅ Проверка работы
@@ -540,10 +717,10 @@ docker-compose exec app logrotate -f /etc/logrotate.conf
 # Восстановление из бэкапа
 ./scripts/restore-db.sh backups/latest.sql.gz
 
-# Применение миграций
+# Применение миграций (если нужно)
 docker exec hse_bot_app python main.py migrate
 
-# Проверка статуса миграций
+# Проверка статуса миграций (если нужно)
 docker exec hse_bot_app alembic current
 ```
 

@@ -18,8 +18,8 @@ if ! command -v pg_isready &> /dev/null; then
     exit 1
 fi
 
-if ! command -v alembic &> /dev/null; then
-    echo "❌ alembic не найден. Установите alembic"
+if ! command -v uv &> /dev/null; then
+    echo "❌ uv не найден. Установите uv"
     exit 1
 fi
 
@@ -34,7 +34,7 @@ echo "✅ PostgreSQL готов!"
 
 # Запуск миграций Alembic
 echo "🔄 Применение миграций..."
-if ! alembic upgrade head; then
+if ! uv run alembic upgrade head; then
     echo "❌ Ошибка при применении миграций"
     exit 1
 fi
@@ -43,7 +43,7 @@ echo "✅ Миграции успешно применены!"
 
 # Инициализация данных приложения (если нужно)
 echo "🔄 Инициализация данных приложения..."
-if ! python -c "
+if ! uv run python -c "
 import asyncio
 import sys
 sys.path.insert(0, '.')

@@ -1,19 +1,23 @@
 import os
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+
+from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.handlers.admin import is_admin
 from src.utils import get_logger
 
+
 logger = get_logger()
 router = Router()
+
 
 @router.message(Command("help"))
 async def cmd_help(message: Message, db_user):
     """Обработчик команды /help"""
     await send_help_message(message, db_user)
+
 
 @router.callback_query(F.data == "quick_help")
 async def callback_help(callback: CallbackQuery, db_user):
@@ -21,12 +25,14 @@ async def callback_help(callback: CallbackQuery, db_user):
     await callback.answer()
     await send_help_message(callback.message, db_user, edit_mode=True)
 
+
 async def send_help_message(message: Message, db_user, edit_mode: bool = False):
     """Отправка сообщения с помощью"""
     try:
-        fcs_wiki_url = os.getenv('FCS_WIKI_URL', 'https://wiki.cs.hse.ru')
-        
-        text = f"""
+        fcs_wiki_url = os.getenv("FCS_WIKI_URL", "https://wiki.cs.hse.ru")
+
+        text = (
+            f"""
 <b>📖 Справка по боту:</b>
 Бот автоматически присылает уведомления о приближающихся дедлайнах. Информация о дедлайнах берется из таблиц в ведомостях.
 
@@ -53,19 +59,26 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
 <b>ℹ️ Информация:</b>
 • /start — главное меню.
 • /help — эта справка.
-""" + ("""
+"""
+            + (
+                """
 
 <b>📊 Для администраторов:</b>
 • /stats — статистика использования и админ-панель.
 • /fast_sync — быстрая синхронизация с Google Sheets.
 • /broadcast — массовая рассылка.
 • /logs — получить файлы логов.
-""" if is_admin(db_user.tg_user_id) else "") + """
+"""
+                if is_admin(db_user.tg_user_id)
+                else ""
+            )
+            + """
 </blockquote>
 
 <b>💡 Совет:</b> Начните с подписок на предметы!
         """
-        
+        )
+
         # Создаем клавиатуру с полезными действиями
         builder = InlineKeyboardBuilder()
         builder.button(text="📚 Подписки", callback_data="quick_sub")
@@ -73,25 +86,26 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
         builder.button(text="⚙️ Настройки", callback_data="quick_settings")
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(2, 2)  # 2 кнопки в первом ряду, 2 во втором
-        
+
         if edit_mode:
             await message.edit_text(
                 text.strip(),
                 reply_markup=builder.as_markup(),
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
             )
         else:
             await message.answer(
                 text.strip(),
                 reply_markup=builder.as_markup(),
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
             )
-        
+
         logger.info(f"Пользователь {db_user.tg_user_id} запросил помощь")
-        
+
     except Exception as e:
         logger.error(f"Ошибка в обработчике /help: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
+
 
 def register_help_handlers(dp):
     """Регистрация handlers для команды help"""

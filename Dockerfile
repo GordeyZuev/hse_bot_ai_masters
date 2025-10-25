@@ -7,8 +7,12 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/* \
     && unset DEBIAN_FRONTEND
+
+# Устанавливаем uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
 # Создаем пользователя для приложения
 RUN useradd --create-home --shell /bin/bash app
@@ -16,12 +20,11 @@ RUN useradd --create-home --shell /bin/bash app
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем файл зависимостей
-COPY requirements.txt .
+# Копируем файлы проекта
+COPY pyproject.toml uv.lock* ./
 
-# Устанавливаем Python зависимости
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Устанавливаем Python зависимости через uv
+RUN uv sync --frozen --no-dev
 
 # Копируем код приложения
 COPY . .
@@ -37,4 +40,4 @@ USER app
 EXPOSE 8000
 
 # Команда по умолчанию
-CMD ["python", "main.py", "full"]
+CMD ["uv", "run", "python", "main.py", "full"]

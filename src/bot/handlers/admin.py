@@ -61,13 +61,13 @@ async def show_statistics(message_or_callback, db_user, show_back_button: bool =
         else:
             await message_or_callback.answer(text, reply_markup=builder.as_markup())
 
-        logger.info(f"Админ {db_user.tg_user_id} запросил статистику")
+        logger.info(f"(A) {db_user.tg_user_id} - Статистика")
 
     except Exception as e:
         # Проверяем, является ли ошибка "message is not modified"
         if "message is not modified" in str(e):
             # Если сообщение не изменилось, просто логируем и ничего не показываем
-            logger.info(f"Статистика для админа {db_user.tg_user_id} не изменилась")
+            logger.info(f"(A) {db_user.tg_user_id} - Статистика не изменилась")
         else:
             logger.error(f"Ошибка при получении статистики: {e}")
             error_text = "Произошла ошибка при получении статистики."
@@ -95,7 +95,7 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
         if isinstance(message_or_callback, CallbackQuery):
             await message_or_callback.answer("Запускаю синхронизацию...")
 
-        logger.info(f"Админ {db_user.tg_user_id} запустил синхронизацию")
+        logger.info(f"(A) {db_user.tg_user_id} - Синхронизация")
         sync_result = await data_syncer.sync_data()
         success = (
             bool(sync_result.get("success"))
@@ -220,7 +220,7 @@ async def cmd_logs(message: Message, db_user):
 
     try:
         await admin_service.send_logs_to_admin(message.bot, db_user.tg_user_id)
-        logger.info(f"Админ {db_user.tg_user_id} запросил логи через команду")
+        logger.info(f"(A) {db_user.tg_user_id} - Логи")
 
     except Exception as e:
         logger.error(f"Ошибка в обработчике /logs: {e}")

@@ -100,7 +100,7 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
                 disable_web_page_preview=True,
             )
 
-        logger.info(f"Пользователь {db_user.tg_user_id} запросил помощь")
+        logger.info(f"(U) {db_user.tg_user_id} - Помощь")
 
     except Exception as e:
         logger.error(f"Ошибка в обработчике /help: {e}")

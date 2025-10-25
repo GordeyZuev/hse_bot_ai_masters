@@ -103,7 +103,7 @@ async def send_deadlines_list(message: Message, db_user, days: int, edit: bool =
             )
 
         logger.info(
-            f"Пользователь {db_user.tg_user_id} запросил дедлайны на {days} дней"
+            f"(U) {db_user.tg_user_id} - Дедлайны на {days} дней"
         )
 
     except Exception as e:

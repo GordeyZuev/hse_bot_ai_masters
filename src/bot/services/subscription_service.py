@@ -78,7 +78,7 @@ class SubscriptionService:
                 )
 
                 logger.info(
-                    f"Пользователь {user_id} подписался на {subject_name}. Запланировано {scheduled_count} уведомлений"
+                    f"(U) {user_id} - Подписка: {subject_name} ({scheduled_count} увед.)"
                 )
                 return True, "Подписка успешно оформлена!"
 
@@ -114,7 +114,7 @@ class SubscriptionService:
                     )
 
                     logger.info(
-                        f"Пользователь {user_id} отписался от {subject_name}. Отменено {cancelled_count} уведомлений"
+                        f"(U) {user_id} - Отписка: {subject_name} (отменено {cancelled_count})"
                     )
                     return True, "Подписка успешно отменена!"
                 else:
@@ -143,7 +143,7 @@ class SubscriptionService:
                     )
 
                     logger.info(
-                        f"Пользователь {user_id} отписался от всех предметов ({count}). Отменено {cancelled_count} уведомлений"
+                        f"(U) {user_id} - Отписка от всех ({count}), отменено {cancelled_count}"
                     )
                     return True, f"Отменено {count} подписок"
                 else:

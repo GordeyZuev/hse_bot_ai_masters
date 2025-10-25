@@ -42,7 +42,7 @@ async def cmd_start(message: Message, db_user):
 
         await message.answer(text.strip(), reply_markup=builder.as_markup())
 
-        logger.info(f"Пользователь {db_user.tg_user_id} выполнил команду /start")
+        logger.info(f"(U) {db_user.tg_user_id} - /start")
 
     except Exception as e:
         logger.error(f"Ошибка в обработчике /start: {e}")

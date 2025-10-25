@@ -27,7 +27,7 @@ class ScheduledNotificationSender:
         stats = {"sent": 0, "failed": 0, "skipped": 0, "total_processed": 0}
 
         try:
-            logger.info("Начинаем отправку запланированных уведомлений")
+            logger.info("Проверка уведомлений")
 
             # Получаем уведомления для отправки (в течение ближайших 5 минут)
             notifications = await db_manager.get_scheduled_notifications_for_delivery(
@@ -35,10 +35,10 @@ class ScheduledNotificationSender:
             )
 
             if not notifications:
-                logger.info("Нет уведомлений для отправки")
+                logger.info("Нет уведомлений")
                 return stats
 
-            logger.info(f"Найдено {len(notifications)} уведомлений для отправки")
+            logger.info(f"Найдено {len(notifications)} уведомлений")
 
             # Группируем уведомления по пользователям
             user_notifications = self._group_notifications_by_user(notifications)
@@ -61,7 +61,7 @@ class ScheduledNotificationSender:
                 # Ждем завершения всех задач в батче
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-            logger.info(f"Отправка завершена. Статистика: {stats}")
+            logger.info(f"Отправка завершена: {stats}")
             return stats
 
         except Exception as e:
@@ -202,16 +202,16 @@ class ScheduledNotificationSender:
             )
 
             logger.info(
-                f"Отправлено {len(notifications)} уведомлений пользователю {user_id}"
+                f"(U) {user_id} - Отправлено {len(notifications)} уведомлений"
             )
             return True
 
         except TelegramForbiddenError:
-            logger.warning(f"Пользователь {user_id} заблокировал бота")
+            logger.warning(f"(U) {user_id} - Заблокирован")
             return False
 
         except TelegramBadRequest as e:
-            logger.error(f"Ошибка Telegram API для пользователя {user_id}: {e}")
+            logger.error(f"(U) {user_id} - Ошибка Telegram API: {e}")
             return False
 
         except Exception as e:

@@ -44,7 +44,7 @@ class HSEScheduler:
 
     def _job_executed(self, event):
         """Обработчик успешного выполнения задачи"""
-        logger.info(f"Задача '{event.job_id}' выполнена успешно")
+        logger.info(f"Задача {event.job_id} выполнена")
 
     def _job_error(self, event):
         """Обработчик ошибки выполнения задачи"""
@@ -58,7 +58,7 @@ class HSEScheduler:
             duration = (datetime.now(UTC) - start_time).total_seconds()
 
             if sync_result.get("success"):
-                logger.success(f"Синхронизация завершена за {duration:.2f}с")
+                logger.success(f"Синхронизация за {duration:.2f}с")
                 if self.bot:
                     changes = sync_result.get("changes", [])
                     try:
@@ -91,11 +91,9 @@ class HSEScheduler:
             total_processed = result.get("total_processed", 0)
 
             if total_processed > 0:
-                logger.info(f"Задача отправки уведомлений выполнена за {duration:.2f}с")
+                logger.info(f"Уведомления отправлены за {duration:.2f}с")
             else:
-                logger.debug(
-                    f"Нет уведомлений для отправки (проверка за {duration:.2f}с)"
-                )
+                logger.debug(f"Проверка за {duration:.2f}с")
 
         except Exception as e:
             logger.error(f"Ошибка отправки уведомлений: {e}")
@@ -104,12 +102,12 @@ class HSEScheduler:
     async def cleanup_job(self):
         """Задача очистки старых данных"""
         try:
-            logger.info("Начинаю очистку старых данных")
+            logger.info("Начало очистки")
 
             # Очистка старых уведомлений (старше 30 дней)
             deleted_count = await db_manager.cleanup_old_notifications(days_old=30)
             if deleted_count > 0:
-                logger.info(f"Удалено {deleted_count} старых уведомлений")
+                logger.info(f"Удалено {deleted_count} уведомлений")
 
             logger.info("Очистка завершена")
 

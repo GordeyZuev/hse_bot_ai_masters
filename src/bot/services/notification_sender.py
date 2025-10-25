@@ -27,7 +27,7 @@ class NotificationSender:
     async def send_deadline_notifications(self, bot: Bot) -> dict[str, int]:
         """Отправить уведомления о приближающихся дедлайнах"""
         try:
-            logger.info("Начинаю отправку уведомлений о дедлайнах")
+            logger.info("Отправка уведомлений")
 
             # Получаем всех пользователей с активными настройками уведомлений
             users_to_notify = await self._get_users_for_notifications()
@@ -270,11 +270,11 @@ class NotificationSender:
                 reply_markup=keyboard,
             )
 
-            logger.info(f"Уведомление отправлено пользователю {user.tg_user_id}")
+            logger.info(f"(U) {user.tg_user_id} - Уведомление отправлено")
             return True
 
         except TelegramForbiddenError:
-            logger.warning(f"Пользователь {user.tg_user_id} заблокировал бота")
+            logger.warning(f"(U) {user.tg_user_id} - Заблокирован")
             return False
         except TelegramBadRequest as e:
             logger.warning(f"Ошибка отправки пользователю {user.tg_user_id}: {e}")
@@ -399,7 +399,7 @@ class NotificationSender:
                     )
                     sent += 1
                 except TelegramForbiddenError:
-                    logger.warning(f"Пользователь {user.tg_user_id} заблокировал бота")
+                    logger.warning(f"(U) {user.tg_user_id} - Заблокирован")
                 except TelegramBadRequest as e:
                     logger.warning(
                         f"Ошибка отправки пользователю {user.tg_user_id}: {e}"
@@ -507,7 +507,7 @@ class NotificationSender:
                     stats["messages_sent"] += 1
                     stats["users_processed"] += 1
                 except TelegramForbiddenError:
-                    logger.warning(f"Пользователь {user.tg_user_id} заблокировал бота")
+                    logger.warning(f"(U) {user.tg_user_id} - Заблокирован")
                 except TelegramBadRequest as e:
                     logger.warning(
                         f"Ошибка отправки пользователю {user.tg_user_id}: {e}"

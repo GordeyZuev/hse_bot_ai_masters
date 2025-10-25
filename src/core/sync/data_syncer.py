@@ -106,15 +106,13 @@ class DataSyncer:
                 logger.error(f"Ошибка преобразования строки {row_data}: {e}")
                 continue
 
-        logger.info(
-            f"Преобразовано {len(transformed_data)} записей из {len(sheets_data)}"
-        )
+        logger.info(f"Преобразовано: {len(transformed_data)}/{len(sheets_data)}")
         return transformed_data
 
     async def sync_data(self) -> dict[str, Any]:
         """Основная функция синхронизации данных."""
         try:
-            logger.info("Начало синхронизации данных")
+            logger.info("Начало синхронизации")
             await db_manager.ensure_initialized()
 
             # Получение и преобразование данных
@@ -165,7 +163,7 @@ class DataSyncer:
 
             await db_manager.delete_outdated_deadlines(current_sheet_row_ids)
             logger.info(
-                f"Синхронизировано {synced_count} дедлайнов, запланировано {scheduled_notifications_count} уведомлений"
+                f"Синхронизация: {synced_count} дедлайнов, {scheduled_notifications_count} увед."
             )
             return {
                 "success": True,

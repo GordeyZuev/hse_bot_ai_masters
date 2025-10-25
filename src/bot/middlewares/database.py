@@ -69,7 +69,7 @@ class DatabaseMiddleware(BaseMiddleware):
                     )
                     session.add(user)
                     logger.info(
-                        f"Создан новый пользователь: {tg_user.id} (@{tg_user.username})"
+                        f"(U) {tg_user.id} - Новый пользователь @{tg_user.username}"
                     )
 
                     # Создаем настройки уведомлений по умолчанию для нового пользователя

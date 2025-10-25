@@ -138,7 +138,7 @@ class AdminService:
             success_count = 0
             error_count = 0
 
-            logger.info(f"Начинаю рассылку для {total_users} пользователей")
+            logger.info(f"Рассылка для {total_users} пользователей")
 
             # Отправляем сообщения с задержкой для избежания лимитов
             for i, user in enumerate(users, 1):
@@ -261,7 +261,7 @@ class AdminService:
                         admin_id, f"❌ Ошибка отправки файла {log_type}: {e!s}"
                     )
 
-            logger.info(f"Логи отправлены администратору {admin_id}")
+            logger.info(f"(A) {admin_id} - Логи отправлены")
             return True
 
         except Exception as e:

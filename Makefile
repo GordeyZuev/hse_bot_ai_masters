@@ -1,4 +1,4 @@
-.PHONY: help install-uv install run lint lint-fix format clean logs update
+.PHONY: help install-uv install install-dev setup run lint lint-fix format clean logs update
 
 help: ## Show help message
 	@echo "Available commands:"
@@ -8,6 +8,8 @@ install-uv: ## Install uv package manager
 	@if ! command -v uv >/dev/null 2>&1; then \
 		echo "Installing uv..."; \
 		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		echo "uv installed successfully!"; \
+		echo "Run 'source $$HOME/.cargo/env' or restart terminal to use uv"; \
 	else \
 		echo "uv is already installed"; \
 	fi
@@ -20,7 +22,14 @@ install: ## Install dependencies
 	uv sync
 
 install-dev: ## Install dev dependencies
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "uv is not installed. Run 'make install-uv' first"; \
+		exit 1; \
+	fi
 	uv sync --group dev
+
+setup: install-uv install ## Complete setup: install uv and dependencies
+	@echo "Setup complete! You can now run 'make run' to start the bot."
 
 run: ## Run bot with sync and notifications
 	uv run python main.py full

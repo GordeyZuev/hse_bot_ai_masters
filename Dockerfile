@@ -20,8 +20,8 @@ RUN useradd --create-home --shell /bin/bash app
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем файлы проекта
-COPY pyproject.toml uv.lock* ./
+# Копируем файлы проекта (включая README.md для сборки пакета)
+COPY pyproject.toml uv.lock* README.md ./
 
 # Устанавливаем Python зависимости через uv
 RUN uv sync --frozen --no-dev

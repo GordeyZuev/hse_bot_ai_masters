@@ -19,7 +19,9 @@
 
 ## ⚡ Быстрый старт
 
-### 🐳 Docker (рекомендуется)
+> **Важно:** Перед началом убедитесь, что Docker, `make`, `uv` и `git` установлены. Если нет, перейдите к разделу "[Подготовка сервера](#-подготовка-сервера)" ниже.
+
+### 🐳 Docker (рекомендуется для продакшена)
 
 1. **Клонируйте репозиторий:**
 ```bash
@@ -39,16 +41,25 @@ nano src/config/.env  # отредактируйте под ваши настр�
 chmod 600 src/config/creds.json
 ```
 
-4. **Запустите:**
+4. **Установите зависимости:**
 ```bash
-# С помощью Makefile
+# Полная настройка (установка uv + зависимости)
+make setup
+
+# Или только зависимости (если uv уже установлен)
+make install
+```
+
+5. **Запустите:**
+```bash
+# С помощью Makefile (рекомендуется)
 make run
 
 # Или напрямую
 docker-compose up -d --build
 ```
 
-5. **Проверьте работу:**
+6. **Проверьте работу:**
 ```bash
 # С помощью Makefile
 make logs
@@ -57,26 +68,26 @@ make logs
 docker-compose logs -f app
 ```
 
-### 🐍 Локальный запуск
+### 🐍 Локальный запуск (для разработки)
 
-1. **Установите uv:**
+> **Примечание:** Для продакшена рекомендуется использовать Docker.
+
+1. **Клонируйте репозиторий:**
 ```bash
-# Установка uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# или через pip
-pip install uv
+git clone <your-repo-url>
+cd hse_bot_ai_masters
 ```
 
 2. **Установите зависимости:**
 ```bash
-# Автоматическая настройка проекта
-./scripts/setup-uv.sh
+# Полная настройка (установка uv + зависимости)
+make setup
 
-# Или вручную
-uv sync
+# Или только зависимости (если uv уже установлен)
+make install
 ```
 
-3. **Настройте PostgreSQL:**
+3. **Настройте PostgreSQL (локально):**
 ```bash
 # Создайте базу данных
 createdb hse_bot_db
@@ -95,9 +106,6 @@ make run
 
 # Или напрямую через uv
 uv run python main.py full
-
-# Или напрямую (если виртуальное окружение активировано)
-python main.py full
 ```
 
 ## 🖥️ Подготовка сервера
@@ -121,7 +129,7 @@ sudo systemctl enable docker
 sudo systemctl start docker
 
 # Установка дополнительных инструментов
-sudo apt install -y git nano htop curl wget
+sudo apt install -y git nano htop curl wget make
 ```
 
 ### 🔴 CentOS/RHEL
@@ -141,7 +149,7 @@ sudo systemctl enable docker
 sudo systemctl start docker
 
 # Установка дополнительных инструментов
-sudo yum install -y git nano htop curl wget
+sudo yum install -y git nano htop curl wget make
 ```
 
 ### 🍎 macOS
@@ -154,41 +162,35 @@ sudo yum install -y git nano htop curl wget
 brew install --cask docker
 
 # Установка дополнительных инструментов
-brew install git nano htop curl wget
+brew install git nano htop curl wget make uv
 ```
 
 ## ⚙️ Настройка окружения
 
-### 🚀 Установка uv
+> **Примечание:** Если вы следовали инструкциям по подготовке сервера выше, `uv` и `make` уже установлены. Если нет, воспользуйтесь командами ниже.
 
-`uv` - это современный и быстрый менеджер пакетов Python, который мы используем для управления зависимостями.
+### 🚀 Проверка установки
 
-#### Установка на разных платформах
+Убедитесь, что все инструменты установлены:
 
-**Linux/macOS:**
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+# Проверка Docker
+docker --version
 
-**Windows:**
-```powershell
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
+# Проверка docker-compose
+docker-compose --version
 
-**Через pip:**
-```bash
-pip install uv
-```
-
-**Через Homebrew (macOS):**
-```bash
-brew install uv
-```
-
-#### Проверка установки
-```bash
+# Проверка uv
 uv --version
+
+# Проверка make
+make --version
+
+# Проверка git
+git --version
 ```
+
+Если что-то не установлено, вернитесь к разделу "Подготовка сервера" выше.
 
 ### 🔧 Управление проектом с Makefile
 
@@ -545,7 +547,48 @@ uv run python main.py full
 
 ### 🔄 Обновление
 
-С помощью Makefile (рекомендуется):
+#### Подготовка сервера (первый раз)
+
+Если вы только что сделали `git pull` и получили обновления с `uv`, `Makefile` и другими изменениями:
+
+1. **Установите make (если не установлен):**
+```bash
+# Проверьте, установлен ли make
+which make
+
+# Если нет, установите (Ubuntu/Debian)
+sudo apt install make
+
+# Для CentOS/RHEL
+sudo yum install make
+```
+
+2. **Установите uv (если не установлен):**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.cargo/env  # или перезапустите терминал
+
+# Проверьте установку
+uv --version
+```
+
+3. **Установите зависимости:**
+```bash
+uv sync
+```
+
+4. **Пересоберите и запустите контейнеры:**
+```bash
+docker-compose build --no-cache
+docker-compose up -d
+
+# Примените миграции (если нужно)
+docker exec hse_bot_app uv run python main.py migrate
+```
+
+#### Обычное обновление
+
+С помощью Makefile (рекомендуется, если `make` установлен):
 ```bash
 make update
 ```
@@ -561,20 +604,35 @@ git pull
 # Пересборка и запуск
 docker-compose build --no-cache
 docker-compose up -d
+
+# Применение миграций
+docker exec hse_bot_app uv run python main.py migrate
 ```
+
+**Примечание:** Если при обновлении вы получили новые зависимости или изменилась структура проекта, выполните команды из раздела "Подготовка сервера (первый раз)" выше.
 
 ### 📋 Основные команды Makefile
 
 ```bash
 make help           # Показать все доступные команды
+
+# Установка
+make install-uv     # Установить uv менеджер пакетов
+make setup          # Полная установка (uv + зависимости)
 make install        # Установить зависимости
 make install-dev    # Установить зависимости для разработки
+
+# Запуск
 make run            # Запустить бота с синхронизацией и уведомлениями
+make logs           # Просмотреть логи за сегодня
+
+# Проверка кода
 make lint           # Проверить код с помощью ruff
 make lint-fix       # Автоматически исправить проблемы с кодом
 make format         # Отформатировать код
+
+# Обслуживание
 make clean          # Очистить временные файлы
-make logs           # Просмотреть логи за сегодня
 make update         # Обновить проект (остановить, git pull, перезапустить)
 ```
 

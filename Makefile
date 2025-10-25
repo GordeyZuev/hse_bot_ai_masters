@@ -1,10 +1,22 @@
-.PHONY: help install run lint lint-fix format clean logs update
+.PHONY: help install-uv install run lint lint-fix format clean logs update
 
 help: ## Show help message
 	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
+install-uv: ## Install uv package manager
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "Installing uv..."; \
+		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+	else \
+		echo "uv is already installed"; \
+	fi
+
 install: ## Install dependencies
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "uv is not installed. Run 'make install-uv' first"; \
+		exit 1; \
+	fi
 	uv sync
 
 install-dev: ## Install dev dependencies

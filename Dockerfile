@@ -20,24 +20,29 @@ RUN useradd --create-home --shell /bin/bash app
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем файлы проекта (включая README.md для сборки пакета)
-COPY pyproject.toml uv.lock* README.md ./
-
-# Устанавливаем Python зависимости через uv
-RUN uv sync --frozen --no-dev
-
-# Копируем код приложения
-COPY . .
-
-# Создаем директории для логов и данных
-RUN mkdir -p logs && \
-    chown -R app:app /app
+# Копируем все файлы проекта (от root)
+COPY --chown=app:app pyproject.toml uv.lock* README.md ./
 
 # Переключаемся на пользователя app
 USER app
 
+# Устанавливаем Python зависимости через uv
+RUN uv sync --frozen --no-dev
+
+# Возвращаемся к root для копирования кода
+USER root
+
+# Копируем весь код приложения
+COPY --chown=app:app . .
+
+# Переключаемся обратно на пользователя app
+USER app
+
+# Создаем директории для логов
+RUN mkdir -p logs
+
 # Открываем порт (если понадобится для webhook)
 EXPOSE 8000
 
-# Команда по умолчанию
+# Команда по умолчанию - uv run автоматически активирует .venv
 CMD ["uv", "run", "python", "main.py", "full"]

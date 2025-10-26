@@ -107,13 +107,17 @@ async def send_deadlines_list(message: Message, db_user, days: int, edit: bool =
         )
 
     except Exception as e:
-        logger.error(f"Ошибка отправки списка дедлайнов: {e}")
-        error_text = "Произошла ошибка при получении дедлайнов. Попробуйте позже."
-
-        if edit:
-            await message.edit_text(error_text)
+        if "message is not modified" in str(e):
+            logger.warning(f"Сообщение не изменилось (пользователь нажал на тот же период): {e}")
+            return
         else:
-            await message.answer(error_text)
+            logger.error(f"Ошибка отправки списка дедлайнов: {e}")
+            error_text = "Произошла ошибка при получении дедлайнов. Попробуйте позже."
+
+            if edit:
+                await message.edit_text(error_text)
+            else:
+                await message.answer(error_text)
 
 
 @router.callback_query(F.data.startswith("current_"))

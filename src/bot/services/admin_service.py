@@ -2,6 +2,7 @@ import asyncio
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from aiogram import Bot
@@ -15,7 +16,7 @@ from src.core.models import (
     ScheduledNotification,
     User,
 )
-from src.utils import get_logger
+from src.utils import get_logger, get_week_monday
 
 
 logger = get_logger()
@@ -33,7 +34,6 @@ class AdminService:
             try:
                 stats = {}
 
-                # Статистика пользователей
                 week_ago = datetime.now(UTC) - timedelta(days=7)
                 month_ago = datetime.now(UTC) - timedelta(days=30)
 
@@ -53,16 +53,13 @@ class AdminService:
                 stats["active_users_week"] = row.active_week or 0
                 stats["active_users_month"] = row.active_month or 0
 
-                # Статистика подписок
                 subscription_stats = await subscription_service.get_subscription_stats()
                 stats.update(subscription_stats)
 
-                # Статистика дедлайнов
                 stmt = select(func.count(Deadline.id))
                 result = await session.execute(stmt)
                 stats["total_deadlines"] = result.scalar() or 0
 
-                # Активные дедлайны (в будущем)
                 now = datetime.now(UTC)
                 stmt = select(func.count(Deadline.id)).where(
                     (Deadline.soft_deadline_ts >= now)
@@ -71,7 +68,6 @@ class AdminService:
                 result = await session.execute(stmt)
                 stats["active_deadlines"] = result.scalar() or 0
 
-                # Статистика запланированных уведомлений
                 stmt = select(func.count(ScheduledNotification.id)).where(
                     ScheduledNotification.status == "scheduled"
                 )
@@ -98,7 +94,6 @@ class AdminService:
         """Получить количество пользователей для рассылки"""
         async with db_manager.async_session() as session:
             try:
-                # Считаем всех пользователей (рассылаем всем)
                 stmt = select(func.count(User.tg_user_id))
                 result = await session.execute(stmt)
                 return result.scalar() or 0
@@ -111,7 +106,6 @@ class AdminService:
         """Получить список пользователей для рассылки"""
         async with db_manager.async_session() as session:
             try:
-                # Получаем всех пользователей
                 stmt = select(User)
 
                 result = await session.execute(stmt)
@@ -140,7 +134,6 @@ class AdminService:
 
             logger.info(f"Рассылка для {total_users} пользователей")
 
-            # Отправляем сообщения с задержкой для избежания лимитов
             for i, user in enumerate(users, 1):
                 try:
                     await bot.send_message(
@@ -152,7 +145,6 @@ class AdminService:
                     if i % 30 == 0:
                         await asyncio.sleep(1)
 
-                    # Обновляем прогресс каждые 10 сообщений
                     if progress_callback and i % 10 == 0:
                         progress_callback(i, total_users)
 
@@ -162,9 +154,8 @@ class AdminService:
                         f"Ошибка отправки пользователю {user.tg_user_id}: {e}"
                     )
 
-                    # Если пользователь заблокировал бота, можно пометить его как неактивного
                     if "bot was blocked" in str(e).lower():
-                        # Можно добавить логику деактивации пользователя
+                        # TODO: блок
                         pass
 
             logger.info(
@@ -177,35 +168,30 @@ class AdminService:
             logger.error(f"Ошибка выполнения рассылки: {e}")
             return {"success": 0, "errors": 0}
 
-    async def get_today_log_files(self) -> list[tuple]:
-        """Получить пути к файлам логов за сегодня"""
+    async def get_current_log_files(self) -> list[tuple]:
+        """Получить пути к текущим файлам логов (недельные и месячные)"""
         try:
-            today = datetime.now(UTC).strftime("%Y-%m-%d")
-
-            # Пути к файлам логов
             log_files = []
+            log_dir = Path("logs")
 
-            # Основные логи
-            main_log_paths = [
-                f"logs/app_{today}.log",
-                f"app_{today}.log",
-            ]
+            if not log_dir.exists():
+                return []
 
-            for path in main_log_paths:
-                if os.path.exists(path):
-                    log_files.append(("app", path))
-                    break
+            # Для логов с недельной ротацией используем дату понедельника текущей недели
+            week_date_str = get_week_monday()
 
-            # Логи ошибок
-            error_log_paths = [
-                f"logs/errors_{today}.log",
-                f"errors_{today}.log",
-            ]
+            app_log_path = log_dir / f"app_{week_date_str}.log"
+            if app_log_path.exists():
+                log_files.append(("app", str(app_log_path)))
 
-            for path in error_log_paths:
-                if os.path.exists(path):
-                    log_files.append(("error", path))
-                    break
+            json_log_path = log_dir / f"app_json_{week_date_str}.log"
+            if json_log_path.exists():
+                log_files.append(("json", str(json_log_path)))
+
+            current_month = datetime.now(UTC).strftime("%Y-%m")
+            error_log_path = log_dir / f"errors_{current_month}.log"
+            if error_log_path.exists():
+                log_files.append(("error", str(error_log_path)))
 
             return log_files
 
@@ -214,17 +200,15 @@ class AdminService:
             return []
 
     async def send_logs_to_admin(self, bot: Bot, admin_id: int) -> bool:
-        """Отправить файлы логов администратору"""
+        """Отправить текущие файлы логов администратору"""
         try:
-            log_files = await self.get_today_log_files()
+            log_files = await self.get_current_log_files()
 
             if not log_files:
                 await bot.send_message(
-                    admin_id, "📄 <b>Логи за сегодня</b>\n\n❌ Файлы логов не найдены"
+                    admin_id, "📄 <b>Текущие логи</b>\n\n❌ Файлы логов не найдены"
                 )
                 return False
-
-            today_str = datetime.now(UTC).strftime("%d.%m.%Y UTC")
 
             for log_type, file_path in log_files:
                 try:
@@ -237,17 +221,19 @@ class AdminService:
                         logger.warning(f"Файл {file_path} пустой, пропускаем отправку")
                         await bot.send_message(
                             admin_id,
-                            f"📄 <b>Файл {log_type} логов за {today_str}</b>\n\n⚠️ Файл пустой",
+                            f"📄 <b>Файл {log_type} логов</b>\n\n⚠️ Файл пустой",
                         )
                         continue
+
+                    # Получаем имя файла из пути
+                    filename = os.path.basename(file_path)
+
                     if log_type == "app":
-                        filename = f"app_{datetime.now(UTC).strftime('%Y-%m-%d')}.log"
-                        caption = f"📄 <b>Основные логи за {today_str}</b>"
+                        caption = "📄 <b>Основные логи (недельная ротация)</b>"
+                    elif log_type == "json":
+                        caption = "📊 <b>JSON логи (недельная ротация)</b>"
                     else:  # error
-                        filename = (
-                            f"errors_{datetime.now(UTC).strftime('%Y-%m-%d')}.log"
-                        )
-                        caption = f"🚨 <b>Логи ошибок за {today_str}</b>"
+                        caption = "🚨 <b>Логи ошибок (месячная ротация)</b>"
 
                     document = FSInputFile(file_path, filename=filename)
 
@@ -268,10 +254,8 @@ class AdminService:
             logger.error(f"Ошибка отправки логов: {e}")
             await bot.send_message(
                 admin_id,
-                f"📄 <b>Логи за сегодня</b>\n\n❌ Ошибка при отправке логов: {e!s}",
+                f"📄 <b>Текущие логи</b>\n\n❌ Ошибка при отправке логов: {e!s}",
             )
             return False
 
-
-# Создаем экземпляр сервиса
 admin_service = AdminService()

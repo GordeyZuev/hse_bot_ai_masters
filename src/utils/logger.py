@@ -65,7 +65,7 @@ def setup_logging(
         # Основные логи с недельной ротацией (имя файла - дата понедельника)
         # При ротации каждый понедельник loguru создаст новый файл с этим именем
         logger.add(
-            log_dir / f"app_{week_monday}.log",
+            log_dir / f"app_week_{week_monday}.log",
             level=log_level,
             format=log_format,
             rotation="1 week",
@@ -78,7 +78,7 @@ def setup_logging(
 
         # JSON логи с недельной ротацией
         logger.add(
-            log_dir / f"app_json_{week_monday}.log",
+            log_dir / f"app_json_week_{week_monday}.log",
             level=log_level,
             format=json_format,
             rotation="1 week",
@@ -109,7 +109,7 @@ def setup_logging(
     logger.info(f"Директория логов: {log_dir.absolute()}")
     logger.info(f"UTC время: {current_utc_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     logger.info("Ротация: обычные логи - 1 неделя, ошибки - 1 месяц")
-    logger.info(f"Текущий файл лога: app_{week_monday}.log")
+    logger.info(f"Текущий файл лога: app_week_{week_monday}.log")
 
 
 def get_logger() -> logger:
@@ -119,5 +119,5 @@ def get_logger() -> logger:
 setup_logging(
     log_level=os.getenv("LOG_LEVEL", "INFO"),
     log_dir=Path(os.getenv("LOG_DIR", "logs")),
-    console_output=os.getenv("CONSOLE_LOGS", "false").lower() == "true",
+    console_output=os.getenv("CONSOLE_LOGS", "true").lower() == "true",
 )

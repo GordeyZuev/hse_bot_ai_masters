@@ -180,13 +180,9 @@ class AdminService:
             # Для логов с недельной ротацией используем дату понедельника текущей недели
             week_date_str = get_week_monday()
 
-            app_log_path = log_dir / f"app_{week_date_str}.log"
+            app_log_path = log_dir / f"app_week_{week_date_str}.log"
             if app_log_path.exists():
                 log_files.append(("app", str(app_log_path)))
-
-            json_log_path = log_dir / f"app_json_{week_date_str}.log"
-            if json_log_path.exists():
-                log_files.append(("json", str(json_log_path)))
 
             current_month = datetime.now(UTC).strftime("%Y-%m")
             error_log_path = log_dir / f"errors_{current_month}.log"

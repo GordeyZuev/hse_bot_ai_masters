@@ -130,7 +130,12 @@ class NotificationSender:
                     select(User)
                     .join(UserNotificationSettings)
                     .join(Subscription)
-                    .where(UserNotificationSettings.is_active)
+                    .where(
+                        and_(
+                            UserNotificationSettings.is_active,
+                            User.is_active  # Добавляем проверку активности пользователя
+                        )
+                    )
                     .distinct()
                 )
 
@@ -275,15 +280,31 @@ class NotificationSender:
 
         except TelegramForbiddenError:
             logger.warning(f"(U) {user.tg_user_id} - Заблокирован")
+            # Деактивируем пользователя при блокировке бота
+            await self._deactivate_user(user.tg_user_id)
             return False
         except TelegramBadRequest as e:
             logger.warning(f"Ошибка отправки пользователю {user.tg_user_id}: {e}")
+            # Деактивируем пользователя при ошибке отправки
+            await self._deactivate_user(user.tg_user_id)
             return False
         except Exception as e:
             logger.error(
                 f"Неожиданная ошибка отправки пользователю {user.tg_user_id}: {e}"
             )
             return False
+
+    async def _deactivate_user(self, user_id: int):
+        """Деактивировать пользователя при ошибке отправки уведомления"""
+        try:
+            async with db_manager.async_session() as session:
+                user = await session.get(User, user_id)
+                if user and user.is_active:
+                    user.is_active = False
+                    await session.commit()
+                    logger.info(f"Пользователь {user_id} деактивирован из-за ошибки отправки уведомления")
+        except Exception as e:
+            logger.error(f"Ошибка деактивации пользователя {user_id}: {e}")
 
     def _format_single_deadline_notification(
         self,

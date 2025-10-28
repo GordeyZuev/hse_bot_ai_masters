@@ -35,6 +35,9 @@ class Subject(Base):
     subscriptions = relationship(
         "Subscription", back_populates="subject", cascade="all, delete-orphan"
     )
+    chat_groups = relationship(
+        "ChatGroup", back_populates="subject", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (UniqueConstraint("name", "year", name="unique_subject"),)
 
@@ -59,6 +62,9 @@ class Deadline(Base):
     notifications = relationship(
         "ScheduledNotification", back_populates="deadline", cascade="all, delete-orphan"
     )
+    chat_notifications = relationship(
+        "ChatScheduledNotification", back_populates="deadline", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("idx_deadlines_subject_id", "subject_id"),
@@ -80,6 +86,7 @@ class User(Base):
         Text, nullable=False, default="Europe/Moscow", server_default="Europe/Moscow"
     )
     settings_version = Column(Integer, default=1)
+    is_active = Column(Boolean, nullable=False, default=True)
 
     subscriptions = relationship(
         "Subscription", back_populates="user", cascade="all, delete-orphan"
@@ -198,5 +205,102 @@ class ScheduledNotification(Base):
         ),
         CheckConstraint(
             "deadline_type IN ('soft', 'hard')", name="check_deadline_type_valid"
+        ),
+    )
+
+
+class ChatGroup(Base):
+    __tablename__ = "chat_groups"
+
+    chat_id = Column(BigInteger, primary_key=True)
+    topic_id = Column(BigInteger, nullable=True)  # None = общий чат, число = топик
+    topic_title = Column(Text, nullable=True)  # Отображаемое имя топика (кеш)
+    chat_type = Column(Text, nullable=False)  # 'group' или 'supergroup'
+    subject_id = Column(
+        Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Настройки уведомлений (аналогично UserNotificationSettings)
+    reminder1_offset = Column(Integer, nullable=False, default=7)
+    reminder1_unit = Column(Text, nullable=False, default="days")
+    reminder2_offset = Column(Integer, nullable=False, default=1)
+    reminder2_unit = Column(Text, nullable=False, default="days")
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    subject = relationship("Subject", back_populates="chat_groups")
+    notifications = relationship(
+        "ChatScheduledNotification", back_populates="chat_group", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "chat_type IN ('group', 'supergroup')",
+            name="check_chat_type_valid"
+        ),
+        CheckConstraint(
+            "reminder1_unit IN ('days', 'hours')",
+            name="check_chat_reminder1_unit_valid"
+        ),
+        CheckConstraint(
+            "reminder2_unit IN ('days', 'hours')",
+            name="check_chat_reminder2_unit_valid"
+        ),
+        CheckConstraint("reminder1_offset >= 0", name="check_chat_reminder1_positive"),
+        CheckConstraint("reminder2_offset >= 0", name="check_chat_reminder2_positive"),
+    )
+
+
+class ChatScheduledNotification(Base):
+    __tablename__ = "chat_scheduled_notifications"
+
+    id = Column(Integer, primary_key=True)
+    chat_group_id = Column(
+        BigInteger, ForeignKey("chat_groups.chat_id", ondelete="CASCADE"), nullable=False
+    )
+    deadline_id = Column(
+        Integer, ForeignKey("deadlines.id", ondelete="CASCADE"), nullable=False
+    )
+
+    deadline_type = Column(Text, nullable=False)
+    notification_number = Column(Integer, nullable=False)
+
+    original_deadline_ts = Column(DateTime(timezone=True), nullable=False)
+    planned_delivery_time = Column(DateTime(timezone=True), nullable=False)
+
+    status = Column(Text, nullable=False, default="scheduled")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    chat_group = relationship("ChatGroup", back_populates="notifications")
+    deadline = relationship("Deadline", back_populates="chat_notifications")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "chat_group_id",
+            "deadline_id",
+            "deadline_type",
+            "notification_number",
+            name="unique_chat_deadline_notification",
+        ),
+        Index("idx_chat_sched_notif_status_time", "status", "planned_delivery_time"),
+        Index("idx_chat_sched_notif_chat_status", "chat_group_id", "status"),
+        Index("idx_chat_sched_notif_deadline", "deadline_id"),
+        Index("idx_chat_sched_notif_delivery_time", "planned_delivery_time"),
+        CheckConstraint(
+            "status IN ('scheduled', 'sent', 'cancelled', 'failed')",
+            name="check_chat_status_valid",
+        ),
+        CheckConstraint(
+            "notification_number IN (1, 2)",
+            name="check_chat_notif_number_valid"
+        ),
+        CheckConstraint(
+            "deadline_type IN ('soft', 'hard')",
+            name="check_chat_deadline_type_valid"
         ),
     )

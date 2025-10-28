@@ -16,6 +16,24 @@ async def cmd_start(message: Message, db_user):
     try:
         user_name = db_user.first_name or "Пользователь"
 
+        # Проверяем, вызвана ли команда в групповом чате
+        if message.chat.type in ["group", "supergroup"]:
+            # Для групповых чатов перенаправляем в group_chat.py
+            from src.bot.handlers.group_chat import handle_start_in_group
+            await handle_start_in_group(message, db_user, user_name)
+        else:
+            # Для личных сообщений обрабатываем здесь
+            await handle_start_in_private(message, db_user, user_name)
+            logger.info(f"(U) {db_user.tg_user_id} - /start")
+
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике /start: {e}")
+        await message.answer("Произошла ошибка. Попробуйте позже.")
+
+
+async def handle_start_in_private(message: Message, db_user, user_name: str):
+    """Обработка команды /start в личных сообщениях"""
+    try:
         text = f"""
 🎓 <b>Добро пожаловать в Бота-оповещателя, {user_name}!</b>
 
@@ -42,10 +60,8 @@ async def cmd_start(message: Message, db_user):
 
         await message.answer(text.strip(), reply_markup=builder.as_markup())
 
-        logger.info(f"(U) {db_user.tg_user_id} - /start")
-
     except Exception as e:
-        logger.error(f"Ошибка в обработчике /start: {e}")
+        logger.error(f"Ошибка обработки /start в личных сообщениях: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
 
 

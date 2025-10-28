@@ -1,4 +1,4 @@
-# 🔧 Техническая документация HSE AI Deadlines Bot
+# ⚙️ Техническая документация HSE AI Deadlines Bot
 
 > Подробное описание архитектуры, компонентов и технических решений
 
@@ -124,7 +124,7 @@ Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_dea
 - **`logger.py`** - Настройка логирования
 - **`time.py`** - Утилиты для работы с временем и часовыми поясами
 
-## 🔧 Инфраструктура проекта
+## ⚙️ Инфраструктура проекта
 
 ### 📦 Управление зависимостями
 - **`uv`** - Современный и быстрый менеджер пакетов Python (альтернатива `pip`)
@@ -196,7 +196,7 @@ Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_dea
 
 <div align="center">
 
-**🔧 HSE AI Deadlines Bot - Technical Documentation**
+**⚙️ HSE AI Deadlines Bot - Technical Documentation**
 
 *Подробная техническая документация архитектуры и компонентов*
 

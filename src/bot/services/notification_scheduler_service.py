@@ -125,36 +125,42 @@ class NotificationSchedulerService:
     async def schedule_notifications_for_deadline(self, deadline: Deadline) -> int:
         """Создать запланированные уведомления для дедлайна"""
         try:
+            # Существующая логика для пользователей
             subscribed_users = await self._get_subscribed_users(deadline.subject_id)
 
-            if not subscribed_users:
-                logger.info(f"Нет подписчиков на предмет дедлайна {deadline.id}")
-                return 0
-
-            total_scheduled = 0
-
-            for user in subscribed_users:
-                settings = await db_manager.get_user_notification_settings(
-                    user.tg_user_id
-                )
-
-                if not settings.is_active:
-                    continue
-
-                if deadline.soft_deadline_ts:
-                    soft_count = await self._schedule_notifications_for_user_deadline(
-                        user, deadline, "soft", deadline.soft_deadline_ts, settings
+            user_notifications_scheduled = 0
+            if subscribed_users:
+                for user in subscribed_users:
+                    settings = await db_manager.get_user_notification_settings(
+                        user.tg_user_id
                     )
-                    total_scheduled += soft_count
 
-                if deadline.hard_deadline_ts:
-                    hard_count = await self._schedule_notifications_for_user_deadline(
-                        user, deadline, "hard", deadline.hard_deadline_ts, settings
-                    )
-                    total_scheduled += hard_count
+                    if not settings.is_active:
+                        continue
+
+                    if deadline.soft_deadline_ts:
+                        soft_count = await self._schedule_notifications_for_user_deadline(
+                            user, deadline, "soft", deadline.soft_deadline_ts, settings
+                        )
+                        user_notifications_scheduled += soft_count
+
+                    if deadline.hard_deadline_ts:
+                        hard_count = await self._schedule_notifications_for_user_deadline(
+                            user, deadline, "hard", deadline.hard_deadline_ts, settings
+                        )
+                        user_notifications_scheduled += hard_count
+
+            # Новая логика для чатов
+            from src.bot.services.chat_notification_scheduler_service import (
+                chat_notification_scheduler_service,
+            )
+            chat_notifications_scheduled = await chat_notification_scheduler_service.schedule_notifications_for_deadline(deadline)
+
+            total_scheduled = user_notifications_scheduled + chat_notifications_scheduled
 
             logger.info(
-                f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id}"
+                f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id} "
+                f"(пользователи: {user_notifications_scheduled}, чаты: {chat_notifications_scheduled})"
             )
             return total_scheduled
 

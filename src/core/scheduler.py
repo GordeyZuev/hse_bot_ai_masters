@@ -83,15 +83,28 @@ class HSEScheduler:
 
         try:
             start_time = datetime.now(UTC)
-            result = await scheduled_notification_sender.send_scheduled_notifications(
+
+            # Существующая логика для пользователей
+            user_result = await scheduled_notification_sender.send_scheduled_notifications(
                 self.bot
             )
+
+            # Новая логика для чатов
+            from src.bot.services.chat_notification_sender import (
+                chat_notification_sender,
+            )
+            chat_result = await chat_notification_sender.send_scheduled_chat_notifications(
+                self.bot
+            )
+
             duration = (datetime.now(UTC) - start_time).total_seconds()
 
-            total_processed = result.get("total_processed", 0)
+            user_processed = user_result.get("total_processed", 0)
+            chat_processed = chat_result.get("total_processed", 0)
+            total_processed = user_processed + chat_processed
 
             if total_processed > 0:
-                logger.info(f"Уведомления отправлены за {duration:.2f}с")
+                logger.info(f"Уведомления отправлены за {duration:.2f}с (пользователи: {user_processed}, чаты: {chat_processed})")
             else:
                 logger.debug(f"Проверка за {duration:.2f}с")
 

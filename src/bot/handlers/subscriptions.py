@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, and_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -18,8 +18,8 @@ class SubscriptionStates(StatesGroup):
     choosing_subject = State()
 
 
-@router.message(Command("sub"))
-@router.message(Command("mysubs"))
+@router.message(and_f(Command("sub"), F.chat.type == "private"))
+@router.message(and_f(Command("mysubs"), F.chat.type == "private"))
 @router.callback_query(F.data == "quick_sub")
 @router.callback_query(F.data == "quick_mysubs")
 async def cmd_subscriptions(event: Message | CallbackQuery, db_user, state: FSMContext):

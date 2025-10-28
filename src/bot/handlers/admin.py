@@ -9,6 +9,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.services.admin_service import admin_service
 from src.bot.services.notification_sender import notification_sender
+from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
 from src.utils import get_logger
 
@@ -467,6 +468,120 @@ async def callback_admin_sync(callback: CallbackQuery, db_user):
 
     # Используем общую функцию синхронизации
     await perform_sync(callback, db_user, show_back_button=True)
+
+
+@router.message(Command("chat_stats"))
+async def cmd_chat_stats(message: Message, db_user):
+    """Команда статистики по чатам"""
+    if not is_admin(db_user.tg_user_id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+
+    try:
+        from src.bot.services.chat_service import chat_service
+
+        # Получаем статистику по чатам
+        total_chats = await chat_service.get_chat_groups_count()
+        active_chats = await chat_service.get_active_chat_groups_count()
+        chat_groups = await chat_service.get_all_chat_groups()
+
+        text = "📊 <b>Статистика по чатам</b>\n\n"
+        text += "📈 <b>Общая статистика:</b>\n"
+        text += f"• Всего настроенных чатов: {total_chats}\n"
+        text += f"• Активных чатов: {active_chats}\n"
+        text += f"• Неактивных чатов: {total_chats - active_chats}\n\n"
+
+        if chat_groups:
+            text += "📋 <b>Список чатов:</b>\n"
+            for chat_group in chat_groups[:10]:  # Показываем первые 10
+                status_emoji = "✅" if chat_group.is_active else "❌"
+                topic_info = f" (топик {chat_group.topic_id})" if chat_group.topic_id else " (общий чат)"
+                text += f"{status_emoji} {chat_group.subject.name}{topic_info}\n"
+
+            if len(chat_groups) > 10:
+                text += f"... и еще {len(chat_groups) - 10} чатов\n"
+
+        await message.answer(text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка в команде chat_stats: {e}")
+        await message.answer("Произошла ошибка при получении статистики чатов")
+
+
+@router.message(Command("chat_toggle_all"))
+async def cmd_chat_toggle_all(message: Message, db_user):
+    """Команда массового переключения активности чатов"""
+    if not is_admin(db_user.tg_user_id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+
+    try:
+        from src.bot.services.chat_service import chat_service
+
+        # Получаем все чаты
+        chat_groups = await chat_service.get_all_chat_groups()
+
+        if not chat_groups:
+            await message.answer("❌ Нет настроенных чатов")
+            return
+
+        # Определяем действие на основе первого чата
+        first_chat = chat_groups[0]
+        new_status = not first_chat.is_active
+        action_text = "включить" if new_status else "отключить"
+
+        text = "🔄 <b>Массовое управление чатами</b>\n\n"
+        text += f"Вы хотите {action_text} уведомления во всех чатах?\n\n"
+        text += f"Это затронет {len(chat_groups)} чатов."
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text=f"✅ {action_text.title()}", callback_data=f"admin_chat_toggle_all_{new_status}")
+        builder.button(text="❌ Отмена", callback_data="admin_panel")
+        builder.adjust(1)
+
+        await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка в команде chat_toggle_all: {e}")
+        await message.answer("Произошла ошибка при управлении чатами")
+
+
+@router.callback_query(F.data.startswith("admin_chat_toggle_all_"))
+async def callback_chat_toggle_all(callback: CallbackQuery, db_user):
+    """Обработчик массового переключения активности чатов"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+
+    await callback.answer("Выполняю операцию...")
+
+    try:
+        from src.bot.services.chat_service import chat_service
+
+        # Парсим статус
+        new_status = callback.data.split("_")[-1] == "True"
+
+        # Получаем все чаты
+        chat_groups = await chat_service.get_all_chat_groups()
+
+        updated_count = 0
+        async with db_manager.async_session() as session:
+            for chat_group in chat_groups:
+                chat_group.is_active = new_status
+                session.add(chat_group)
+                updated_count += 1
+
+            await session.commit()
+
+        action_text = "включены" if new_status else "отключены"
+        result_text = "✅ <b>Операция завершена</b>\n\n"
+        result_text += f"Уведомления {action_text} в {updated_count} чатах."
+
+        await callback.message.edit_text(result_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка в callback_chat_toggle_all: {e}")
+        await callback.message.edit_text("❌ Произошла ошибка при выполнении операции")
 
 
 def register_admin_handlers(dp):

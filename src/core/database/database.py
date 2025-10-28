@@ -276,6 +276,17 @@ class DatabaseManager:
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
+    async def get_subject_by_id(self, subject_id: int) -> Subject | None:
+        """Получить предмет по ID"""
+        async with self.async_session() as session:
+            try:
+                stmt = select(Subject).where(Subject.id == subject_id)
+                result = await session.execute(stmt)
+                return result.scalar_one_or_none()
+            except Exception as e:
+                logger.error(f"Ошибка получения предмета {subject_id}: {e}")
+                return None
+
     async def delete_outdated_deadlines(self, current_sheet_row_ids: list[int]):
         """Удалить дедлайны, которых нет в текущих данных Google Sheets"""
         async with self.async_session() as session:
@@ -490,10 +501,12 @@ class DatabaseManager:
 
                 stmt = (
                     select(ScheduledNotification)
+                    .join(User)  # Добавляем join с User
                     .where(
                         and_(
                             ScheduledNotification.status.in_(["scheduled", "failed"]),
                             ScheduledNotification.planned_delivery_time <= window_end,
+                            User.is_active  # Проверяем активность пользователя
                         )
                     )
                     .order_by(ScheduledNotification.planned_delivery_time)

@@ -208,15 +208,33 @@ class ScheduledNotificationSender:
 
         except TelegramForbiddenError:
             logger.warning(f"(U) {user_id} - Заблокирован")
+            # Деактивируем пользователя при блокировке бота
+            await self._deactivate_user(user_id)
             return False
 
         except TelegramBadRequest as e:
             logger.error(f"(U) {user_id} - Ошибка Telegram API: {e}")
+            # Деактивируем пользователя при ошибке отправки
+            await self._deactivate_user(user_id)
             return False
 
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
             return False
+
+    async def _deactivate_user(self, user_id: int):
+        """Деактивировать пользователя при ошибке отправки уведомления"""
+        try:
+            async with db_manager.async_session() as session:
+                from src.core.models.models import User
+
+                user = await session.get(User, user_id)
+                if user and user.is_active:
+                    user.is_active = False
+                    await session.commit()
+                    logger.info(f"Пользователь {user_id} деактивирован из-за ошибки отправки уведомления")
+        except Exception as e:
+            logger.error(f"Ошибка деактивации пользователя {user_id}: {e}")
 
     async def _format_notifications_message(
         self, notification_data: list[dict[str, Any]], user_tz

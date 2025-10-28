@@ -192,7 +192,7 @@ git --version
 
 Если что-то не установлено, вернитесь к разделу "Подготовка сервера" выше.
 
-### 🔧 Управление проектом с Makefile
+### ⚙️ Управление проектом с Makefile
 
 Makefile упрощает выполнение основных команд проекта:
 
@@ -887,7 +887,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-### 🔧 Оптимизация производительности
+### ⚙️ Оптимизация производительности
 
 #### Настройка Docker
 
@@ -1021,7 +1021,7 @@ gsutil cp backups/latest.sql.gz gs://your-bucket/hse-bot-backups/
 gsutil cp gs://your-bucket/hse-bot-backups/latest.sql.gz backups/
 ```
 
-## 🔧 Устранение неполадок
+## ⚙️ Устранение неполадок
 
 ### 🚨 Общие проблемы
 

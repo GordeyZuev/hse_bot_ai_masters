@@ -150,6 +150,11 @@ def upgrade() -> None:
         WHERE tg_user_id NOT IN (SELECT user_id FROM user_notification_settings)
     """)
 
+    try:
+        op.add_column('chat_groups', sa.Column('topic_title', sa.Text(), nullable=True))
+    except Exception:
+        pass
+
     # ### end Alembic commands ###
 
 
@@ -172,5 +177,10 @@ def downgrade() -> None:
 
     # Remove settings_version column from users
     op.drop_column("users", "settings_version")
+
+    try:
+        op.drop_column('chat_groups', 'topic_title')
+    except Exception:
+        pass
 
     # ### end Alembic commands ###

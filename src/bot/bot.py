@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 
 from src.bot.handlers import register_handlers
 from src.bot.middlewares import register_middlewares
+from src.bot.services.chat_events_service import register_chat_events_handlers
+from src.bot.services.user_events_service import register_user_events_handlers
 from src.core.database import db_manager
 from src.core.scheduler import hse_scheduler
 from src.utils import get_logger
@@ -48,6 +50,10 @@ class HSEBot:
 
             register_handlers(self.dp)
             logger.info("Handlers зарегистрированы")
+
+            register_user_events_handlers(self.dp)
+            register_chat_events_handlers(self.dp)
+            logger.info("Event services зарегистрированы")
 
             if with_scheduler:
                 hse_scheduler.set_bot(self.bot)

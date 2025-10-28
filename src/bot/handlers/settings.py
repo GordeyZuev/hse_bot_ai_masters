@@ -1,7 +1,7 @@
 import re
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, and_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -22,7 +22,7 @@ class SettingsStates(StatesGroup):
     waiting_for_location = State()
 
 
-@router.message(Command("settings"))
+@router.message(and_f(Command("settings"), F.chat.type == "private"))
 @router.callback_query(F.data == "quick_settings")
 async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContext):  # noqa: ARG001
     """Обработчик команды /settings"""

@@ -1,7 +1,7 @@
 import re
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, and_f
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -13,7 +13,7 @@ logger = get_logger()
 router = Router()
 
 
-@router.message(Command("deadlines"))
+@router.message(and_f(Command("deadlines"), F.chat.type == "private"))
 async def cmd_deadlines(message: Message, db_user):
     """Обработчик команды /deadlines [N]"""
     try:

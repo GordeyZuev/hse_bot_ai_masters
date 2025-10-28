@@ -6,9 +6,14 @@
 
 set -e  # Остановить выполнение при любой ошибке
 
-# Конфигурация
+# Загружаем переменные окружения из .env файла
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+if [ -f "$PROJECT_DIR/src/config/.env" ]; then
+    export $(grep -v '^#' "$PROJECT_DIR/src/config/.env" | xargs)
+fi
+
+# Конфигурация
 CONTAINER_NAME="hse_bot_db"
 LOG_FILE="$PROJECT_DIR/logs/restore.log"
 
@@ -23,7 +28,11 @@ log() {
 # Функция для показа справки
 show_help() {
     cat << EOF
-Использование: $0 <путь_к_файлу_бэкапа> [опции]
+Использование: $0 [путь_к_файлу_бэкапа] [опции]
+
+Аргументы:
+    путь_к_файлу_бэкапа    Путь к файлу бэкапа (опционально)
+                          Если не указан, будет использован последний доступный бэкап
 
 Опции:
     -h, --help          Показать эту справку
@@ -31,9 +40,10 @@ show_help() {
     --drop-existing     Удалить существующую базу данных перед восстановлением
 
 Примеры:
-    $0 /path/to/backup.sql.gz
-    $0 backups/hse_bot_db_backup_20240101_120000.sql.gz --force
-    $0 backup.sql --drop-existing
+    $0                                    # Восстановить из последнего бэкапа
+    $0 /path/to/backup.sql.gz             # Восстановить из указанного файла
+    $0 --force --drop-existing            # Восстановить из последнего бэкапа принудительно
+    $0 backups/backup.sql.gz --force      # Восстановить из указанного файла принудительно
 
 EOF
 }
@@ -93,9 +103,10 @@ prepare_backup_file() {
     # Если файл сжат, распаковываем его во временную директорию
     if [[ "$backup_file" == *.gz ]]; then
         local temp_file="/tmp/$(basename "$backup_file" .gz)"
-        log "Распаковка сжатого бэкапа..."
+        log "Распаковка сжатого бэкапа в $temp_file"
         
-        if gunzip -c "$backup_file" > "$temp_file"; then
+        if gunzip -c "$backup_file" > "$temp_file" 2>/dev/null; then
+            log "Файл успешно распакован"
             echo "$temp_file"
         else
             log "ОШИБКА: Не удалось распаковать файл бэкапа"
@@ -151,6 +162,27 @@ restore_database() {
     fi
 }
 
+# Функция для поиска последнего доступного бэкапа
+find_latest_backup() {
+    local backup_dir="$PROJECT_DIR/backups"
+    
+    if [ ! -d "$backup_dir" ]; then
+        log "ОШИБКА: Директория бэкапов не найдена: $backup_dir"
+        return 1
+    fi
+    
+    # Ищем файлы бэкапов (поддерживаем .sql и .sql.gz)
+    local latest_backup=$(find "$backup_dir" -name "hse_bot_db_backup_*.sql*" -type f | sort -r | head -n 1)
+    
+    if [ -z "$latest_backup" ]; then
+        log "ОШИБКА: Не найдено файлов бэкапов в директории $backup_dir"
+        return 1
+    fi
+    
+    log "Найден последний бэкап: $(basename "$latest_backup")"
+    echo "$latest_backup"
+}
+
 # Функция для проверки целостности восстановленной базы данных
 verify_restore() {
     log "Проверка целостности восстановленной базы данных..."
@@ -165,7 +197,7 @@ verify_restore() {
     
     # Проверяем наличие основных таблиц
     local table_count=$(docker exec "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c \
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | tr -d ' ')
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | tr -d ' \n\r')
     
     if [ "$table_count" -gt 0 ]; then
         log "✅ Найдено $table_count таблиц в базе данных"
@@ -184,11 +216,15 @@ main() {
     
     log "=== Начало процесса восстановления ==="
     
-    # Проверка аргументов
+    # Если файл бэкапа не указан, ищем последний доступный
     if [ -z "$backup_file" ]; then
-        log "ОШИБКА: Не указан файл бэкапа"
-        show_help
-        exit 1
+        log "Файл бэкапа не указан, ищем последний доступный..."
+        backup_file=$(find_latest_backup)
+        if [ $? -ne 0 ]; then
+            log "ОШИБКА: Не удалось найти файл бэкапа"
+            show_help
+            exit 1
+        fi
     fi
     
     # Проверка зависимостей

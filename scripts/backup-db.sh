@@ -2,13 +2,18 @@
 
 # Скрипт для бэкапа базы данных PostgreSQL HSE Bot
 # Автор: Автоматически созданный скрипт
-# Дата создания: $(date)
+# Дата создания: $(date '+%Y-%m-%d %H:%M:%S')
 
 set -e  # Остановить выполнение при любой ошибке
 
-# Конфигурация
+# Загружаем переменные окружения из .env файла
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+if [ -f "$PROJECT_DIR/src/config/.env" ]; then
+    export $(grep -v '^#' "$PROJECT_DIR/src/config/.env" | xargs)
+fi
+
+# Конфигурация
 BACKUP_DIR="$PROJECT_DIR/backups"
 CONTAINER_NAME="hse_bot_db"
 LOG_FILE="$PROJECT_DIR/logs/backup.log"
@@ -19,7 +24,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 
 # Функция для логирования
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE" >&2
 }
 
 # Функция для проверки существования контейнера
@@ -93,7 +98,7 @@ check_backup_size() {
     local min_size_bytes=1024  # Минимальный размер 1KB
     
     if [ -f "$backup_file" ]; then
-        local file_size=$(stat -f%z "$backup_file" 2>/dev/null || stat -c%s "$backup_file" 2>/dev/null || echo "0")
+        local file_size=$(wc -c < "$backup_file" 2>/dev/null || echo "0")
         if [ "$file_size" -lt "$min_size_bytes" ]; then
             log "ПРЕДУПРЕЖДЕНИЕ: Размер бэкапа подозрительно мал ($file_size байт)"
             return 1
@@ -117,6 +122,10 @@ send_notification() {
         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_ADMIN_CHAT_ID" \
             -d "text=🚨 Ошибка бэкапа БД HSE Bot: $message" >/dev/null 2>&1 || true
+    elif [ "$status" = "success" ] && [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_ADMIN_CHAT_ID" ]; then
+        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_ADMIN_CHAT_ID" \
+            -d "text=✅ Бэкап БД HSE Bot: $message" >/dev/null 2>&1 || true
     fi
 }
 

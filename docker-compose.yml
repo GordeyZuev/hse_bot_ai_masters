@@ -1,30 +1,35 @@
 version: '3.8'
 
+networks:
+  hse_bot_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+
 services:
-  # PostgreSQL Database
   db:
     image: postgres:15-alpine
     container_name: hse_bot_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-hse_bot_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: ${TZ:-Europe/Moscow}  # Опционально, если нужно в БД
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d
-    expose:
-      - "5432"
     networks:
       - hse_bot_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hse_bot_db}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # HSE Bot Application
   app:
     build:
       context: .
@@ -35,37 +40,21 @@ services:
       db:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-hse_bot_db}
+      # Database connection
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       - DB_HOST=db
       - DB_PORT=5432
-      - DB_NAME=${POSTGRES_DB:-hse_bot_db}
-      - DB_USER=${POSTGRES_USER:-postgres}
-      - DB_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      # Environment
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - TZ=${TZ:-Europe/Moscow}
     env_file:
-      - src/config/.env
+      - src/config/.env  # Все остальные переменные: BOT_TOKEN, ADMINS, TZ, ENVIRONMENT и т.д.
     volumes:
       - ./logs:/app/logs
       - ./src/config/creds.json:/app/src/config/creds.json:ro
     networks:
       - hse_bot_network
-    command: ["python", "main.py", "full"]
-
-  # Adminer (optional database management tool)
-  adminer:
-    image: adminer:latest
-    container_name: hse_bot_adminer
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    networks:
-      - hse_bot_network
-    profiles:
-      - tools
-
-volumes:
-  postgres_data:
-    driver: local
-
-networks:
-  hse_bot_network:
-    driver: bridge
+    command: ["uv", "run", "python", "main.py", "full"]

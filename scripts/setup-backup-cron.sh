@@ -114,9 +114,14 @@ check_cron_service() {
         fi
     # Для macOS
     elif [[ "$OSTYPE" == "darwin"* ]]; then
-        if ! launchctl list | grep -q com.apple.cron; then
-            log "ПРЕДУПРЕЖДЕНИЕ: Cron сервис может быть не запущен на macOS"
-            log "Cron задачи могут не выполняться автоматически"
+        # На macOS cron работает по-другому, просто предупреждаем
+        log "ИНФОРМАЦИЯ: На macOS cron задачи настраиваются через launchd"
+        log "Убедитесь, что cron задачи выполняются автоматически"
+    # Для других Unix-систем
+    else
+        if ! pgrep cron >/dev/null 2>&1 && ! pgrep crond >/dev/null 2>&1; then
+            log "ПРЕДУПРЕЖДЕНИЕ: Cron сервис может быть не запущен"
+            log "Проверьте статус cron сервиса вручную"
         fi
     fi
 }

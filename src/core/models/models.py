@@ -8,6 +8,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Text,
+    Time,
     UniqueConstraint,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -22,7 +23,6 @@ class Subject(Base):
     __tablename__ = "subjects"
 
     id = Column(Integer, primary_key=True)
-    # ID из Google Sheets для листа "Дисциплины" (может отсутствовать у старых записей)
     sheet_subject_id = Column(Integer)
     name = Column(Text, nullable=False)
     year = Column(Integer)
@@ -31,7 +31,6 @@ class Subject(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
 
-    # Ссылки на ресурсы
     wiki_url = Column(Text)
     vk_playlist_url = Column(Text)
     yt_playlist_url = Column(Text)
@@ -126,6 +125,11 @@ class UserNotificationSettings(Base):
     reminder2_unit = Column(Text, nullable=False, default="days")
 
     is_active = Column(Boolean, nullable=False, default=True)
+    
+    enable_deadline_update_notifications = Column(Boolean, nullable=False, default=True)
+    sleep_start_time = Column(Time, nullable=True)
+    sleep_end_time = Column(Time, nullable=True)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_modified = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

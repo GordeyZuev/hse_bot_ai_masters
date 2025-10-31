@@ -376,8 +376,13 @@ class NotificationSender:
                     settings = await db_manager.get_user_notification_settings(
                         user.tg_user_id
                     )
-                    if not settings.is_active:
+                    if not settings or not settings.is_active:
                         continue
+                    
+                    # Проверяем, включены ли уведомления об обновлениях
+                    if not settings.enable_deadline_update_notifications:
+                        continue
+                    
                     user_tz = (
                         pytz.timezone(user.timezone)
                         if user and user.timezone
@@ -401,6 +406,19 @@ class NotificationSender:
                     if deadline.note:
                         message += f"\n💬 <i>{deadline.note}</i>"
 
+                    # Проверяем время сна
+                    is_sleep = False
+                    user_tz_name = user.timezone if user.timezone else "Europe/Moscow"
+                    from src.utils.time import is_sleep_time
+                    is_sleep = is_sleep_time(
+                        settings.sleep_start_time,
+                        settings.sleep_end_time,
+                        user_tz_name
+                    )
+                    
+                    if is_sleep:
+                        message = message + "\n\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
+
                     keyboard = InlineKeyboardMarkup(
                         inline_keyboard=[
                             [
@@ -417,6 +435,7 @@ class NotificationSender:
                         parse_mode="HTML",
                         disable_web_page_preview=True,
                         reply_markup=keyboard,
+                        disable_notification=is_sleep,
                     )
                     sent += 1
                 except TelegramForbiddenError:
@@ -510,6 +529,11 @@ class NotificationSender:
                 try:
                     if not settings or not settings.is_active:
                         continue
+                    
+                    # Проверяем, включены ли уведомления об обновлениях
+                    if not settings.enable_deadline_update_notifications:
+                        continue
+                    
                     entries = user_entries.get(user.tg_user_id) or []
                     if not entries:
                         continue
@@ -521,6 +545,19 @@ class NotificationSender:
                         else pytz.UTC
                     )
                     message = self._format_multiple_deadline_updates(entries, user_tz)
+                    
+                    # Проверяем время сна
+                    is_sleep = False
+                    user_tz_name = user.timezone if user.timezone else "Europe/Moscow"
+                    from src.utils.time import is_sleep_time
+                    is_sleep = is_sleep_time(
+                        settings.sleep_start_time,
+                        settings.sleep_end_time,
+                        user_tz_name
+                    )
+                    
+                    if is_sleep:
+                        message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
 
                     keyboard = InlineKeyboardMarkup(
                         inline_keyboard=[
@@ -538,6 +575,7 @@ class NotificationSender:
                         parse_mode="HTML",
                         disable_web_page_preview=True,
                         reply_markup=keyboard,
+                        disable_notification=is_sleep,
                     )
                     stats["messages_sent"] += 1
                     stats["users_processed"] += 1

@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
+from typing import Optional
 
 from sqlalchemy import select
 
@@ -164,6 +165,55 @@ class NotificationService:
         except Exception as e:
             logger.error(
                 f"Ошибка переключения уведомлений для пользователя {user_id}: {e}"
+            )
+            return False, "Произошла ошибка при изменении настроек"
+
+    async def set_sleep_time(
+        self,
+        user_id: int,
+        sleep_start: Optional[time],
+        sleep_end: Optional[time],
+    ) -> tuple[bool, str]:
+        """Установить время сна для пользователя"""
+        try:
+            settings_data = {
+                "sleep_start_time": sleep_start,
+                "sleep_end_time": sleep_end,
+            }
+            await db_manager.update_user_notification_settings(user_id, settings_data)
+
+            if sleep_start is None or sleep_end is None:
+                logger.info(f"Пользователь {user_id} сбросил время сна")
+                return True, "Время сна отключено"
+            else:
+                start_str = sleep_start.strftime("%H:%M")
+                end_str = sleep_end.strftime("%H:%M")
+                logger.info(
+                    f"Пользователь {user_id} установил время сна: {start_str} - {end_str}"
+                )
+                return True, f"Время сна установлено: {start_str} - {end_str}"
+
+        except Exception as e:
+            logger.error(f"Ошибка установки времени сна для пользователя {user_id}: {e}")
+            return False, "Произошла ошибка при установке времени сна"
+
+    async def toggle_deadline_update_notifications(
+        self, user_id: int, is_enabled: bool
+    ) -> tuple[bool, str]:
+        """Включить/выключить уведомления об обновлении дедлайнов"""
+        try:
+            settings_data = {"enable_deadline_update_notifications": is_enabled}
+            await db_manager.update_user_notification_settings(user_id, settings_data)
+
+            status_text = "включены" if is_enabled else "выключены"
+            logger.info(
+                f"Пользователь {user_id} {status_text} уведомления об обновлении дедлайнов"
+            )
+            return True, f"Уведомления об обновлениях {status_text}"
+
+        except Exception as e:
+            logger.error(
+                f"Ошибка переключения уведомлений об обновлениях для пользователя {user_id}: {e}"
             )
             return False, "Произошла ошибка при изменении настроек"
 

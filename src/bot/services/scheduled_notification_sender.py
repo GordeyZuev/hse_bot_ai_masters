@@ -166,6 +166,10 @@ class ScheduledNotificationSender:
                 pytz.timezone(user.timezone) if user and user.timezone else pytz.UTC
             )
 
+            # Получаем настройки уведомлений для проверки времени сна
+            from src.bot.services.notification_service import notification_service
+            settings = await notification_service.get_user_notification_settings(user_id)
+
             message = await self._format_notifications_message(
                 notification_data, user_tz
             )
@@ -180,6 +184,20 @@ class ScheduledNotificationSender:
 
             if is_delayed:
                 message = "⚠️ <i>Отправлено с задержкой (>30 мин)</i>\n\n" + message
+
+            # Проверяем время сна пользователя
+            is_sleep = False
+            if settings and user:
+                from src.utils.time import is_sleep_time
+                user_tz_name = user.timezone if user.timezone else "Europe/Moscow"
+                is_sleep = is_sleep_time(
+                    settings.sleep_start_time,
+                    settings.sleep_end_time,
+                    user_tz_name
+                )
+                
+                if is_sleep:
+                    message = message + "\n\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
 
             # Клавиатура для быстрого перехода к дедлайнам
             keyboard = InlineKeyboardMarkup(
@@ -199,6 +217,7 @@ class ScheduledNotificationSender:
                 parse_mode="HTML",
                 disable_web_page_preview=True,
                 reply_markup=keyboard,
+                disable_notification=is_sleep,
             )
 
             logger.info(

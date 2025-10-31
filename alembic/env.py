@@ -27,6 +27,13 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
+# Override sqlalchemy.url with DATABASE_URL from environment if available
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    # Convert asyncpg URL to psycopg2 URL for Alembic
+    database_url = database_url.replace("+asyncpg", "")
+    config.set_main_option("sqlalchemy.url", database_url)
+
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")

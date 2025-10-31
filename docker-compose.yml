@@ -42,6 +42,7 @@ services:
     environment:
       # Database connection
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - ALEMBIC_DATABASE_URL=postgresql://postgres:${POSTGRES_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD}}@db:5432/${POSTGRES_DB}
       - DB_HOST=db
       - DB_PORT=5432
       - DB_NAME=${POSTGRES_DB}

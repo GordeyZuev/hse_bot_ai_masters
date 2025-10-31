@@ -22,12 +22,19 @@ class Subject(Base):
     __tablename__ = "subjects"
 
     id = Column(Integer, primary_key=True)
+    # ID из Google Sheets для листа "Дисциплины" (может отсутствовать у старых записей)
+    sheet_subject_id = Column(Integer)
     name = Column(Text, nullable=False)
     year = Column(Integer)
     start_module = Column(Integer)
     end_module = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
+
+    # Ссылки на ресурсы
+    wiki_url = Column(Text)
+    vk_playlist_url = Column(Text)
+    yt_playlist_url = Column(Text)
 
     deadlines = relationship(
         "Deadline", back_populates="subject", cascade="all, delete-orphan"
@@ -39,7 +46,9 @@ class Subject(Base):
         "ChatGroup", back_populates="subject", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (UniqueConstraint("name", "year", name="unique_subject"),)
+    __table_args__ = (
+        UniqueConstraint("name", "year", name="unique_subject"),
+    )
 
 
 class Deadline(Base):

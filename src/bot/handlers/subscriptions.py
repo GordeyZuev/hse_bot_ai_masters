@@ -6,6 +6,8 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.services.subscription_service import subscription_service
+from src.core.database import db_manager
+from src.core.models import Subject
 from src.utils import get_logger
 
 
@@ -23,72 +25,17 @@ class SubscriptionStates(StatesGroup):
 @router.callback_query(F.data == "quick_sub")
 @router.callback_query(F.data == "quick_mysubs")
 async def cmd_subscriptions(event: Message | CallbackQuery, db_user, state: FSMContext):
-    """Обработчик команд /sub и /mysubs - единый интерфейс подписок"""
+    """Редирект старых команд в единый раздел Дисциплины."""
     if isinstance(event, CallbackQuery):
         await event.answer()
-        message = event.message
-        edit_mode = True
+        # Переиспользуем общий раздел дисциплин
+        await cmd_subjects(event, db_user, state)
     else:
-        message = event
-        edit_mode = False
-
-    try:
-        # Получаем текущие подписки пользователя
-        subscriptions = await subscription_service.get_user_subscriptions(
-            db_user.tg_user_id
-        )
-
-        # Группируем по курсам
-        by_year = {}
-        for sub in subscriptions:
-            if sub.year not in by_year:
-                by_year[sub.year] = []
-            by_year[sub.year].append(sub)
-
-        text = "📚 <b>Мои подписки</b>\n\n"
-
-        if subscriptions:
-            for year in sorted(by_year.keys()):
-                text += f"<b>{year} курс ({len(by_year[year])}):</b>\n"
-                for subject in by_year[year]:
-                    text += f"• {subject.name}\n"
-                text += "\n"
-
-            text += f"<i>Всего подписок: {len(subscriptions)}</i>\n\n"
-            text += "Выберите курс для управления подписками:"
-        else:
-            text += "У вас пока нет подписок на предметы.\n\n"
-            text += "Выберите курс для подписки:"
-
-        builder = InlineKeyboardBuilder()
-
-        builder.button(text="1️⃣ Первый курс", callback_data="sub_year_1")
-        builder.button(text="2️⃣ Второй курс", callback_data="sub_year_2")
-
-        if subscriptions:
-            builder.row()
-            builder.button(
-                text="🗑 Отписаться от всего", callback_data="confirm_unsuball"
-            )
-
-        builder.row()
-        builder.button(text="🔙 Назад", callback_data="back_to_menu")
-
-        if subscriptions:
-            builder.adjust(2, 1, 1)
-        else:
-            builder.adjust(2, 1)
-
-        await state.set_state(SubscriptionStates.choosing_year)
-
-        if edit_mode:
-            await message.edit_text(text, reply_markup=builder.as_markup())
-        else:
-            await message.answer(text, reply_markup=builder.as_markup())
-
-    except Exception as e:
-        logger.error(f"Ошибка в обработчике подписок: {e}")
-        await message.answer("Произошла ошибка. Попробуйте позже.")
+        # Преобразуем в callback-совместимый вызов
+        class _FakeCallback:
+            def __init__(self, message: Message):
+                self.message = message
+        await cmd_subjects(_FakeCallback(event), db_user, state)
 
 
 @router.callback_query(F.data.startswith("sub_year_"))
@@ -288,14 +235,13 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
     text = "🏠 <b>Главное меню</b>\n\nВыберите действие:"
 
     builder = InlineKeyboardBuilder()
-    builder.button(text="📚 Подписки", callback_data="quick_sub")
+    builder.button(text="📖 Дисциплины", callback_data="quick_subjects")
     builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
     builder.button(text="⚙️ Настройки", callback_data="quick_settings")
-    builder.button(text="ℹ️ Помощь", callback_data="quick_help")
+    builder.button(text="❓ Помощь", callback_data="quick_help")
 
     from src.bot.handlers.admin import is_admin
 
-    # Добавляем кнопку админ-панели для администраторов
     if is_admin(callback.from_user.id):
         builder.row()
         builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel")
@@ -309,3 +255,120 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
 def register_subscription_handlers(dp):
     """Регистрация handlers для подписок"""
     dp.include_router(router)
+
+
+
+@router.message(and_f(Command("subjects"), F.chat.type == "private"))
+@router.callback_query(F.data == "quick_subjects")
+async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContext):
+    """Раздел дисциплин: выбор курса и просмотр активных/подписанных дисциплин."""
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        message = event.message
+        edit_mode = True
+    else:
+        message = event
+        edit_mode = False
+
+    try:
+        subscriptions = await subscription_service.get_user_subscriptions(db_user.tg_user_id)
+        by_year: dict[int, list] = {}
+        for s in subscriptions:
+            by_year.setdefault(s.year, []).append(s)
+
+        text_lines = ["📖  <b>Ваши дисциплины</b>", ""]
+        if subscriptions:
+            subjects_sorted_all = sorted(subscriptions, key=lambda x: (x.year or 0, x.name))
+            for subj in subjects_sorted_all:
+                text_lines.append(f"🔹 <b>{subj.name}</b>")
+                if getattr(subj, "wiki_url", None):
+                    text_lines.append(f'• <a href="{subj.wiki_url}">Wiki</a>')
+                if getattr(subj, "vk_playlist_url", None):
+                    text_lines.append(f'• <a href="{subj.vk_playlist_url}">VK Video</a>')
+                if getattr(subj, "yt_playlist_url", None):
+                    text_lines.append(f'• <a href="{subj.yt_playlist_url}">YouTube</a>')
+                text_lines.append("")
+            text_lines.append("Если хотите изменить подписки, перейдите в разделы ниже.")
+        else:
+            text_lines.append("У вас пока нет подписок на предметы.")
+            text_lines.append("")
+            text_lines.append("")
+            text_lines.append("Выберите курс ниже, чтобы подписаться:")
+
+        text = "\n".join(text_lines)
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text="1️⃣ Первый курс", callback_data="subjects_year_1")
+        builder.button(text="2️⃣ Второй курс", callback_data="subjects_year_2")
+        builder.row()
+        builder.button(text="🔙 Назад", callback_data="back_to_menu")
+        builder.adjust(2, 1)
+    except Exception as e:
+        logger.error(f"Ошибка подготовки раздела дисциплин: {e}")
+        text = "Произошла ошибка при загрузке дисциплин."
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Назад", callback_data="back_to_menu")
+        builder.adjust(1)
+
+    if edit_mode:
+        await message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+    else:
+        await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("subjects_year_"))
+async def subjects_year_to_subscribe(callback: CallbackQuery, db_user, state: FSMContext):
+    """При выборе курса в разделе Дисциплины переходим к управлению подписками (как раньше)."""
+    await callback.answer()
+
+    try:
+        year = int(callback.data.split("_")[-1])
+        await show_subjects_for_year(callback.message, db_user, year, state)
+    except Exception as e:
+        logger.error(f"Ошибка перехода к управлению подписками: {e}")
+        await callback.message.edit_text("Произошла ошибка при загрузке дисциплин.")
+
+
+@router.callback_query(F.data.startswith("subject_info_"))
+async def show_subject_info(callback: CallbackQuery, db_user):
+    """Карточка дисциплины: модули + ссылки (wiki/vk/youtube)."""
+    await callback.answer()
+
+    try:
+        subject_id = int(callback.data.split("_")[-1])
+        async with db_manager.async_session() as session:
+            from sqlalchemy import select
+            stmt = select(Subject).where(Subject.id == subject_id)
+            result = await session.execute(stmt)
+            subject = result.scalar_one_or_none()
+
+        if not subject:
+            await callback.message.edit_text("Дисциплина не найдена.")
+            return
+
+        modules_text = None
+        if subject.start_module and subject.end_module:
+            if subject.start_module == subject.end_module:
+                modules_text = f"{subject.start_module}"
+            else:
+                modules_text = f"{subject.start_module}-{subject.end_module}"
+
+        text = (
+            f"📚 <b>{subject.name}</b> (курс {subject.year})\n"
+            + (f"Модули: {modules_text}\n\n" if modules_text else "\n")
+        )
+
+        if subject.wiki_url:
+            text += f'🔗 <a href="{subject.wiki_url}">Wiki</a>\n'
+        if subject.vk_playlist_url:
+            text += f'▶️ <a href="{subject.vk_playlist_url}">VK</a>\n'
+        if subject.yt_playlist_url:
+            text += f'▶️ <a href="{subject.yt_playlist_url}">YouTube</a>\n'
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Назад", callback_data="quick_subjects")
+
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+    except Exception as e:
+        logger.error(f"Ошибка показа карточки дисциплины: {e}")
+        await callback.message.edit_text("Произошла ошибка при показе дисциплины.")

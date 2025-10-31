@@ -81,11 +81,19 @@ class DataSyncer:
                 # Обработка предмета
                 subject_name = self.clean_subject_name(subject_name_raw)
 
-                subject = await db_manager.get_or_create_subject(
-                    name=subject_name,
-                )
+                async with db_manager.async_session() as session:
+                    from sqlalchemy import select
 
-                # Формирование данных дедлайна
+                    from src.core.models import Subject
+                    stmt = select(Subject).where(Subject.name == subject_name)
+                    result = await session.execute(stmt)
+                    subject = result.scalar_one_or_none()
+                if not subject:
+                    logger.warning(
+                        f"Пропускаю дедлайн '{hw_name}' — предмет '{subject_name}' не найден. Сначала синхронизируйте 'Дисциплины'."
+                    )
+                    continue
+
                 deadline_data = {
                     "subject_id": subject.id,
                     "hw_name": hw_name,
@@ -143,19 +151,23 @@ class DataSyncer:
             changes: list[dict[str, Any]] = []
 
             for deadline_data in db_data:
-                deadline, was_changed = await db_manager.upsert_deadline(deadline_data)
+                deadline, change_info = await db_manager.upsert_deadline(deadline_data)
                 if deadline:
                     synced_count += 1
                     current_sheet_row_ids.append(deadline.sheet_row_id)
 
-                    # Планируем уведомления только если были изменения или новая запись
-                    if was_changed:
+                    # Планируем уведомления и отправляем сообщение только если изменились дедлайны
+                    if change_info.get("deadline_changed", False):
                         try:
                             notifications_count = await notification_scheduler_service.reschedule_notifications_for_updated_deadline(
                                 deadline
                             )
                             scheduled_notifications_count += notifications_count
-                            changes.append({"deadline": deadline})
+                            # Добавляем информацию об изменениях для отправки уведомлений
+                            changes.append({
+                                "deadline": deadline,
+                                "change_info": change_info
+                            })
                         except Exception as e:
                             logger.error(
                                 f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}"
@@ -180,6 +192,100 @@ class DataSyncer:
                 "scheduled_notifications_count": 0,
                 "changes": [],
             }
+
+    async def sync_subjects(self) -> dict[str, int]:
+        """Ручная синхронизация дисциплин из листа "Дисциплины".
+
+        Правила:
+        - Ключ сопоставления: (sheet_subject_id, name) если ID присутствует, иначе (name, year)
+        - Жесткая перезапись: is_active, ссылки, start/end модули; пустые ссылки затираются в NULL
+        - Новые строки добавляем
+        - Никаких планировщиков, вызывается вручную админом
+        """
+        try:
+            await db_manager.ensure_initialized()
+            subjects_rows = await sheets_manager.get_subjects_data()
+
+            from sqlalchemy import and_, select
+
+            from src.core.models import Subject
+
+            updated, created = 0, 0
+
+            async with db_manager.async_session() as session:
+                for row in subjects_rows:
+                    sheet_subject_id = row.get("sheet_subject_id")
+                    name = row["name"]
+                    year = row["year"]
+
+                    if sheet_subject_id is not None:
+                        stmt = select(Subject).where(
+                            and_(
+                                Subject.sheet_subject_id == sheet_subject_id,
+                                Subject.name == name,
+                            )
+                        )
+                        result = await session.execute(stmt)
+                        subject = result.scalar_one_or_none()
+
+                        # fallback: если не нашли по (id,name), пробуем (name,year)
+                        if subject is None:
+                            stmt2 = select(Subject).where(
+                                and_(Subject.name == name, Subject.year == year)
+                            )
+                            result2 = await session.execute(stmt2)
+                            subject = result2.scalar_one_or_none()
+                    else:
+                        stmt = select(Subject).where(
+                            and_(Subject.name == name, Subject.year == year)
+                        )
+                        result = await session.execute(stmt)
+                        subject = result.scalar_one_or_none()
+
+                    # Обновляем только при реальных изменениях
+                    if subject:
+                        incoming = {
+                            "sheet_subject_id": sheet_subject_id,
+                            "year": year,
+                            "start_module": row.get("start_module"),
+                            "end_module": row.get("end_module"),
+                            "is_active": bool(row.get("is_active")),
+                            "wiki_url": row.get("wiki_url") or None,
+                            "vk_playlist_url": row.get("vk_playlist_url") or None,
+                            "yt_playlist_url": row.get("yt_playlist_url") or None,
+                        }
+
+                        has_changes = False
+                        for key, new_val in incoming.items():
+                            if getattr(subject, key) != new_val:
+                                setattr(subject, key, new_val)
+                                has_changes = True
+
+                        if has_changes:
+                            session.add(subject)
+                            updated += 1
+                    else:
+                        new_subject = Subject(
+                            sheet_subject_id=sheet_subject_id,
+                            name=name,
+                            year=year,
+                            start_module=row.get("start_module"),
+                            end_module=row.get("end_module"),
+                            is_active=bool(row.get("is_active")),
+                            wiki_url=row.get("wiki_url"),
+                            vk_playlist_url=row.get("vk_playlist_url"),
+                            yt_playlist_url=row.get("yt_playlist_url"),
+                        )
+                        session.add(new_subject)
+                        created += 1
+
+                await session.commit()
+
+            logger.info(f"Синхронизация дисциплин: обновлено={updated}, создано={created}")
+            return {"updated": updated, "created": created}
+        except Exception as e:
+            logger.error(f"Ошибка синхронизации дисциплин: {e}")
+            return {"updated": 0, "created": 0}
 
 
 data_syncer = DataSyncer()

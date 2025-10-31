@@ -259,22 +259,19 @@ class ScheduledNotificationSender:
         else:
             deadline_ts = deadline.hard_deadline_ts
 
-        # Форматируем дату в TZ пользователя
-        local_deadline = deadline_ts.astimezone(user_tz)
-        deadline_str = local_deadline.strftime("%d.%m.%Y в %H:%M")
+        from src.utils.notification_formatting import (
+            format_deadline_datetime_with_time_word,
+            format_time_remaining,
+        )
 
-        # Вычисляем время до дедлайна
         now = datetime.now(UTC)
-        time_left = deadline_ts - now
-
-        if time_left.days > 0:
-            time_left_str = f"{time_left.days} дн."
-        elif time_left.seconds > 3600:
-            hours = time_left.seconds // 3600
-            time_left_str = f"{hours} ч."
-        else:
-            minutes = time_left.seconds // 60
-            time_left_str = f"{minutes} мин."
+        
+        # Форматируем дату в TZ пользователя
+        deadline_str = format_deadline_datetime_with_time_word(
+            deadline_ts, user_tz.zone
+        )
+        # Вычисляем время до дедлайна (без скобок для "Осталось")
+        time_left_str = format_time_remaining(deadline_ts, now).strip("()")
 
         message = "⏰ <b>Напоминание о дедлайне</b>\n\n"
         message += f"📚 <b>Предмет:</b> {subject.name}\n"
@@ -315,22 +312,19 @@ class ScheduledNotificationSender:
             else:
                 deadline_ts = deadline.hard_deadline_ts
 
-            # Форматируем дату в TZ пользователя
-            local_deadline = deadline_ts.astimezone(user_tz)
-            deadline_str = local_deadline.strftime("%d.%m.%Y в %H:%M")
+            from src.utils.notification_formatting import (
+                format_deadline_datetime_with_time_word,
+                format_time_remaining,
+            )
 
-            # Вычисляем время до дедлайна
             now = datetime.now(UTC)
-            time_left = deadline_ts - now
-
-            if time_left.days > 0:
-                time_left_str = f"{time_left.days} дн."
-            elif time_left.seconds > 3600:
-                hours = time_left.seconds // 3600
-                time_left_str = f"{hours} ч."
-            else:
-                minutes = time_left.seconds // 60
-                time_left_str = f"{minutes} мин."
+            
+            # Форматируем дату в TZ пользователя
+            deadline_str = format_deadline_datetime_with_time_word(
+                deadline_ts, user_tz.zone
+            )
+            # Вычисляем время до дедлайна (без скобок для "Осталось")
+            time_left_str = format_time_remaining(deadline_ts, now).strip("()")
 
             message += f"<b>{i}. {subject.name}</b>\n"
 

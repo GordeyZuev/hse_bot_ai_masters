@@ -9,7 +9,6 @@ from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.core.models import (
-    ALL_SUBJECTS,
     Base,
     Deadline,
     ScheduledNotification,
@@ -164,7 +163,6 @@ class DatabaseManager:
         else:
             await self.create_tables()
 
-        await self.populate_initial_subjects()
         self.initialized = True
         logger.info("БД инициализирована")
 
@@ -216,22 +214,63 @@ class DatabaseManager:
 
     async def upsert_deadline(
         self, deadline_data: dict[str, Any]
-    ) -> tuple[Deadline | None, bool]:
+    ) -> tuple[Deadline | None, dict[str, Any]]:
         """Создать или обновить дедлайн.
-        Возвращает (deadline, was_changed)."""
+        Возвращает (deadline, change_info) где change_info содержит:
+        - is_new: bool - является ли дедлайн новым
+        - deadline_changed: bool - изменился ли soft или hard дедлайн
+        - soft_deadline_changed: bool - изменился ли soft дедлайн
+        - hard_deadline_changed: bool - изменился ли hard дедлайн
+        - old_soft_deadline_ts: datetime | None - старое значение soft дедлайна
+        - old_hard_deadline_ts: datetime | None - старое значение hard дедлайна"""
         async with self.async_session() as session:
             try:
                 sheet_row_id = deadline_data.get("sheet_row_id")
                 if not sheet_row_id:
-                    return None, False
+                    return None, {
+                        "is_new": False,
+                        "deadline_changed": False,
+                        "soft_deadline_changed": False,
+                        "hard_deadline_changed": False,
+                        "old_soft_deadline_ts": None,
+                        "old_hard_deadline_ts": None,
+                    }
 
                 stmt = select(Deadline).where(Deadline.sheet_row_id == sheet_row_id)
                 result = await session.execute(stmt)
                 deadline = result.scalar_one_or_none()
 
-                was_changed = False
+                change_info = {
+                        "is_new": False,
+                        "deadline_changed": False,
+                        "soft_deadline_changed": False,
+                        "hard_deadline_changed": False,
+                        "old_soft_deadline_ts": None,
+                        "old_hard_deadline_ts": None,
+                    }
+
                 if deadline:
-                    has_changes = False
+                    # Сохраняем старые значения дедлайнов
+                    old_soft = deadline.soft_deadline_ts
+                    old_hard = deadline.hard_deadline_ts
+
+                    # Проверяем изменения дедлайнов
+                    new_soft = deadline_data.get("soft_deadline_ts")
+                    new_hard = deadline_data.get("hard_deadline_ts")
+
+                    soft_changed = old_soft != new_soft
+                    hard_changed = old_hard != new_hard
+
+                    if soft_changed or hard_changed:
+                        change_info["deadline_changed"] = True
+                        change_info["soft_deadline_changed"] = soft_changed
+                        change_info["hard_deadline_changed"] = hard_changed
+                        if soft_changed:
+                            change_info["old_soft_deadline_ts"] = old_soft
+                        if hard_changed:
+                            change_info["old_hard_deadline_ts"] = old_hard
+
+                    # Обновляем все поля (не только дедлайны)
                     fields_to_compare = [
                         "subject_id",
                         "hw_name",
@@ -241,6 +280,7 @@ class DatabaseManager:
                         "note",
                     ]
 
+                    has_changes = False
                     for key in fields_to_compare:
                         if (
                             key in deadline_data
@@ -251,18 +291,21 @@ class DatabaseManager:
 
                     if has_changes:
                         deadline.last_updated = utc_now()
-                        was_changed = True
                 else:
+                    # Новый дедлайн
                     if "last_updated" not in deadline_data:
                         deadline_data["last_updated"] = utc_now()
 
                     deadline = Deadline(**deadline_data)
                     session.add(deadline)
-                    was_changed = True
+                    change_info["is_new"] = True
+                    # Для нового дедлайна считаем, что дедлайны "изменились" (чтобы отправить уведомление)
+                    if deadline.soft_deadline_ts or deadline.hard_deadline_ts:
+                        change_info["deadline_changed"] = True
 
                 await session.commit()
                 await session.refresh(deadline)
-                return deadline, was_changed
+                return deadline, change_info
 
             except Exception as e:
                 await session.rollback()
@@ -325,35 +368,6 @@ class DatabaseManager:
                 logger.error(f"Ошибка удаления устаревших дедлайнов: {e}")
                 raise
 
-    async def populate_initial_subjects(self) -> bool:
-        """Загрузить начальные дисциплины в базу данных"""
-        try:
-            existing_subjects = await self.get_all_subjects()
-            if existing_subjects:
-                return True
-
-            loaded_count = 0
-            for subject_data in ALL_SUBJECTS:
-                try:
-                    await self.get_or_create_subject(
-                        name=subject_data["name"],
-                        year=subject_data["year"],
-                        start_module=subject_data["start_module"],
-                        end_module=subject_data["end_module"],
-                    )
-                    loaded_count += 1
-                except Exception as e:
-                    logger.error(
-                        f"Ошибка загрузки дисциплины {subject_data['name']}: {e}"
-                    )
-                    continue
-
-            logger.info(f"Загружено {loaded_count} дисциплин")
-            return True
-
-        except Exception as e:
-            logger.error(f"Ошибка загрузки дисциплин: {e}")
-            return False
 
     async def get_user_by_id(self, tg_user_id: int) -> User:
         """Получить пользователя по ID"""

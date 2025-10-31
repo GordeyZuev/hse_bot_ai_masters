@@ -13,6 +13,7 @@ from src.bot.services.chat_events_service import register_chat_events_handlers
 from src.bot.services.user_events_service import register_user_events_handlers
 from src.core.database import db_manager
 from src.core.scheduler import hse_scheduler
+from src.core.sync.data_syncer import data_syncer
 from src.utils import get_logger
 
 
@@ -44,6 +45,11 @@ class HSEBot:
         try:
             await db_manager.ensure_initialized()
             logger.info("База данных инициализирована")
+
+            try:
+                await data_syncer.sync_subjects()
+            except Exception as e:
+                logger.warning(f"Старт бота: не удалось синхронизировать дисциплины: {e}")
 
             register_middlewares(self.dp)
             logger.info("Middleware зарегистрированы")

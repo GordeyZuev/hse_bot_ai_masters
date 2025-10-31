@@ -6,6 +6,8 @@ Create Date: 2025-01-09 12:00:00.000000
 
 """
 
+import contextlib
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -150,10 +152,8 @@ def upgrade() -> None:
         WHERE tg_user_id NOT IN (SELECT user_id FROM user_notification_settings)
     """)
 
-    try:
-        op.add_column('chat_groups', sa.Column('topic_title', sa.Text(), nullable=True))
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        op.add_column("chat_groups", sa.Column("topic_title", sa.Text(), nullable=True))
 
     # ### end Alembic commands ###
 
@@ -178,9 +178,7 @@ def downgrade() -> None:
     # Remove settings_version column from users
     op.drop_column("users", "settings_version")
 
-    try:
-        op.drop_column('chat_groups', 'topic_title')
-    except Exception:
-        pass
+    with contextlib.suppress(Exception):
+        op.drop_column("chat_groups", "topic_title")
 
     # ### end Alembic commands ###

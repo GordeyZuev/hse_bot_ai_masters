@@ -439,11 +439,21 @@ class NotificationSender:
             return 0
 
     async def send_immediate_deadline_changes(
-        self, bot: Bot, deadlines: list[Deadline]
+        self, bot: Bot, changes: list[dict[str, Any]]
     ) -> dict[str, int]:
-        """Отправить одно групповое сообщение пользователю, если за синхронизацию изменилось несколько дедлайнов."""
+        """Отправить одно групповое сообщение пользователю, если за синхронизацию изменилось несколько дедлайнов.
+        
+        Args:
+            bot: Экземпляр бота для отправки сообщений
+            changes: Список словарей с ключами "deadline" (Deadline) и "change_info" (dict с информацией об изменениях)
+        """
         stats = {"users_processed": 0, "messages_sent": 0}
         try:
+            if not changes:
+                return stats
+
+            # Извлекаем дедлайны из changes
+            deadlines = [item["deadline"] for item in changes if "deadline" in item]
             if not deadlines:
                 return stats
 
@@ -468,15 +478,19 @@ class NotificationSender:
             if not user_to_subjects:
                 return stats
 
-            # Готовим данные по пользователям: какие дедлайны им релевантны
+            # Готовим данные по пользователям: какие дедлайны им релевантны с информацией об изменениях
             user_entries: dict[int, list[dict[str, Any]]] = {}
-            for d in deadlines:
+            for change_item in changes:
+                d = change_item["deadline"]
+                change_info = change_item.get("change_info", {})
                 sid = d.subject_id
                 for uid, sids in user_to_subjects.items():
                     if sid in sids:
-                        user_entries.setdefault(uid, []).append(
-                            {"deadline": d, "subject": subjects.get(sid)}
-                        )
+                        user_entries.setdefault(uid, []).append({
+                            "deadline": d,
+                            "subject": subjects.get(sid),
+                            "change_info": change_info
+                        })
 
             # Загружаем пользователей и их настройки единым запросом
             user_ids = list(user_entries.keys())
@@ -546,8 +560,41 @@ class NotificationSender:
     def _format_multiple_deadline_updates(
         self, entries: list[dict[str, Any]], user_tz
     ) -> str:
-        """Сформировать сообщение о нескольких обновлениях дедлайнов (без расчётов \"осталось\")."""
-        message = f"📌 <b>Обновлены дедлайны ({len(entries)})</b>\n\n"
+        """Сформировать сообщение о нескольких обновлениях дедлайнов с указанием изменений."""
+        from src.utils.notification_formatting import format_deadline_datetime_with_time_word
+
+        # Разделяем новые и обновленные дедлайны
+        new_deadlines = []
+        updated_deadlines = []
+        
+        for e in entries:
+            change_info = e.get("change_info", {})
+            if change_info.get("is_new", False):
+                new_deadlines.append(e)
+            else:
+                updated_deadlines.append(e)
+
+        message_parts = []
+        
+        # Новые дедлайны
+        if new_deadlines:
+            message_parts.append(f"✨ <b>Новые дедлайны ({len(new_deadlines)})</b>\n")
+            message_parts.append(self._format_deadline_list(new_deadlines, user_tz, is_new=True))
+            message_parts.append("")
+
+        # Обновленные дедлайны
+        if updated_deadlines:
+            message_parts.append(f"📌 <b>Обновлены дедлайны ({len(updated_deadlines)})</b>\n")
+            message_parts.append(self._format_deadline_list(updated_deadlines, user_tz, is_new=False))
+            message_parts.append("")
+
+        return "\n".join(message_parts).strip()
+
+    def _format_deadline_list(
+        self, entries: list[dict[str, Any]], user_tz, is_new: bool = False
+    ) -> str:
+        """Форматировать список дедлайнов с информацией об изменениях."""
+        from src.utils.notification_formatting import format_deadline_datetime_with_time_word
 
         # Сортируем по ближайшему времени дедлайна (soft/hard, что доступно)
         def deadline_key(e):
@@ -562,25 +609,55 @@ class NotificationSender:
             )
 
         entries_sorted = sorted(entries, key=deadline_key)
+        lines = []
 
         for i, e in enumerate(entries_sorted, 1):
             d: Deadline = e["deadline"]
             s: Subject = e["subject"]
-            message += f"<b>{i}. {s.name if s else 'Предмет'}</b>\n"
+            change_info = e.get("change_info", {})
+            
+            lines.append(f"<b>{i}. {s.name if s else 'Предмет'}</b>")
             if d.source_link:
-                message += f"📝 <a href='{d.source_link}'>{d.hw_name}</a>\n"
+                lines.append(f"📝 <a href='{d.source_link}'>{d.hw_name}</a>")
             else:
-                message += f"📝 {d.hw_name}\n"
+                lines.append(f"📝 {d.hw_name}")
+
+            # Мягкий дедлайн
             if d.soft_deadline_ts:
-                soft_local = d.soft_deadline_ts.astimezone(user_tz)
-                message += f"🟡 <b>Мягкий дедлайн:</b> {soft_local.strftime('%d.%m.%Y в %H:%M')}\n"
+                soft_str = format_deadline_datetime_with_time_word(d.soft_deadline_ts, user_tz.zone)
+                
+                if not is_new and change_info.get("soft_deadline_changed", False):
+                    # Показываем изменение с перечеркнутым старым значением
+                    old_soft = change_info.get("old_soft_deadline_ts")
+                    if old_soft:
+                        old_soft_str = format_deadline_datetime_with_time_word(old_soft, user_tz.zone)
+                        lines.append(f"🟡 <b>Мягкий дедлайн:</b> {soft_str} (<s>{old_soft_str}</s>)")
+                    else:
+                        lines.append(f"🟡 <b>Мягкий дедлайн:</b> {soft_str} <i>(добавлен)</i>")
+                else:
+                    lines.append(f"🟡 <b>Мягкий дедлайн:</b> {soft_str}")
+
+            # Жесткий дедлайн
             if d.hard_deadline_ts:
-                hard_local = d.hard_deadline_ts.astimezone(user_tz)
-                message += f"🔴 <b>Жёсткий дедлайн:</b> {hard_local.strftime('%d.%m.%Y в %H:%M')}\n"
+                hard_str = format_deadline_datetime_with_time_word(d.hard_deadline_ts, user_tz.zone)
+                
+                if not is_new and change_info.get("hard_deadline_changed", False):
+                    # Показываем изменение с перечеркнутым старым значением
+                    old_hard = change_info.get("old_hard_deadline_ts")
+                    if old_hard:
+                        old_hard_str = format_deadline_datetime_with_time_word(old_hard, user_tz.zone)
+                        lines.append(f"🔴 <b>Жёсткий дедлайн:</b> {hard_str} (<s>{old_hard_str}</s>)")
+                    else:
+                        lines.append(f"🔴 <b>Жёсткий дедлайн:</b> {hard_str} <i>(добавлен)</i>")
+                else:
+                    lines.append(f"🔴 <b>Жёсткий дедлайн:</b> {hard_str}")
+
             if d.note:
-                message += f"💬 <i>{d.note}</i>\n"
-            message += "\n"
-        return message
+                lines.append(f"💬 <i>{d.note}</i>")
+            
+            lines.append("")
+
+        return "\n".join(lines)
 
     def _format_multiple_deadlines_notification(
         self,

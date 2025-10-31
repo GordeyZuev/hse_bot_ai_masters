@@ -14,6 +14,8 @@
 - [Планировщик задач](#-планировщик-задач)
 - [Система уведомлений](#-система-уведомлений)
 - [Система мгновенных уведомлений об изменениях](#-система-мгновенных-уведомлений-об-изменениях)
+- [Работа с групповыми чатами](#-работа-с-групповыми-чатами)
+- [Улучшенное форматирование уведомлений](#-улучшенное-форматирование-уведомлений-v100)
 - [Безопасность](#-безопасность)
 - [Производительность](#-производительность)
 - [Мониторинг и логирование](#-мониторинг-и-логирование)
@@ -67,16 +69,29 @@ Telegram → Middleware → Handler → Service → DatabaseManager → Response
 
 #### 3. **Система уведомлений**
 ```
-Scheduler → NotificationScheduler → ScheduledNotification → NotificationSender → Telegram
+Scheduler → NotificationScheduler → ScheduledNotification → NotificationSender → Telegram (Users)
     ↓              ↓                        ↓                      ↓
   Timer        Planning                Database              HTTP API
+
+Scheduler → ChatNotificationScheduler → ChatScheduledNotification → ChatNotificationSender → Telegram (Chats)
+    ↓              ↓                            ↓                          ↓
+  Timer        Planning                    Database                    HTTP API
 ```
 
 #### 4. **Система мгновенных уведомлений об изменениях**
 ```
-Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_deadline_changes → Telegram
-    ↓                    ↓                           ↓
-  Sheets            Diff by rows                 Group & send
+Sync (DataSyncer) → Deadline Changes Detector → NotificationSender.send_immediate_deadline_changes → Telegram
+    ↓                          ↓                                  ↓
+  Sheets              Изменения только soft/hard          Группировка и отправка
+                    дедлайнов (не названий/ссылок)        с показом изменений
+```
+
+#### 5. **Работа с групповыми чатами**
+```
+Telegram Chat → GroupChat Handler → ChatService → ChatNotificationScheduler → ChatNotificationSender → Telegram Chat/Topic
+    ↓                  ↓                ↓                       ↓                          ↓
+  /start cmd      Настройка чата    БД (ChatGroup)        Планирование              HTTP API
+                                                   уведомлений для чатов
 ```
 
 ## 🧩 Компоненты и слои
@@ -89,12 +104,17 @@ Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_dea
 - **`subscriptions.py`** - Управление подписками `/sub`, `/unsub`
 - **`settings.py`** - Настройки уведомлений `/settings`
 - **`admin.py`** - Админ-панель `/admin`
+- **`group_chat.py`** - Обработчики для групповых чатов (настройка чата, уведомления в топиках)
 
 #### Services (`src/bot/services/`)
 - **`notification_service.py`** - Управление настройками уведомлений
-- **`notification_scheduler_service.py`** - Планирование уведомлений
-- **`scheduled_notification_sender.py`** - Отправка уведомлений
+- **`notification_scheduler_service.py`** - Планирование уведомлений для пользователей
+- **`scheduled_notification_sender.py`** - Отправка уведомлений пользователям
 - Батч‑обработка по пользователям, параллельная отправка (`asyncio.gather`), fail‑safe пометка задержек и кнопка «📅 Дедлайны» в сообщениях
+- **`chat_notification_scheduler_service.py`** - Планирование уведомлений для групповых чатов
+- **`chat_notification_sender.py`** - Отправка уведомлений в групповые чаты и топики
+- **`chat_service.py`** - Управление групповыми чатами (настройка, привязка к предметам)
+- **`chat_events_service.py`** - Обработка событий в чатах (добавление/удаление бота)
 - **`admin_service.py`** - Админские функции
 - **`deadline_service.py`** - Работа с дедлайнами
 - **`subscription_service.py`** - Управление подписками
@@ -110,7 +130,10 @@ Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_dea
 
 #### Models (`src/core/models/`)
 - **`models.py`** - Определения таблиц и связей
-- **`subjects_data.py`** - Статические данные о предметах
+  - `User`, `Subject`, `Deadline`, `Subscription` - базовые модели
+  - `UserNotificationSettings`, `ScheduledNotification` - модели уведомлений для пользователей
+  - `ChatGroup`, `ChatScheduledNotification` - модели для групповых чатов (v1.0.0)
+  - Расширенная модель `Subject` с поддержкой ссылок на материалы (`wiki_url`, `vk_playlist_url`, `yt_playlist_url`)
 
 #### Sync (`src/core/sync/`)
 - **`data_syncer.py`** - Основная логика синхронизации
@@ -157,10 +180,10 @@ Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_dea
 ## 📦 Зависимости
 
 ### Основные библиотеки
-- **`aiogram`** (3.22.0) - Telegram Bot API framework
+- **`aiogram`** (3.22.0) - Telegram Bot API framework (поддержка пользователей и групповых чатов)
 - **`SQLAlchemy`** (2.0.43) - ORM для работы с базой данных
 - **`asyncpg`** (0.30.0) - Асинхронный PostgreSQL драйвер
-- **`APScheduler`** (3.11.0) - Планировщик задач
+- **`APScheduler`** (3.11.0) - Планировщик задач (уведомления для пользователей и чатов)
 - **`pytz`** (2025.2) - Работа с часовыми поясами
 - **`timezonefinder`** (8.0.0) - Определение часового пояса по координатам
 
@@ -186,11 +209,131 @@ Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_dea
 
 **Особенности:** UTF-8, асинхронная запись, автоудаление через месяц
 
+## 💬 Работа с групповыми чатами
+
+### 🏗️ Архитектура групповых чатов
+
+Система поддерживает работу в групповых чатах и супергруппах Telegram, включая форумы с топиками (Topics).
+
+#### 📊 Потоки данных для чатов
+
+```
+1. Настройка чата:
+Telegram Chat → /start → GroupChatHandler → ChatService → Database (ChatGroup)
+                                                        ↓
+                                                 Привязка к предмету
+
+2. Планирование уведомлений:
+New/Updated Deadline → ChatNotificationScheduler → ChatScheduledNotification → Database
+                    ↓
+              Для всех чатов по предмету
+
+3. Отправка уведомлений:
+Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram Chat/Topic
+              ↓
+        Батч-обработка по чатам
+```
+
+### 🗄️ Модели базы данных
+
+#### ChatGroup
+- **`chat_id`** (BigInteger, PK) - ID чата в Telegram
+- **`topic_id`** (BigInteger, nullable) - ID топика (None = общий чат, число = топик форума)
+- **`topic_title`** (Text, nullable) - Отображаемое имя топика (кеш)
+- **`chat_type`** (Text) - 'group' или 'supergroup'
+- **`subject_id`** (Integer, FK) - Привязка к предмету
+- **`reminder1_offset/unit`** - Настройки первого напоминания
+- **`reminder2_offset/unit`** - Настройки второго напоминания
+- **`is_active`** (Boolean) - Активность чата
+
+#### ChatScheduledNotification
+- **`chat_group_id`** (BigInteger, FK) - Связь с чатом
+- **`deadline_id`** (Integer, FK) - Связь с дедлайном
+- **`deadline_type`** (Text) - 'soft' или 'hard'
+- **`notification_number`** (Integer) - 1 или 2
+- **`original_deadline_ts`** (DateTime) - Исходное время дедлайна
+- **`planned_delivery_time`** (DateTime) - Запланированное время отправки
+- **`status`** (Text) - 'scheduled', 'sent', 'cancelled', 'failed'
+
+### 🔧 Сервисы для чатов
+
+#### ChatService
+- Управление групповыми чатами
+- Привязка чатов к предметам
+- Обновление настроек уведомлений для чатов
+
+#### ChatNotificationSchedulerService
+- Планирование уведомлений для чатов
+- Автоматическое создание уведомлений при добавлении чата
+- Перепланирование при изменениях дедлайнов
+
+#### ChatNotificationSender
+- Отправка уведомлений в групповые чаты
+- Поддержка отправки в топики форумов
+- Батч-обработка для эффективной доставки
+- Группировка нескольких дедлайнов в одно сообщение
+
+#### ChatEventsService
+- Обработка событий добавления/удаления бота из чата
+- Автоматическая деактивация чата при удалении бота
+
+### 📝 Обработчики для чатов
+
+#### `group_chat.py`
+- **`/start` в чатах** - Настройка чата на предмет
+- **Интерактивные кнопки** - Выбор предмета, настройка уведомлений
+- **Callback handlers** - Обработка действий пользователей
+
+### 🎯 Особенности реализации
+
+#### Отправка в топики
+- Если `topic_id` установлен, уведомления отправляются в соответствующий топик
+- Если топик закрыт или недоступен, сообщение отправляется в общий чат
+
+#### Форматирование уведомлений
+- Без нумерации для одного дедлайна (как в личных чатах)
+- Группировка нескольких дедлайнов с нумерацией
+- Единый формат с уведомлениями для пользователей
+
+## 📝 Улучшенное форматирование уведомлений (v1.0.0)
+
+### 🎯 Умное определение обновлений
+
+Система теперь точно определяет, что считается обновлением дедлайна:
+
+- ✅ **Обновление** — изменение `soft_deadline_ts` или `hard_deadline_ts`
+- ❌ **Не обновление** — изменение `hw_name`, `source_link`, `note` или других полей
+
+### ✨ Показ изменений
+
+При обновлении дедлайна в уведомлении отображается:
+
+1. **Новое значение** — текущий дедлайн
+2. **Старое значение** — перечеркнутое (`<s>`) в скобках
+
+**Пример:**
+```
+🟡 Мягкий дедлайн: 01.11.2025 в 21:20 (<s>01.11.2025 в 21:15</s>)
+```
+
+### 📌 Различение новых и обновленных дедлайнов
+
+- ✨ **Новые дедлайны** — отдельная секция без указания изменений
+- 📌 **Обновленные дедлайны** — отдельная секция с указанием изменений
+
+### 🔄 Техническая реализация
+
+Метод `upsert_deadline` теперь возвращает детальную информацию:
+- `is_new` — новый дедлайн или обновление
+- `deadline_changed` — изменился ли дедлайн
+- `soft_deadline_changed` / `hard_deadline_changed` — какие именно дедлайны изменились
+- `old_soft_deadline_ts` / `old_hard_deadline_ts` — старые значения
+
 ## 📚 Связанная документация
 
 - **[../README.md](../README.md)** - Основная документация и обзор возможностей
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Руководство по развертыванию и эксплуатации
-- **[UPDATES.md](UPDATES.md)** - История обновлений и версий
+- **[UPDATES.md](UPDATES.md)** - История обновлений и версий (v1.0.0)
 
 ---
 
@@ -199,5 +342,7 @@ Sync (DataSyncer) → Changes Detector → NotificationSender.send_immediate_dea
 **⚙️ HSE AI Deadlines Bot - Technical Documentation**
 
 *Подробная техническая документация архитектуры и компонентов*
+
+**Версия:** 1.0.0
 
 </div>

@@ -44,10 +44,10 @@ async def handle_start_in_private(message: Message, db_user, user_name: str):
         """
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="📚 Подписки", callback_data="quick_sub")
+        builder.button(text="📖 Дисциплины", callback_data="quick_subjects")
         builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
         builder.button(text="⚙️ Настройки", callback_data="quick_settings")
-        builder.button(text="ℹ️ Помощь", callback_data="quick_help")
+        builder.button(text="❓ Помощь", callback_data="quick_help")
 
         from src.bot.handlers.admin import is_admin
 

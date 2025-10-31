@@ -112,17 +112,13 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
                 if isinstance(sync_result, dict):
                     changes = sync_result.get("changes", [])
                     if changes:
-                        deadlines = [
-                            item["deadline"] for item in changes if "deadline" in item
-                        ]
-                        if deadlines:
-                            bot = message_or_callback.bot
-                            await notification_sender.send_immediate_deadline_changes(
-                                bot, deadlines
-                            )
-                            logger.info(
-                                f"Отправлены мгновенные уведомления об изменениях: {len(deadlines)} дедлайнов"
-                            )
+                        bot = message_or_callback.bot
+                        await notification_sender.send_immediate_deadline_changes(
+                            bot, changes
+                        )
+                        logger.info(
+                            f"Отправлены мгновенные уведомления об изменениях: {len(changes)} дедлайнов"
+                        )
             except Exception as e:
                 logger.warning(
                     f"Ошибка отправки мгновенных уведомлений при ручной синхронизации: {e}"
@@ -396,12 +392,17 @@ async def callback_admin_panel(callback: CallbackQuery, db_user):
     text = "👨‍💼 <b>Админ-панель</b>\n\nВыберите действие:"
 
     builder = InlineKeyboardBuilder()
+    # Ряд 1: Статистика и Логи
     builder.button(text="📊 Статистика", callback_data="admin_stats")
-    builder.button(text="🔄 Синхронизация", callback_data="admin_sync")
+    builder.button(text="📄 Логи", callback_data="admin_logs")
+    # Ряд 2: Синхронизации
+    builder.button(text="🔄 Sync - Дедлайны", callback_data="admin_sync")
+    builder.button(text="🔄 Sync - Дисциплины", callback_data="admin_sync_subjects")
+    # Ряд 3: Broadcast
     builder.button(text="📢 Broadcast", callback_data="admin_broadcast")
-    builder.button(text="📄 Сегодняшние логи", callback_data="admin_logs")
+    # Ряд 4: Назад
     builder.button(text="🔙 Назад", callback_data="back_to_menu")
-    builder.adjust(2, 2, 1)  # 2 кнопки в первых двух рядах, 1 в последнем
+    builder.adjust(2, 2, 1, 1)
 
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
 
@@ -468,6 +469,30 @@ async def callback_admin_sync(callback: CallbackQuery, db_user):
 
     # Используем общую функцию синхронизации
     await perform_sync(callback, db_user, show_back_button=True)
+
+
+@router.callback_query(F.data == "admin_sync_subjects")
+async def callback_admin_sync_subjects(callback: CallbackQuery, db_user):
+    """Ручная синхронизация дисциплин (для админов)."""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+
+    try:
+        await callback.answer("Запускаю синхронизацию дисциплин...")
+        result = await data_syncer.sync_subjects()
+        updated = result.get("updated", 0)
+        created = result.get("created", 0)
+        text = (
+            "✅ <b>Синхронизация дисциплин завершена</b>\n\n"
+            f"Обновлено: {updated}\nСоздано: {created}"
+        )
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка синхронизации дисциплин: {e}")
+        await callback.message.edit_text("❌ Ошибка при синхронизации дисциплин", parse_mode="HTML")
 
 
 @router.message(Command("chat_stats"))

@@ -62,10 +62,11 @@ class HSEScheduler:
                 if self.bot:
                     changes = sync_result.get("changes", [])
                     try:
-                        deadlines = [item["deadline"] for item in changes]
-                        await notification_sender.send_immediate_deadline_changes(
-                            self.bot, deadlines
-                        )
+                        # Передаем changes с информацией об изменениях
+                        if changes:
+                            await notification_sender.send_immediate_deadline_changes(
+                                self.bot, changes
+                            )
                     except Exception as e:
                         logger.warning(f"Ошибка групповой мгновенной отправки: {e}")
             else:

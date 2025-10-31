@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, delete, select
 from sqlalchemy.dialects.postgresql import insert
@@ -133,56 +133,68 @@ class ChatNotificationSchedulerService:
                 planned_time = self._calculate_notification_time(
                     deadline_ts, chat_group.reminder1_offset, chat_group.reminder1_unit
                 )
-
-                async with db_manager.async_session() as session:
-                    stmt = (
-                        insert(ChatScheduledNotification)
-                        .values(
-                            chat_group_id=chat_group.chat_id,
-                            deadline_id=deadline.id,
-                            deadline_type=deadline_type,
-                            notification_number=1,
-                            original_deadline_ts=deadline_ts,
-                            planned_delivery_time=planned_time,
-                            status="scheduled",
+                # Пропускаем создание, если время уже в прошлом
+                if planned_time > datetime.now(UTC):
+                    async with db_manager.async_session() as session:
+                        stmt = (
+                            insert(ChatScheduledNotification)
+                            .values(
+                                chat_group_id=chat_group.chat_id,
+                                deadline_id=deadline.id,
+                                deadline_type=deadline_type,
+                                notification_number=1,
+                                original_deadline_ts=deadline_ts,
+                                planned_delivery_time=planned_time,
+                                status="scheduled",
+                            )
+                            .on_conflict_do_update(
+                                constraint="unique_chat_deadline_notification",
+                                set_={
+                                    "status": "scheduled",
+                                    "planned_delivery_time": planned_time,
+                                    "original_deadline_ts": deadline_ts,
+                                    "updated_at": utc_now(),
+                                },
+                            )
                         )
-                        .on_conflict_do_nothing(
-                            constraint="unique_chat_deadline_notification"
-                        )
-                    )
-                    result = await session.execute(stmt)
-                    # result.rowcount is None for INSERT .. DO NOTHING; check via inserted_primary_key or return value
-                    # Commit regardless; count only if actually inserted
-                    await session.commit()
-                    if result.rowcount and result.rowcount > 0:
-                        notifications_created += 1
+                        result = await session.execute(stmt)
+                        await session.commit()
+                        if result.rowcount and result.rowcount > 0:
+                            notifications_created += 1
 
             # Второе напоминание
             if chat_group.reminder2_offset > 0:
                 planned_time = self._calculate_notification_time(
                     deadline_ts, chat_group.reminder2_offset, chat_group.reminder2_unit
                 )
-
-                async with db_manager.async_session() as session:
-                    stmt = (
-                        insert(ChatScheduledNotification)
-                        .values(
-                            chat_group_id=chat_group.chat_id,
-                            deadline_id=deadline.id,
-                            deadline_type=deadline_type,
-                            notification_number=2,
-                            original_deadline_ts=deadline_ts,
-                            planned_delivery_time=planned_time,
-                            status="scheduled",
+                # Пропускаем создание, если время уже в прошлом
+                if planned_time > datetime.now(UTC):
+                    async with db_manager.async_session() as session:
+                        stmt = (
+                            insert(ChatScheduledNotification)
+                            .values(
+                                chat_group_id=chat_group.chat_id,
+                                deadline_id=deadline.id,
+                                deadline_type=deadline_type,
+                                notification_number=2,
+                                original_deadline_ts=deadline_ts,
+                                planned_delivery_time=planned_time,
+                                status="scheduled",
+                            )
+                            .on_conflict_do_update(
+                                constraint="unique_chat_deadline_notification",
+                                set_={
+                                    "status": "scheduled",
+                                    "planned_delivery_time": planned_time,
+                                    "original_deadline_ts": deadline_ts,
+                                    "updated_at": utc_now(),
+                                },
+                            )
                         )
-                        .on_conflict_do_nothing(
-                            constraint="unique_chat_deadline_notification"
-                        )
-                    )
-                    result = await session.execute(stmt)
-                    await session.commit()
-                    if result.rowcount and result.rowcount > 0:
-                        notifications_created += 1
+                        result = await session.execute(stmt)
+                        await session.commit()
+                        if result.rowcount and result.rowcount > 0:
+                            notifications_created += 1
 
             return notifications_created
 
@@ -250,27 +262,18 @@ class ChatNotificationSchedulerService:
                 rescheduled_count = 0
 
                 for notification in notifications:
-                    # Отменяем старое уведомление
-                    notification.status = "cancelled"
-                    notification.updated_at = utc_now()
-
-                    # Создаем новое уведомление с обновленными настройками
+                    # Пересчитываем новое время по обновлённым настройкам
                     new_planned_time = self._calculate_notification_time(
                         notification.original_deadline_ts,
                         chat_group.reminder1_offset if notification.notification_number == 1 else chat_group.reminder2_offset,
                         chat_group.reminder1_unit if notification.notification_number == 1 else chat_group.reminder2_unit
                     )
 
-                    new_notification = ChatScheduledNotification(
-                        chat_group_id=chat_group.chat_id,
-                        deadline_id=notification.deadline_id,
-                        deadline_type=notification.deadline_type,
-                        notification_number=notification.notification_number,
-                        original_deadline_ts=notification.original_deadline_ts,
-                        planned_delivery_time=new_planned_time
-                    )
-
-                    session.add(new_notification)
+                    # Обновляем существующую запись вместо вставки новой (уникальный ключ по chat/deadline/type/number)
+                    notification.planned_delivery_time = new_planned_time
+                    notification.status = "scheduled"
+                    notification.updated_at = utc_now()
+                    session.add(notification)
                     rescheduled_count += 1
 
                 await session.commit()
@@ -278,6 +281,31 @@ class ChatNotificationSchedulerService:
 
         except Exception as e:
             logger.error(f"Ошибка перепланирования уведомлений для чата {chat_group.chat_id}: {e}")
+            return 0
+
+    async def cancel_notifications_for_deadline(self, deadline_id: int) -> int:
+        """Отменить все запланированные уведомления в чатах для указанного дедлайна"""
+        try:
+            async with db_manager.async_session() as session:
+                from sqlalchemy import update
+
+                result = await session.execute(
+                    update(ChatScheduledNotification)
+                    .where(
+                        ChatScheduledNotification.deadline_id == deadline_id,
+                        ChatScheduledNotification.status == "scheduled",
+                    )
+                    .values(status="cancelled", updated_at=utc_now())
+                )
+
+                cancelled_count = result.rowcount or 0
+                await session.commit()
+                return cancelled_count
+
+        except Exception as e:
+            logger.error(
+                f"Ошибка отмены уведомлений в чатах для дедлайна {deadline_id}: {e}"
+            )
             return 0
 
 

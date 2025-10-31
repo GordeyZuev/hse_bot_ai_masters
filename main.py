@@ -26,6 +26,11 @@ class HSEBotSyncApp:
     async def initialize(self):
         """Инициализация приложения"""
         await self.db_manager.ensure_initialized()
+        # Сначала синхронизируем дисциплины, затем дедлайны
+        try:
+            await self.data_syncer.sync_subjects()
+        except Exception as e:
+            logger.warning(f"Инициализация: ошибка синхронизации дисциплин: {e}")
         success = await self.data_syncer.sync_data()
 
         if success:

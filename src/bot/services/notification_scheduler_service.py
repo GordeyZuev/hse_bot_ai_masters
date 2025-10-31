@@ -323,6 +323,17 @@ class NotificationSchedulerService:
                 f"Отменено {cancelled_count} уведомлений для обновленного дедлайна {deadline.id}"
             )
 
+            # Также отменяем уведомления в чатах для этого дедлайна
+            from src.bot.services.chat_notification_scheduler_service import (
+                chat_notification_scheduler_service,
+            )
+            cancelled_in_chats = await chat_notification_scheduler_service.cancel_notifications_for_deadline(
+                deadline.id
+            )
+            logger.info(
+                f"(Чаты) Отменено {cancelled_in_chats} уведомлений для обновленного дедлайна {deadline.id}"
+            )
+
             scheduled_count = await self.schedule_notifications_for_deadline(deadline)
 
             return scheduled_count

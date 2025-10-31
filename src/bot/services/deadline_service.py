@@ -221,20 +221,15 @@ class DeadlineService:
             nearest = deadline_data["nearest_deadline"]
             deadline_type = deadline_data["deadline_type"]
 
-            time_left = nearest - now
-            days = time_left.days
-            hours = time_left.seconds // 3600
+            from src.utils.notification_formatting import format_time_remaining
 
+            remain = format_time_remaining(nearest, now)
             deadline_name = "мягкого" if deadline_type == "soft" else "жесткого"
-
-            if days > 0:
-                message += (
-                    f"\n⏰ <b>До {deadline_name} дедлайна:</b> {days} дн. {hours} ч."
-                )
-            elif hours > 0:
-                message += f"\n⏰ <b>До {deadline_name} дедлайна:</b> {hours} ч."
+            icon = "🟡" if deadline_type == "soft" else "🔴"
+            if remain == "(сегодня!)":
+                message += f"\n{icon} <b>{deadline_name.capitalize()} дедлайн сегодня!</b>"
             else:
-                message += f"\n🚨 <b>{deadline_name.capitalize()} дедлайн сегодня!</b>"
+                message += f"\n{icon} <b>До {deadline_name} дедлайна:</b> {remain.strip('()')}"
 
         # Ссылка на источник
         if deadline.source_link and deadline.source_link.strip():
@@ -275,23 +270,15 @@ class DeadlineService:
             # Ближайший дедлайн с правильным цветом
             if data.get("nearest_deadline"):
                 # Форматируем время в часовом поясе пользователя
+                now = datetime.now(UTC)
                 local_time = data["nearest_deadline"].astimezone(user_tz)
                 date_str = local_time.strftime("%d.%m.%Y %H:%M")
 
                 # Выбираем цвет в зависимости от типа дедлайна
                 deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"
-                message += f"{deadline_type_icon} {date_str}"
-
-                # Время до дедлайна
-                days_left = data.get("days_left", 0)
-                hours_left = data.get("hours_left", 0)
-
-                if days_left > 0:
-                    message += f" ({days_left} дн.)"
-                elif hours_left > 0:
-                    message += f" ({hours_left} ч.)"
-                else:
-                    message += " (сегодня!)"
+                from src.utils.notification_formatting import format_time_remaining
+                remain = format_time_remaining(data["nearest_deadline"], now)
+                message += f"{deadline_type_icon} {date_str} {remain}"
 
             message += "\n\n"
 

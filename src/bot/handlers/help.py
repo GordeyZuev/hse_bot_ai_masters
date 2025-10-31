@@ -22,8 +22,6 @@ async def cmd_help(message: Message, db_user):
 @router.callback_query(F.data == "quick_help")
 async def callback_help(callback: CallbackQuery, db_user):
     """Обработчик кнопки помощи"""
-    await callback.answer()
-
     # Проверяем, вызвана ли кнопка в групповом чате
     if callback.message.chat.type in ["group", "supergroup"]:
         # Логируем действие в чате
@@ -34,10 +32,19 @@ async def callback_help(callback: CallbackQuery, db_user):
 
         logger.info(f"[CHAT] quick_help в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
 
+        # Только админам показываем справку в чате
+        from src.bot.services.chat_service import chat_service
+        if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
+            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            return
+
+        await callback.answer()
+
         # Перенаправляем в group_chat.py
         from src.bot.handlers.group_chat import send_chat_help_message
         await send_chat_help_message(callback.message, edit_mode=True)
     else:
+        await callback.answer()
         # Для личных сообщений обрабатываем здесь
         await send_help_message(callback.message, db_user, edit_mode=True)
 

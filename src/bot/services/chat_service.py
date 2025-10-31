@@ -41,9 +41,9 @@ class ChatService:
             me = await bot.get_me()
             bot_member = await bot.get_chat_member(chat_id, me.id)
             # Для админа доступно поле can_manage_topics (в супергруппах с форумами)
-            can_manage = getattr(getattr(bot_member, 'can_manage_topics', None), '__bool__', lambda: False)()
+            can_manage = getattr(getattr(bot_member, "can_manage_topics", None), "__bool__", lambda: False)()
             # В некоторых реализациях атрибут может быть непосредственно булевым
-            if isinstance(getattr(bot_member, 'can_manage_topics', None), bool):
+            if isinstance(getattr(bot_member, "can_manage_topics", None), bool):
                 can_manage = bot_member.can_manage_topics
             return bool(can_manage)
         except Exception as e:
@@ -64,7 +64,7 @@ class ChatService:
                 title = (
                     getattr(topic, "name", None)
                     or getattr(topic, "title", None)
-                    or getattr(topic, "forum_topic", None) and getattr(topic.forum_topic, "name", None)
+                    or (getattr(topic, "forum_topic", None) and getattr(topic.forum_topic, "name", None))
                 )
                 if title:
                     return str(title)
@@ -150,6 +150,13 @@ class ChatService:
                 r2_unit = "days" if reminder2_unit is None else reminder2_unit
                 active = False if is_active is None else is_active
 
+                # Проверяем, что первое и второе уведомления не настроены одинаково
+                if r1_off == r2_off and r1_unit == r2_unit:
+                    return (
+                        False,
+                        "Первое и второе уведомления не могут быть настроены одинаково",
+                    )
+
                 chat_group = ChatGroup(
                     chat_id=chat_id,
                     topic_id=topic_id,
@@ -184,7 +191,7 @@ class ChatService:
         """Получить topic_id из сообщения"""
         try:
             # Проверяем, есть ли topic_id в сообщении
-            if hasattr(message, 'message_thread_id') and message.message_thread_id:
+            if hasattr(message, "message_thread_id") and message.message_thread_id:
                 return message.message_thread_id
             return None
         except Exception as e:
@@ -195,7 +202,7 @@ class ChatService:
         """Проверить, является ли чат форумом (поддерживает топики)"""
         try:
             chat_info = await bot.get_chat(chat_id)
-            return hasattr(chat_info, 'forum_topic_created') and chat_info.forum_topic_created
+            return hasattr(chat_info, "forum_topic_created") and chat_info.forum_topic_created
         except Exception as e:
             logger.error(f"Ошибка проверки типа чата {chat_id}: {e}")
             return False
@@ -228,6 +235,22 @@ class ChatService:
                 if not await self.is_chat_admin(bot, chat_id, user_id):
                     return False, "У вас нет прав для изменения настроек"
 
+                # Вычисляем финальные значения после обновления
+                final_reminder1_offset = reminder1_offset if reminder1_offset is not None else chat_group.reminder1_offset
+                final_reminder1_unit = reminder1_unit if reminder1_unit is not None else chat_group.reminder1_unit
+                final_reminder2_offset = reminder2_offset if reminder2_offset is not None else chat_group.reminder2_offset
+                final_reminder2_unit = reminder2_unit if reminder2_unit is not None else chat_group.reminder2_unit
+
+                # Проверяем, что первое и второе уведомления не настроены одинаково
+                if (
+                    final_reminder1_offset == final_reminder2_offset
+                    and final_reminder1_unit == final_reminder2_unit
+                ):
+                    return (
+                        False,
+                        "Первое и второе уведомления не могут быть настроены одинаково",
+                    )
+
                 # Обновляем настройки
                 if reminder1_offset is not None:
                     chat_group.reminder1_offset = reminder1_offset
@@ -243,12 +266,14 @@ class ChatService:
                     chat_group.topic_title = topic_title if topic_id is not None else None
 
                 await session.commit()
-                
+
                 # Если изменился topic_id, перепланируем уведомления
                 if topic_id_set:
-                    from src.bot.services.chat_notification_scheduler_service import chat_notification_scheduler_service
+                    from src.bot.services.chat_notification_scheduler_service import (
+                        chat_notification_scheduler_service,
+                    )
                     await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_group)
-                
+
                 return True, "Настройки успешно обновлены"
 
             except Exception as e:

@@ -10,6 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from src.bot.services.notification_service import notification_service
 from src.core.database import db_manager
 from src.utils import get_logger
+from src.utils.notification_text import build_custom_offset_prompt, parse_offset_text
 
 
 logger = get_logger()
@@ -322,16 +323,11 @@ async def callback_custom_notification(
     try:
         notification_number = int(callback.data.split("_")[-1])
 
-        text = f"✏️ <b>Настройка уведомления {notification_number}</b>\n\n"
-        text += "Отправьте сообщение в формате:\n"
-        text += "<code>число единица</code>\n\n"
-        text += "<b>Примеры:</b>\n"
-        text += "• <code>2 дня</code> или <code>2 дн</code>\n"
-        text += "• <code>6 часов</code> или <code>6 ч</code>\n\n"
-        text += "Или нажмите 'Отмена' для возврата."
+        text, buttons = build_custom_offset_prompt(notification_number, "back_to_settings")
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="❌ Отмена", callback_data="back_to_settings")
+        for btn_text, cb_data in buttons:
+            builder.button(text=btn_text, callback_data=cb_data)
 
         await state.update_data(notification_number=notification_number)
         await state.set_state(SettingsStates.setting_offset)
@@ -353,30 +349,11 @@ async def process_custom_offset(message: Message, db_user, state: FSMContext):
             await state.clear()
             return
 
-        text = message.text.strip().lower()
-
-        patterns = [
-            (r"(\d+)\s*(?:дн|день|дня|дней|days?)", "days"),
-            (r"(\d+)\s*(?:ч|час|часа|часов|hours?)", "hours"),
-        ]
-
-        offset_value = None
-        offset_unit = None
-
-        for pattern, unit in patterns:
-            match = re.search(pattern, text)
-            if match:
-                offset_value = int(match.group(1))
-                offset_unit = unit
-                break
-
-        if not offset_value or not offset_unit:
-            await message.answer(
-                "❌ Не удалось распознать формат.\n"
-                "Используйте формат: <code>число единица</code>\n"
-                "Например: <code>2 дня</code>, <code>6 часов</code>"
-            )
+        value, unit, error = parse_offset_text(message.text)
+        if error:
+            await message.answer(error)
             return
+        offset_value, offset_unit = value, unit
 
         total_hours = 0
         if offset_unit == "hours":

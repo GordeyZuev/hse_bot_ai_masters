@@ -7,15 +7,10 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Установка временной зоны (унифицировано на UTC)
 SET timezone = 'UTC';
 
--- Создание пользователя приложения (если нужно)
--- DO $$ 
--- BEGIN
---     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hse_bot_user') THEN
---         CREATE ROLE hse_bot_user WITH LOGIN PASSWORD 'secure_password';
---         GRANT CONNECT ON DATABASE hse_bot_db TO hse_bot_user;
---     END IF;
--- END
--- $$;
+-- Выдача прав на схему public для всех пользователей
+-- Это необходимо для работы с PostgreSQL 15+, где права по умолчанию ограничены
+GRANT ALL ON SCHEMA public TO public;
+ALTER SCHEMA public OWNER TO postgres;
 
 -- Логирование успешной инициализации
 \echo 'Database initialization completed successfully'

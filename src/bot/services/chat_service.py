@@ -382,7 +382,7 @@ class ChatService:
     async def deactivate_chat(self, chat_id: int) -> bool:
         """Деактивация чата (при удалении бота)"""
         try:
-            async with self.db_manager.get_session() as session:
+            async with db_manager.async_session() as session:
                 chat_group = await session.get(ChatGroup, chat_id)
                 if chat_group:
                     chat_group.is_active = False
@@ -397,7 +397,7 @@ class ChatService:
     async def activate_chat(self, chat_id: int) -> bool:
         """Активация чата (при повторном добавлении бота)"""
         try:
-            async with self.db_manager.get_session() as session:
+            async with db_manager.async_session() as session:
                 chat_group = await session.get(ChatGroup, chat_id)
                 if chat_group:
                     chat_group.is_active = True

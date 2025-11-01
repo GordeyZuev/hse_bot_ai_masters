@@ -23,7 +23,9 @@ WORKDIR /app
 # Создаем директорию и даем права пользователю app
 RUN mkdir -p /app && chown -R app:app /app
 
-COPY --chown=app:app pyproject.toml uv.lock* ./
+# Копируем файлы, необходимые для установки зависимостей и сборки пакета
+# README.md нужен для сборки пакета (указан в pyproject.toml как readme)
+COPY --chown=app:app pyproject.toml uv.lock* README.md ./
 
 # Переключаемся на пользователя app
 USER app

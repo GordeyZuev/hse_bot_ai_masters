@@ -1,4 +1,4 @@
-.PHONY: help install-uv install install-dev setup run lint lint-fix format clean logs update clean-docker db
+.PHONY: help install-uv install install-dev setup run lint lint-fix format clean logs update clean-docker clean-space db
 
 help: ## Show help message
 	@echo "Available commands:"
@@ -53,15 +53,7 @@ logs: ## View today's logs
 	tail -f logs/app_$(shell date +%Y-%m-%d).log
 
 update: ## Stop containers, git pull, restart containers
-	@echo "Stopping containers..."
-	docker-compose down
-	@echo "Pulling latest changes..."
-	git pull
-	@echo "Rebuilding containers..."
-	docker-compose build --no-cache
-	@echo "Starting containers..."
-	docker-compose up -d
-	@echo "Done! Check logs with: make logs"
+	@./scripts/deploy.sh
 
 clean-docker: ## Clean unused Docker images, containers, and build cache
 	@echo "Cleaning unused Docker data..."
@@ -70,5 +62,22 @@ clean-docker: ## Clean unused Docker images, containers, and build cache
 	docker container prune -f
 	@echo "Docker cleanup complete! Run 'docker system df' to see freed space."
 
+clean-space: ## Clean old unused containers, images and free up disk space (preserves volumes)
+	@echo "🧹 Очистка старых неиспользуемых Docker ресурсов..."
+	@echo "📊 Использование места до очистки:"
+	@docker system df
+	@echo ""
+	@echo "🗑️  Удаление остановленных контейнеров..."
+	@docker container prune -f
+	@echo "🗑️  Удаление неиспользуемых образов..."
+	@docker image prune -a -f
+	@echo "🗑️  Удаление build cache..."
+	@docker builder prune -a -f
+	@echo ""
+	@echo "📊 Использование места после очистки:"
+	@docker system df
+	@echo ""
+	@echo "✅ Очистка завершена!"
+
 db: ## Connect to PostgreSQL database
-	docker-compose exec db psql -U postgres -d hse_bot_db
+	docker-compose exec db psql -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-hse_bot_db}

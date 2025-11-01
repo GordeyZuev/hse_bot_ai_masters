@@ -47,6 +47,23 @@ fi
 echo "⏳ Ожидание готовности базы данных..."
 sleep 10
 
+# Выдача прав пользователю на все существующие таблицы (если нужно)
+echo "🔑 Выдача прав пользователю на существующие таблицы..."
+docker exec -e PGPASSWORD="${POSTGRES_PASSWORD}" hse_bot_db psql -U postgres -d "${POSTGRES_DB:-hse_bot_db}" -c "
+DO \$\$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        EXECUTE 'GRANT ALL ON TABLE public.' || quote_ident(r.tablename) || ' TO \"${POSTGRES_USER:-hse_bot_user}\"';
+    END LOOP;
+    
+    FOR r IN (SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = 'public') LOOP
+        EXECUTE 'GRANT ALL ON SEQUENCE public.' || quote_ident(r.sequence_name) || ' TO \"${POSTGRES_USER:-hse_bot_user}\"';
+    END LOOP;
+END \$\$;
+" 2>/dev/null || echo "⚠️  Предупреждение: не удалось выдать права (возможно, пароль postgres отличается или права уже выданы)"
+
 # Выполнение миграций
 echo "🗄️  Выполнение миграций базы данных..."
 if ! docker exec hse_bot_app uv run python main.py migrate; then

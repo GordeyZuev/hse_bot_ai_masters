@@ -1,4 +1,4 @@
-.PHONY: help install-uv install install-dev setup run lint lint-fix format clean logs update clean-docker clean-space db
+.PHONY: help install-uv install install-dev setup run lint lint-fix format clean logs update clean-docker clean-space db grant-db
 
 help: ## Show help message
 	@echo "Available commands:"
@@ -81,3 +81,6 @@ clean-space: ## Clean old unused containers, images and free up disk space (pres
 
 db: ## Connect to PostgreSQL database
 	docker-compose exec db psql -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-hse_bot_db}
+
+grant-db: ## Grant privileges to user on all tables (run once if migrations fail)
+	docker exec -i hse_bot_db psql -U postgres -d hse_bot_db < scripts/grant-privileges.sql

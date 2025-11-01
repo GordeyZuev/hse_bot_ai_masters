@@ -174,10 +174,10 @@ async def format_statistics_message(stats: dict) -> str:
     text = "📊 <b>Статистика бота</b>\n\n"
 
     # Пользователи
-    total_users = stats.get('total_users', 0)
-    active_week = stats.get('active_users_week', 0)
-    active_month = stats.get('active_users_month', 0)
-    
+    total_users = stats.get("total_users", 0)
+    active_week = stats.get("active_users_week", 0)
+    active_month = stats.get("active_users_month", 0)
+
     text += "👥 <b>Пользователи:</b>\n"
     text += f"• Всего: {total_users}\n"
     if total_users > 0:
@@ -190,9 +190,9 @@ async def format_statistics_message(stats: dict) -> str:
         text += f"• Активных (месяц): {active_month}\n"
 
     # Статистика подписок
-    total_subscriptions = stats.get('total_subscriptions', 0)
-    users_with_subs = stats.get('users_with_subscriptions', 0)
-    
+    total_subscriptions = stats.get("total_subscriptions", 0)
+    users_with_subs = stats.get("users_with_subscriptions", 0)
+
     text += "\n📚 <b>Подписки:</b>\n"
     text += f"• Всего: {total_subscriptions}\n"
     text += f"• Пользователей с подписками: {users_with_subs}\n"
@@ -209,9 +209,9 @@ async def format_statistics_message(stats: dict) -> str:
             text += f"{i}. {subject_name} ({count})\n"
 
     # Статистика дедлайнов
-    total_deadlines = stats.get('total_deadlines', 0)
-    active_deadlines = stats.get('active_deadlines', 0)
-    
+    total_deadlines = stats.get("total_deadlines", 0)
+    active_deadlines = stats.get("active_deadlines", 0)
+
     text += "\n📅 <b>Дедлайны:</b>\n"
     text += f"• Всего: {total_deadlines}\n"
     if total_deadlines > 0:
@@ -221,10 +221,10 @@ async def format_statistics_message(stats: dict) -> str:
         text += f"• Активных: {active_deadlines}\n"
 
     # Статистика уведомлений
-    personal_notifs = stats.get('scheduled_notifications', 0)
-    chat_notifs = stats.get('scheduled_chat_notifications', 0)
+    personal_notifs = stats.get("scheduled_notifications", 0)
+    chat_notifs = stats.get("scheduled_chat_notifications", 0)
     total_notifs = personal_notifs + chat_notifs
-    
+
     text += "\n🔔 <b>Уведомления:</b>\n"
     text += f"• Всего запланировано: {total_notifs}\n"
     text += f"• Личных: {personal_notifs} | Групповых: {chat_notifs}\n"

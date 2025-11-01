@@ -125,11 +125,11 @@ class UserNotificationSettings(Base):
     reminder2_unit = Column(Text, nullable=False, default="days")
 
     is_active = Column(Boolean, nullable=False, default=True)
-    
+
     enable_deadline_update_notifications = Column(Boolean, nullable=False, default=True)
     sleep_start_time = Column(Time, nullable=True)
     sleep_end_time = Column(Time, nullable=True)
-    
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_modified = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

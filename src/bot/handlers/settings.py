@@ -49,7 +49,7 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
             # Уведомления о дедлайнах
             deadline_status = "✅" if settings.is_active else "❌"
             text += f"Уведомления о дедлайнах {deadline_status}\n"
-            
+
             # Уведомления об обновлениях
             update_status = "✅ Включены" if settings.enable_deadline_update_notifications else "❌ Выключены"
             text += f"Уведомления об обновлениях {update_status}\n\n"
@@ -63,7 +63,7 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
                 settings.reminder2_unit, settings.reminder2_unit
             )
             text += f"🔔 Напоминание 2: за {settings.reminder2_offset} {unit2_text}\n\n"
-            
+
             # Показываем время сна, если установлено
             if settings.sleep_start_time and settings.sleep_end_time:
                 sleep_start_str = settings.sleep_start_time.strftime("%H:%M")
@@ -96,7 +96,7 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
                 )
             else:
                 builder.button(
-                    text="🔔 Включить уведомления о дедлайнах", 
+                    text="🔔 Включить уведомления о дедлайнах",
                     callback_data="enable_notifications"
                 )
 
@@ -113,7 +113,7 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
                 )
 
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
-        
+
         builder.adjust(2, 2, 1, 1, 1)
 
         if edit_mode:
@@ -429,9 +429,9 @@ async def callback_sleep_settings(callback: CallbackQuery, db_user):
         settings = await notification_service.get_user_notification_settings(
             db_user.tg_user_id
         )
-        
+
         text = "⏰ <b>Режим сна</b>\n\n"
-        
+
         if settings and settings.sleep_start_time and settings.sleep_end_time:
             sleep_start_str = settings.sleep_start_time.strftime("%H:%M")
             sleep_end_str = settings.sleep_end_time.strftime("%H:%M")
@@ -440,14 +440,14 @@ async def callback_sleep_settings(callback: CallbackQuery, db_user):
         else:
             text += "Режим сна не настроен.\n\n"
             text += "В настройке времени сна уведомления будут приходить без звука."
-        
+
         builder = InlineKeyboardBuilder()
         builder.button(text="⚙️ Настроить", callback_data="setup_sleep_time")
         if settings and settings.sleep_start_time and settings.sleep_end_time:
             builder.button(text="🗑️ Сбросить", callback_data="clear_sleep_time")
         builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
         builder.adjust(2, 1)
-        
+
         await callback.message.edit_text(text, reply_markup=builder.as_markup())
     except Exception as e:
         logger.error(f"Ошибка открытия настроек сна: {e}")
@@ -486,10 +486,10 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
     """Обработка ввода времени сна"""
     try:
         input_text = message.text.strip()
-        
+
         pattern = r"(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})"
         match = re.match(pattern, input_text)
-        
+
         if not match:
             await message.answer(
                 "❌ Неверный формат. Используйте формат: <code>23:00 - 8:30</code>\n\n"
@@ -500,26 +500,26 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
                 parse_mode="HTML"
             )
             return
-        
+
         try:
             start_hour = int(match.group(1))
             start_minute = int(match.group(2))
             end_hour = int(match.group(3))
             end_minute = int(match.group(4))
-            
+
             # Валидация часов и минут
             if not (0 <= start_hour <= 23 and 0 <= start_minute <= 59):
                 await message.answer("❌ Неверное время начала. Часы: 0-23, минуты: 0-59")
                 return
-            
+
             if not (0 <= end_hour <= 23 and 0 <= end_minute <= 59):
                 await message.answer("❌ Неверное время окончания. Часы: 0-23, минуты: 0-59")
                 return
-            
+
             from datetime import time
             sleep_start = time(start_hour, start_minute)
             sleep_end = time(end_hour, end_minute)
-            
+
             # Проверяем, что время начала и конца не одинаковые
             if sleep_start == sleep_end:
                 await message.answer(
@@ -527,39 +527,39 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
                     "Попробуйте снова:"
                 )
                 return
-            
+
             # Сохраняем настройки
             success, message_text = await notification_service.set_sleep_time(
                 db_user.tg_user_id, sleep_start, sleep_end
             )
-            
+
             if success:
                 start_str = sleep_start.strftime("%H:%M")
                 end_str = sleep_end.strftime("%H:%M")
                 await state.clear()
-                
+
                 # Показываем экран настроек сна
-                settings = await notification_service.get_user_notification_settings(
+                await notification_service.get_user_notification_settings(
                     db_user.tg_user_id
                 )
-                
+
                 text = "⏰ <b>Режим сна</b>\n\n"
                 text += f"Текущее время сна: <b>{start_str} - {end_str}</b>\n\n"
                 text += "В это время уведомления будут приходить без звука."
-                
+
                 builder = InlineKeyboardBuilder()
                 builder.button(text="⚙️ Настроить", callback_data="setup_sleep_time")
                 builder.button(text="🗑️ Сбросить", callback_data="clear_sleep_time")
                 builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
                 builder.adjust(2, 1)
-                
+
                 await message.answer(text, reply_markup=builder.as_markup())
             else:
                 await message.answer(f"❌ {message_text}")
-        
+
         except ValueError as e:
             await message.answer(f"❌ Ошибка обработки времени: {e}")
-        
+
     except Exception as e:
         logger.error(f"Ошибка обработки времени сна: {e}")
         await message.answer("Произошла ошибка. Попробуйте еще раз.")
@@ -573,13 +573,13 @@ async def callback_clear_sleep_time(callback: CallbackQuery, db_user):
         success, message_text = await notification_service.set_sleep_time(
             db_user.tg_user_id, None, None
         )
-        
+
         await callback.answer(message_text, show_alert=True)
-        
+
         if success:
             # Возвращаемся к экрану настроек сна
             await callback_sleep_settings(callback, db_user)
-    
+
     except Exception as e:
         logger.error(f"Ошибка сброса времени сна: {e}")
         await callback.answer("Ошибка сброса времени сна", show_alert=True)
@@ -596,17 +596,17 @@ async def callback_toggle_update_notifications(callback: CallbackQuery, db_user)
         if not settings:
             await callback.answer("Ошибка: настройки не найдены", show_alert=True)
             return
-        
+
         new_value = not settings.enable_deadline_update_notifications
         success, message_text = await notification_service.toggle_deadline_update_notifications(
             db_user.tg_user_id, new_value
         )
-        
+
         await callback.answer(message_text, show_alert=True)
-        
+
         if success:
             await cmd_settings(callback, db_user, None)
-    
+
     except Exception as e:
         logger.error(f"Ошибка переключения уведомлений об обновлениях: {e}")
         await callback.answer("Ошибка", show_alert=True)

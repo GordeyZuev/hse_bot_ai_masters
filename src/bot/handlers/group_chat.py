@@ -8,7 +8,8 @@
 - Callback обработчики для интерактивных кнопок
 """
 
-import re
+
+import contextlib
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -17,7 +18,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from src.utils.notification_text import build_custom_offset_prompt, parse_offset_text
 
 from src.bot.services.chat_notification_scheduler_service import (
     chat_notification_scheduler_service,
@@ -27,6 +27,7 @@ from src.core.database import db_manager
 from src.core.models import Subject
 from src.core.models.models import Deadline
 from src.utils import get_logger
+from src.utils.notification_text import build_custom_offset_prompt, parse_offset_text
 
 
 logger = get_logger()
@@ -669,7 +670,7 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
         if success:
             # Если определили название топика — сразу сохраним его в БД
             if topic_id is not None and topic_title:
-                try:
+                with contextlib.suppress(Exception):
                     await chat_service.update_chat_settings(
                         chat_id=chat_id,
                         user_id=user_id,
@@ -678,8 +679,6 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
                         topic_title=topic_title,
                         topic_id_set=True,
                     )
-                except Exception:
-                    pass
             chat_group = await chat_service.get_chat_group(chat_id)
             await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
         else:
@@ -1188,6 +1187,7 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
         await callback.answer()
         async with db_manager.async_session() as session:
             from sqlalchemy import and_, select
+
             from src.core.models.models import ChatGroup
             current_subject_subq = select(ChatGroup.subject_id).where(ChatGroup.chat_id == chat_id).scalar_subquery()
             stmt = (
@@ -1528,18 +1528,14 @@ async def callback_toggle_chat_active(callback: CallbackQuery, db_user):
             # Если включили — создадим уведомления для всех существующих дедлайнов дисциплины
             chat_group = await chat_service.get_chat_group(chat_id)
             if chat_group and chat_group.is_active:
-                try:
+                with contextlib.suppress(Exception):
                     await chat_notification_scheduler_service.schedule_notifications_for_chat_subscription(
                         chat_id, chat_group.subject_id
                     )
-                except Exception:
-                    pass
             else:
                 # Если выключили — отменяем все запланированные уведомления этого чата
-                try:
+                with contextlib.suppress(Exception):
                     await chat_notification_scheduler_service.cancel_chat_notifications(chat_id)
-                except Exception:
-                    pass
             # Возвращаемся к интерфейсу настроек
             await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
         else:
@@ -1664,17 +1660,17 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
                 await state.update_data(reminder2_offset=offset_value, reminder2_unit=offset_unit)
             unit_text = {"days": "дн.", "hours": "ч."}.get(offset_unit, offset_unit)
             await message.answer(f"✅ Уведомление настроено: за {offset_value} {unit_text}")
-            
+
             # Возвращаемся к интерфейсу настройки времени
             data = await state.get_data()
             subject_id = data.get("subject_id")
             subject = await db_manager.get_subject_by_id(subject_id)
-            
+
             reminder1_offset = data.get("reminder1_offset", 7)
             reminder1_unit = data.get("reminder1_unit", "days")
             reminder2_offset = data.get("reminder2_offset", 1)
             reminder2_unit = data.get("reminder2_unit", "days")
-            
+
             text = f"""
 ⚙️ <b>Настройка времени уведомлений</b>
 
@@ -1684,14 +1680,14 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
 • Первое напоминание: за {reminder1_offset} {reminder1_unit}
 • Второе напоминание: за {reminder2_offset} {reminder2_unit}
             """
-            
+
             builder = InlineKeyboardBuilder()
             builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
             builder.button(text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2")
             builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish")
             builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
             builder.adjust(1)
-            
+
             await message.answer(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
             await state.set_state(ChatSetupStates.waiting_time_settings)
         else:
@@ -1708,23 +1704,23 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
                     reminder2_offset=offset_value,
                     reminder2_unit=offset_unit
                 )
-            
+
             if success:
                 # Перепланируем уведомления
                 chat_group = await chat_service.get_chat_group(chat_id)
                 rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_group)
-                
+
                 unit_text = {"days": "дн.", "hours": "ч."}.get(offset_unit, offset_unit)
                 await message.answer(
                     f"✅ Уведомление настроено: за {offset_value} {unit_text}\n"
                     f"🔄 Перепланировано {rescheduled_count} уведомлений"
                 )
-                
+
                 # Возвращаемся к интерфейсу настроек
                 await show_chat_settings_interface(message, chat_group, edit_mode=False)
             else:
                 await message.answer(f"❌ {message_text}")
-            
+
             await state.clear()
 
     except Exception as e:
@@ -1784,7 +1780,7 @@ async def _compose_info_text(chat_id: int) -> str | None:
         deadlines = list(result.scalars().all())
 
     import pytz
-    user_tz = pytz.timezone("Europe/Moscow")
+    pytz.timezone("Europe/Moscow")
 
     if not deadlines:
         lines.append("Актуальных дедлайнов нет.")

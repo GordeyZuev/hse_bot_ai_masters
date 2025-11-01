@@ -59,17 +59,21 @@ class NotificationSchedulerService:
                 row = result.first()
 
                 if not row:
-                    raise ValueError(f"Пользователь {user_id} не найден")
+                    error_msg = f"Пользователь {user_id} не найден"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
 
                 user, settings = row
 
                 if not settings.is_active:
-                    raise ValueError(
-                        f"Уведомления отключены для пользователя {user_id}"
-                    )
+                    error_msg = f"Уведомления отключены для пользователя {user_id}"
+                    logger.debug(error_msg)
+                    raise ValueError(error_msg)
 
                 return user, settings
 
+            except ValueError:
+                raise
             except Exception as e:
                 logger.error(f"Ошибка получения пользователя и настроек {user_id}: {e}")
                 raise

@@ -84,7 +84,7 @@ class AdminService:
                 stats["scheduled_chat_notifications"] = result.scalar() or 0
 
                 # Статистика по групповым чатам (только активные)
-                stmt = select(func.count(ChatGroup.chat_id)).where(ChatGroup.is_active == True)
+                stmt = select(func.count(ChatGroup.chat_id)).where(ChatGroup.is_active)
                 result = await session.execute(stmt)
                 stats["total_chats"] = result.scalar() or 0
 

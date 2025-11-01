@@ -194,7 +194,7 @@ class ScheduledNotificationSender:
                     settings.sleep_end_time,
                     user_tz_name
                 )
-                
+
                 if is_sleep:
                     message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
 
@@ -283,7 +283,7 @@ class ScheduledNotificationSender:
         )
 
         now = datetime.now(UTC)
-        
+
         # Форматируем дату в TZ пользователя
         deadline_str = format_deadline_datetime_with_time_word(
             deadline_ts, user_tz.zone
@@ -336,7 +336,7 @@ class ScheduledNotificationSender:
             )
 
             now = datetime.now(UTC)
-            
+
             # Форматируем дату в TZ пользователя
             deadline_str = format_deadline_datetime_with_time_word(
                 deadline_ts, user_tz.zone

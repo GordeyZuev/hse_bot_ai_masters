@@ -1,5 +1,5 @@
 import re
-from datetime import UTC, datetime, timedelta, time
+from datetime import UTC, datetime, time, timedelta
 
 import pytz
 from timezonefinder import TimezoneFinder
@@ -148,24 +148,24 @@ def get_timezone_from_location_with_city(
 
 def is_sleep_time(sleep_start: time | None, sleep_end: time | None, user_tz_name: str = "Europe/Moscow") -> bool:
     """Проверить, попадает ли текущее время пользователя в диапазон сна.
-    
+
     Args:
         sleep_start: Время начала сна (HH:MM:SS) или None
         sleep_end: Время конца сна (HH:MM:SS) или None
         user_tz_name: Часовой пояс пользователя
-    
+
     Returns:
         True если текущее время попадает в диапазон сна, False иначе
         Если sleep_start или sleep_end == None, возвращает False (сон не настроен)
     """
     if sleep_start is None or sleep_end is None:
         return False
-    
+
     # Получаем текущее время в часовом поясе пользователя
     user_tz = get_timezone(user_tz_name)
     now_local = datetime.now(user_tz)
     current_time = now_local.time()
-    
+
     # Если начало > конца, значит сон пересекает полночь (например, 23:00 - 08:00)
     if sleep_start > sleep_end:
         # Сон с конца дня до начала следующего дня

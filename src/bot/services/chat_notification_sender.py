@@ -66,7 +66,7 @@ class ChatNotificationSender:
         """Получить уведомления для отправки"""
         async with db_manager.async_session() as session:
             from src.core.models.models import ChatGroup
-            
+
             now = datetime.now(UTC)
             time_window = now + timedelta(minutes=5)
 
@@ -83,7 +83,7 @@ class ChatNotificationSender:
                     and_(
                         ChatScheduledNotification.status == "scheduled",
                         ChatScheduledNotification.planned_delivery_time <= time_window,
-                        ChatGroup.is_active == True,
+                        ChatGroup.is_active,
                     )
                 )
                 .order_by(ChatScheduledNotification.planned_delivery_time)
@@ -339,7 +339,7 @@ class ChatNotificationSender:
         notification_ids = [n.id for n in notifications]
         if not notification_ids:
             return
-            
+
         async with db_manager.async_session() as session:
             from sqlalchemy import update
             await session.execute(
@@ -354,7 +354,7 @@ class ChatNotificationSender:
         notification_ids = [n.id for n in notifications]
         if not notification_ids:
             return
-            
+
         async with db_manager.async_session() as session:
             from sqlalchemy import update
             await session.execute(

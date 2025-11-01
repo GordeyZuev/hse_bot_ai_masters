@@ -378,11 +378,11 @@ class NotificationSender:
                     )
                     if not settings or not settings.is_active:
                         continue
-                    
+
                     # Проверяем, включены ли уведомления об обновлениях
                     if not settings.enable_deadline_update_notifications:
                         continue
-                    
+
                     user_tz = (
                         pytz.timezone(user.timezone)
                         if user and user.timezone
@@ -415,7 +415,7 @@ class NotificationSender:
                         settings.sleep_end_time,
                         user_tz_name
                     )
-                    
+
                     if is_sleep:
                         message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
 
@@ -461,7 +461,7 @@ class NotificationSender:
         self, bot: Bot, changes: list[dict[str, Any]]
     ) -> dict[str, int]:
         """Отправить одно групповое сообщение пользователю, если за синхронизацию изменилось несколько дедлайнов.
-        
+
         Args:
             bot: Экземпляр бота для отправки сообщений
             changes: Список словарей с ключами "deadline" (Deadline) и "change_info" (dict с информацией об изменениях)
@@ -529,11 +529,11 @@ class NotificationSender:
                 try:
                     if not settings or not settings.is_active:
                         continue
-                    
+
                     # Проверяем, включены ли уведомления об обновлениях
                     if not settings.enable_deadline_update_notifications:
                         continue
-                    
+
                     entries = user_entries.get(user.tg_user_id) or []
                     if not entries:
                         continue
@@ -545,7 +545,7 @@ class NotificationSender:
                         else pytz.UTC
                     )
                     message = self._format_multiple_deadline_updates(entries, user_tz)
-                    
+
                     # Проверяем время сна
                     is_sleep = False
                     user_tz_name = user.timezone if user.timezone else "Europe/Moscow"
@@ -555,7 +555,7 @@ class NotificationSender:
                         settings.sleep_end_time,
                         user_tz_name
                     )
-                    
+
                     if is_sleep:
                         message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
 
@@ -599,12 +599,11 @@ class NotificationSender:
         self, entries: list[dict[str, Any]], user_tz
     ) -> str:
         """Сформировать сообщение о нескольких обновлениях дедлайнов с указанием изменений."""
-        from src.utils.notification_formatting import format_deadline_datetime_with_time_word
 
         # Разделяем новые и обновленные дедлайны
         new_deadlines = []
         updated_deadlines = []
-        
+
         for e in entries:
             change_info = e.get("change_info", {})
             if change_info.get("is_new", False):
@@ -613,7 +612,7 @@ class NotificationSender:
                 updated_deadlines.append(e)
 
         message_parts = []
-        
+
         # Новые дедлайны
         if new_deadlines:
             message_parts.append(f"✨ <b>Новые дедлайны ({len(new_deadlines)})</b>\n")
@@ -632,7 +631,9 @@ class NotificationSender:
         self, entries: list[dict[str, Any]], user_tz, is_new: bool = False
     ) -> str:
         """Форматировать список дедлайнов с информацией об изменениях."""
-        from src.utils.notification_formatting import format_deadline_datetime_with_time_word
+        from src.utils.notification_formatting import (
+            format_deadline_datetime_with_time_word,
+        )
 
         # Сортируем по ближайшему времени дедлайна (soft/hard, что доступно)
         def deadline_key(e):
@@ -653,7 +654,7 @@ class NotificationSender:
             d: Deadline = e["deadline"]
             s: Subject = e["subject"]
             change_info = e.get("change_info", {})
-            
+
             lines.append(f"<b>{i}. {s.name if s else 'Предмет'}</b>")
             if d.source_link:
                 lines.append(f"📝 <a href='{d.source_link}'>{d.hw_name}</a>")
@@ -663,7 +664,7 @@ class NotificationSender:
             # Мягкий дедлайн
             if d.soft_deadline_ts:
                 soft_str = format_deadline_datetime_with_time_word(d.soft_deadline_ts, user_tz.zone)
-                
+
                 if not is_new and change_info.get("soft_deadline_changed", False):
                     # Показываем изменение с перечеркнутым старым значением
                     old_soft = change_info.get("old_soft_deadline_ts")
@@ -678,7 +679,7 @@ class NotificationSender:
             # Жесткий дедлайн
             if d.hard_deadline_ts:
                 hard_str = format_deadline_datetime_with_time_word(d.hard_deadline_ts, user_tz.zone)
-                
+
                 if not is_new and change_info.get("hard_deadline_changed", False):
                     # Показываем изменение с перечеркнутым старым значением
                     old_hard = change_info.get("old_hard_deadline_ts")
@@ -692,7 +693,7 @@ class NotificationSender:
 
             if d.note:
                 lines.append(f"💬 <i>{d.note}</i>")
-            
+
             lines.append("")
 
         return "\n".join(lines)

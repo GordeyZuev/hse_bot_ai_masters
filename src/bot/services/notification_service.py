@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, time
-from typing import Optional
 
 from sqlalchemy import select
 
@@ -171,8 +170,8 @@ class NotificationService:
     async def set_sleep_time(
         self,
         user_id: int,
-        sleep_start: Optional[time],
-        sleep_end: Optional[time],
+        sleep_start: time | None,
+        sleep_end: time | None,
     ) -> tuple[bool, str]:
         """Установить время сна для пользователя"""
         try:

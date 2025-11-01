@@ -228,6 +228,7 @@ class ChatGroup(Base):
     chat_id = Column(BigInteger, primary_key=True)
     topic_id = Column(BigInteger, nullable=True)  # None = общий чат, число = топик
     topic_title = Column(Text, nullable=True)  # Отображаемое имя топика (кеш)
+    chat_title = Column(Text, nullable=True)  # Название чата (кеш)
     chat_type = Column(Text, nullable=False)  # 'group' или 'supergroup'
     subject_id = Column(
         Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False

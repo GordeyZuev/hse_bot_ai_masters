@@ -41,11 +41,9 @@ class ChatService:
             me = await bot.get_me()
             bot_member = await bot.get_chat_member(chat_id, me.id)
             # Для админа доступно поле can_manage_topics (в супергруппах с форумами)
-            can_manage = getattr(getattr(bot_member, "can_manage_topics", None), "__bool__", lambda: False)()
-            # В некоторых реализациях атрибут может быть непосредственно булевым
-            if isinstance(getattr(bot_member, "can_manage_topics", None), bool):
-                can_manage = bot_member.can_manage_topics
-            return bool(can_manage)
+            if hasattr(bot_member, "can_manage_topics"):
+                return bool(bot_member.can_manage_topics)
+            return False
         except Exception as e:
             logger.error(f"Ошибка проверки прав бота на управление топиками в чате {chat_id}: {e}")
             return False
@@ -130,6 +128,7 @@ class ChatService:
                 try:
                     chat_info = await bot.get_chat(chat_id)
                     chat_type = chat_info.type
+                    chat_title = getattr(chat_info, "title", None)
                 except Exception as e:
                     logger.error(f"Ошибка получения информации о чате {chat_id}: {e}")
                     return False, "Не удалось получить информацию о чате"
@@ -160,6 +159,7 @@ class ChatService:
                 chat_group = ChatGroup(
                     chat_id=chat_id,
                     topic_id=topic_id,
+                    chat_title=chat_title,
                     chat_type=chat_type,
                     subject_id=subject_id,
                     reminder1_offset=r1_off,
@@ -198,15 +198,6 @@ class ChatService:
             logger.error(f"Ошибка получения topic_id из сообщения: {e}")
             return None
 
-    async def is_chat_forum(self, bot: Bot, chat_id: int) -> bool:
-        """Проверить, является ли чат форумом (поддерживает топики)"""
-        try:
-            chat_info = await bot.get_chat(chat_id)
-            return hasattr(chat_info, "forum_topic_created") and chat_info.forum_topic_created
-        except Exception as e:
-            logger.error(f"Ошибка проверки типа чата {chat_id}: {e}")
-            return False
-
     async def update_chat_settings(
         self,
         chat_id: int,
@@ -234,6 +225,15 @@ class ChatService:
                 # Проверяем права админа
                 if not await self.is_chat_admin(bot, chat_id, user_id):
                     return False, "У вас нет прав для изменения настроек"
+
+                # Обновляем название чата, если оно изменилось
+                try:
+                    chat_info = await bot.get_chat(chat_id)
+                    new_chat_title = getattr(chat_info, "title", None)
+                    if new_chat_title and new_chat_title != chat_group.chat_title:
+                        chat_group.chat_title = new_chat_title
+                except Exception as e:
+                    logger.debug(f"Не удалось обновить chat_title для чата {chat_id}: {e}")
 
                 # Вычисляем финальные значения после обновления
                 final_reminder1_offset = reminder1_offset if reminder1_offset is not None else chat_group.reminder1_offset
@@ -379,6 +379,21 @@ class ChatService:
             return False, "❌ Произошла ошибка при смене дисциплины"
 
 
+    async def update_chat_title(self, chat_id: int, chat_title: str | None) -> bool:
+        """Обновить название чата"""
+        try:
+            async with db_manager.async_session() as session:
+                chat_group = await session.get(ChatGroup, chat_id)
+                if chat_group:
+                    chat_group.chat_title = chat_title
+                    await session.commit()
+                    logger.debug(f"Название чата {chat_id} обновлено: {chat_title}")
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"Ошибка обновления названия чата {chat_id}: {e}")
+            return False
+
     async def deactivate_chat(self, chat_id: int) -> bool:
         """Деактивация чата (при удалении бота)"""
         try:
@@ -394,13 +409,24 @@ class ChatService:
             logger.error(f"Ошибка деактивации чата {chat_id}: {e}")
             return False
 
-    async def activate_chat(self, chat_id: int) -> bool:
+    async def activate_chat(self, chat_id: int, bot: Bot | None = None) -> bool:
         """Активация чата (при повторном добавлении бота)"""
         try:
             async with db_manager.async_session() as session:
                 chat_group = await session.get(ChatGroup, chat_id)
                 if chat_group:
                     chat_group.is_active = True
+
+                    # Обновляем название чата, если есть доступ к боту
+                    if bot:
+                        try:
+                            chat_info = await bot.get_chat(chat_id)
+                            chat_title = getattr(chat_info, "title", None)
+                            if chat_title:
+                                chat_group.chat_title = chat_title
+                        except Exception as e:
+                            logger.warning(f"Не удалось обновить chat_title для чата {chat_id}: {e}")
+
                     await session.commit()
                     logger.info(f"Чат {chat_id} активирован")
                     return True

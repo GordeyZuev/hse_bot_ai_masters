@@ -81,8 +81,12 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
         if chat_group:
             # Если чат был деактивирован при удалении, активируем его обратно
             if not chat_group.is_active:
-                await chat_service.activate_chat(chat_id)
+                await chat_service.activate_chat(chat_id, bot)
                 logger.info(f"(C) {chat_id} - Активирован обратно")
+
+            # Обновляем название чата, если оно изменилось
+            if chat_title and chat_title != chat_group.chat_title:
+                await chat_service.update_chat_title(chat_id, chat_title)
 
             # Отправляем приветственное сообщение для уже настроенного чата
             try:
@@ -115,7 +119,7 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
 
         else:
             logger.info(f"(C) {chat_id} - Новый чат (не настроен)")
-            
+
             # Отправляем приветственное сообщение для нового чата
             try:
                 text = """

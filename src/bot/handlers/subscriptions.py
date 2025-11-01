@@ -281,11 +281,11 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
             subjects_sorted_all = sorted(subscriptions, key=lambda x: (x.year or 0, x.name))
             for subj in subjects_sorted_all:
                 text_lines.append(f"🔹 <b>{subj.name}</b>")
-                if getattr(subj, "wiki_url", None):
+                if subj.wiki_url:
                     text_lines.append(f'• <a href="{subj.wiki_url}">Wiki</a>')
-                if getattr(subj, "vk_playlist_url", None):
+                if subj.vk_playlist_url:
                     text_lines.append(f'• <a href="{subj.vk_playlist_url}">VK Video</a>')
-                if getattr(subj, "yt_playlist_url", None):
+                if subj.yt_playlist_url:
                     text_lines.append(f'• <a href="{subj.yt_playlist_url}">YouTube</a>')
                 text_lines.append("")
             text_lines.append("Если хотите изменить подписки, перейдите в разделы ниже.")

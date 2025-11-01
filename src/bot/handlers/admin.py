@@ -426,11 +426,14 @@ async def callback_admin_panel(callback: CallbackQuery, db_user):
     # Ряд 2: Синхронизации
     builder.button(text="🔄 Sync - Дедлайны", callback_data="admin_sync")
     builder.button(text="🔄 Sync - Дисциплины", callback_data="admin_sync_subjects")
-    # Ряд 3: Broadcast
+    # Ряд 3: Broadcast и Управление чатами
+    builder.row()
     builder.button(text="📢 Broadcast", callback_data="admin_broadcast")
+    builder.button(text="💬 Управление чатами", callback_data="admin_chat_management")
     # Ряд 4: Назад
+    builder.row()
     builder.button(text="🔙 Назад", callback_data="back_to_menu")
-    builder.adjust(2, 2, 1, 1)
+    builder.adjust(2, 2)
 
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
 
@@ -561,6 +564,163 @@ async def cmd_chat_stats(message: Message, db_user):
         await message.answer("Произошла ошибка при получении статистики чатов")
 
 
+@router.callback_query(F.data == "admin_chat_management")
+async def callback_admin_chat_management(callback: CallbackQuery, db_user):
+    """Обработчик кнопки управления чатами"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+
+    await callback.answer()
+
+    try:
+        from src.bot.services.chat_service import chat_service
+
+        # Получаем статистику по чатам
+        total_chats = await chat_service.get_chat_groups_count()
+        active_chats = await chat_service.get_active_chat_groups_count()
+
+        text = "💬 <b>Управление чатами</b>\n\n"
+        text += f"Всего чатов: <b>{total_chats}</b>\n"
+        text += f"Активных: <b>{active_chats}</b>\n"
+        text += f"Неактивных: <b>{total_chats - active_chats}</b>\n\n"
+        text += "Выберите действие:"
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text="📋 Список чатов", callback_data="admin_chat_list")
+
+        # Определяем текст кнопки toggle на основе статуса
+        if active_chats == 0 and total_chats > 0:
+            toggle_text = "🔔 Включить все"
+        elif active_chats == total_chats and total_chats > 0:
+            toggle_text = "🔕 Выключить все"
+        else:
+            toggle_text = "🔄 Инвертировать статус"
+
+        builder.button(text=toggle_text, callback_data="admin_chat_toggle_confirm")
+        builder.button(text="🔙 Назад", callback_data="admin_panel")
+        builder.adjust(1)
+
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике управления чатами: {e}")
+        await callback.message.edit_text("Произошла ошибка при загрузке управления чатами")
+
+
+@router.callback_query(F.data == "admin_chat_list")
+async def callback_admin_chat_list(callback: CallbackQuery, db_user):
+    """Обработчик кнопки списка чатов"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+
+    await callback.answer("Загружаю список чатов...")
+
+    try:
+        from src.bot.services.chat_service import chat_service
+
+        # Получаем все чаты с загруженными предметами
+        chat_groups = await chat_service.get_all_chat_groups()
+
+        if not chat_groups:
+            text = "📋 Нет подключенных чатов."
+        else:
+            # Формируем детальный список
+            text = "📋 <b>Список подключенных чатов</b>\n\n"
+            text += f"Всего чатов: <b>{len(chat_groups)}</b>\n\n"
+
+            # Группируем по предметам для удобства
+            by_subject = {}
+            for chat_group in chat_groups:
+                subject_name = chat_group.subject.name
+                if subject_name not in by_subject:
+                    by_subject[subject_name] = []
+                by_subject[subject_name].append(chat_group)
+
+            # Выводим чаты сгруппированными по предметам
+            for subject_name, chats in sorted(by_subject.items()):
+                text += f"🔹 <b>{subject_name}</b> ({len(chats)}):\n"
+                for chat_group in chats:
+                    # Формируем ссылку на чат: https://t.me/c/+ chat_id без префикса -100
+                    # Для чатов с ID вида -1001234567890 нужно убрать первые 4 символа
+                    chat_link_id = str(chat_group.chat_id)
+                    if chat_link_id.startswith("-100"):
+                        chat_link_id = chat_link_id[4:]  # Убираем "-100"
+                    chat_url = f"https://t.me/c/{chat_link_id}"
+
+                    # Показываем название чата если есть
+                    chat_title = chat_group.chat_title or "Название недоступно"
+
+                    # Показываем топик если есть
+                    if chat_group.topic_id and chat_group.topic_title:
+                        topic_info = f"Топик: {chat_group.topic_title}"
+                    elif chat_group.topic_id:
+                        topic_info = f"Топик: {chat_group.topic_id}"
+                    else:
+                        topic_info = "Топик: общий чат"
+
+                    text += f'• <a href="{chat_url}">{chat_title}</a> ({topic_info})\n'
+                text += "\n"
+
+                if len(text) > 3500:
+                    text += "...\n<i>(Список обрезан для предотвращения переполнения)</i>"
+                    break
+
+            # Добавляем краткую статистику
+            active_count = sum(1 for cg in chat_groups if cg.is_active)
+            text += f"<i>Активных: {active_count} | Неактивных: {len(chat_groups) - active_count}</i>"
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Назад", callback_data="admin_chat_management")
+
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике списка чатов: {e}")
+        await callback.message.edit_text("Произошла ошибка при получении списка чатов")
+
+
+@router.callback_query(F.data == "admin_chat_toggle_confirm")
+async def callback_admin_chat_toggle_confirm(callback: CallbackQuery, db_user):
+    """Подтверждение переключения статуса всех чатов"""
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+
+    await callback.answer()
+
+    try:
+        from src.bot.services.chat_service import chat_service
+
+        # Получаем все чаты
+        chat_groups = await chat_service.get_all_chat_groups()
+
+        if not chat_groups:
+            await callback.message.edit_text("❌ Нет настроенных чатов")
+            return
+
+        # Определяем действие на основе первого чата
+        first_chat = chat_groups[0]
+        new_status = not first_chat.is_active
+        action_text = "включить" if new_status else "отключить"
+
+        text = "🔄 <b>Массовое управление чатами</b>\n\n"
+        text += f"Вы хотите {action_text} уведомления во всех чатах?\n\n"
+        text += f"Это затронет {len(chat_groups)} чатов."
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text=f"✅ {action_text.title()}", callback_data=f"admin_chat_toggle_all_{new_status}")
+        builder.button(text="❌ Отмена", callback_data="admin_chat_management")
+        builder.adjust(1)
+
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике подтверждения toggle: {e}")
+        await callback.message.edit_text("Произошла ошибка при управлении чатами")
+
+
 @router.message(Command("chat_toggle_all"))
 async def cmd_chat_toggle_all(message: Message, db_user):
     """Команда массового переключения активности чатов"""
@@ -630,7 +790,10 @@ async def callback_chat_toggle_all(callback: CallbackQuery, db_user):
         result_text = "✅ <b>Операция завершена</b>\n\n"
         result_text += f"Уведомления {action_text} в {updated_count} чатах."
 
-        await callback.message.edit_text(result_text, parse_mode="HTML")
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Назад", callback_data="admin_chat_management")
+
+        await callback.message.edit_text(result_text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_chat_toggle_all: {e}")

@@ -4,9 +4,15 @@
 
 set -e
 
-# Включаем BuildKit для ускорения сборки и параллелизации
-export DOCKER_BUILDKIT=1
-export COMPOSE_DOCKER_CLI_BUILD=1
+# Проверяем доступность buildx и включаем BuildKit только если он доступен
+# BuildKit ускоряет сборку, но требует установленный buildx компонент
+if docker buildx version >/dev/null 2>&1; then
+    export DOCKER_BUILDKIT=1
+    export COMPOSE_DOCKER_CLI_BUILD=1
+    echo "ℹ️  BuildKit доступен, используется для ускорения сборки"
+else
+    echo "ℹ️  BuildKit недоступен, используется стандартная сборка (для включения установите buildx)"
+fi
 
 # Загружаем переменные окружения из .env файла
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

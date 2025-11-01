@@ -928,7 +928,7 @@ sudo systemctl reload nginx
 **Использованные оптимизации:**
 1. **Кэширование слоёв Docker** - зависимости устанавливаются отдельно от кода, что позволяет кэшировать их при изменении только кода
 2. **`.dockerignore`** - исключает ненужные файлы (логи, кэш, git, и т.д.) из контекста сборки
-3. **BuildKit** - включен в `deploy.sh` для параллельной сборки и улучшенного кэширования
+3. **BuildKit** (опционально) - автоматически включается в `deploy.sh` для параллельной сборки и улучшенного кэширования, если доступен buildx
 4. **Многоуровневая структура Dockerfile** - оптимизированный порядок команд для максимального кэширования
 
 **Как это работает:**
@@ -954,6 +954,28 @@ sudo systemctl reload nginx
 docker-compose build        # с кэшем (быстро)
 docker-compose build --no-cache  # без кэша (медленно)
 ```
+
+**Установка buildx (опционально, для дополнительного ускорения):**
+
+BuildKit автоматически используется, если доступен buildx. Для установки:
+
+```bash
+# Проверка наличия buildx
+docker buildx version
+
+# Установка buildx (если не установлен)
+# Для Docker версии 23.0+ buildx обычно входит в комплект
+# Для старых версий:
+mkdir -p ~/.docker/cli-plugins
+curl -SL https://github.com/docker/buildx/releases/download/v0.12.1/buildx-v0.12.1.linux-amd64 -o ~/.docker/cli-plugins/docker-buildx
+chmod +x ~/.docker/cli-plugins/docker-buildx
+
+# Создание builder
+docker buildx create --name mybuilder --use
+docker buildx inspect --bootstrap
+```
+
+**Примечание:** Скрипт `deploy.sh` автоматически определяет доступность buildx и использует BuildKit только если он доступен. Если buildx не установлен, сборка всё равно работает, просто без дополнительных оптимизаций BuildKit.
 
 #### Настройка Docker
 

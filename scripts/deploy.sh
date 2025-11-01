@@ -11,6 +11,10 @@ if docker buildx version >/dev/null 2>&1; then
     export COMPOSE_DOCKER_CLI_BUILD=1
     echo "ℹ️  BuildKit доступен, используется для ускорения сборки"
 else
+    # Явно отключаем BuildKit, чтобы избежать ошибок
+    unset DOCKER_BUILDKIT
+    unset COMPOSE_DOCKER_CLI_BUILD
+    export DOCKER_BUILDKIT=0
     echo "ℹ️  BuildKit недоступен, используется стандартная сборка (для включения установите buildx)"
 fi
 
@@ -48,9 +52,18 @@ fi
 
 # Пересборка контейнеров с использованием кэша (если не указан --no-cache)
 echo "🔨 Пересборка контейнеров (с использованием кэша)..."
-if ! docker-compose build $NO_CACHE_FLAG; then
-    echo "❌ Ошибка при пересборке контейнеров"
-    exit 1
+# Если BuildKit отключен, убеждаемся что не используем buildx
+if [ "${DOCKER_BUILDKIT:-}" = "0" ]; then
+    # Явно используем обычный docker builder, не buildx
+    if ! DOCKER_BUILDKIT=0 COMPOSE_DOCKER_CLI_BUILD=0 docker-compose build $NO_CACHE_FLAG; then
+        echo "❌ Ошибка при пересборке контейнеров"
+        exit 1
+    fi
+else
+    if ! docker-compose build $NO_CACHE_FLAG; then
+        echo "❌ Ошибка при пересборке контейнеров"
+        exit 1
+    fi
 fi
 
 # Запуск контейнеров

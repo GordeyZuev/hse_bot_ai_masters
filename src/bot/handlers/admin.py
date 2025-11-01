@@ -173,33 +173,61 @@ async def format_statistics_message(stats: dict) -> str:
     """Форматирование сообщения со статистикой"""
     text = "📊 <b>Статистика бота</b>\n\n"
 
+    # Пользователи
+    total_users = stats.get('total_users', 0)
+    active_week = stats.get('active_users_week', 0)
+    active_month = stats.get('active_users_month', 0)
+    
     text += "👥 <b>Пользователи:</b>\n"
-    text += f"• Всего пользователей: {stats.get('total_users', 0)}\n"
-    text += f"• Активных за неделю: {stats.get('active_users_week', 0)}\n"
-    text += f"• Активных за месяц: {stats.get('active_users_month', 0)}\n\n"
+    text += f"• Всего: {total_users}\n"
+    if total_users > 0:
+        week_pct = (active_week / total_users) * 100
+        month_pct = (active_month / total_users) * 100
+        text += f"• Активных (неделя): {active_week} ({week_pct:.0f}%)\n"
+        text += f"• Активных (месяц): {active_month} ({month_pct:.0f}%)\n"
+    else:
+        text += f"• Активных (неделя): {active_week}\n"
+        text += f"• Активных (месяц): {active_month}\n"
 
     # Статистика подписок
-    text += "📚 <b>Подписки:</b>\n"
-    text += f"• Всего подписок: {stats.get('total_subscriptions', 0)}\n"
-    text += (
-        f"• Пользователей с подписками: {stats.get('users_with_subscriptions', 0)}\n"
-    )
+    total_subscriptions = stats.get('total_subscriptions', 0)
+    users_with_subs = stats.get('users_with_subscriptions', 0)
+    
+    text += "\n📚 <b>Подписки:</b>\n"
+    text += f"• Всего: {total_subscriptions}\n"
+    text += f"• Пользователей с подписками: {users_with_subs}\n"
+
+    # Статистика групповых чатов
+    text += "\n💬 <b>Групповые чаты:</b>\n"
+    text += f"• Подключено активных: {stats.get('total_chats', 0)}\n"
 
     # Популярные предметы
     popular_subjects = stats.get("popular_subjects", [])
     if popular_subjects:
-        text += "\n<b>Популярные предметы:</b>\n"
+        text += "\n🏆 <b>Популярные предметы:</b>\n"
         for i, (subject_name, count) in enumerate(popular_subjects[:5], 1):
             text += f"{i}. {subject_name} ({count})\n"
 
     # Статистика дедлайнов
+    total_deadlines = stats.get('total_deadlines', 0)
+    active_deadlines = stats.get('active_deadlines', 0)
+    
     text += "\n📅 <b>Дедлайны:</b>\n"
-    text += f"• Всего дедлайнов: {stats.get('total_deadlines', 0)}\n"
-    text += f"• Активных дедлайнов: {stats.get('active_deadlines', 0)}\n"
+    text += f"• Всего: {total_deadlines}\n"
+    if total_deadlines > 0:
+        active_pct = (active_deadlines / total_deadlines) * 100
+        text += f"• Активных: {active_deadlines} ({active_pct:.0f}%)\n"
+    else:
+        text += f"• Активных: {active_deadlines}\n"
 
     # Статистика уведомлений
+    personal_notifs = stats.get('scheduled_notifications', 0)
+    chat_notifs = stats.get('scheduled_chat_notifications', 0)
+    total_notifs = personal_notifs + chat_notifs
+    
     text += "\n🔔 <b>Уведомления:</b>\n"
-    text += f"• Запланированных: {stats.get('scheduled_notifications', 0)}\n"
+    text += f"• Всего запланировано: {total_notifs}\n"
+    text += f"• Личных: {personal_notifs} | Групповых: {chat_notifs}\n"
 
     # Системная информация
     text += "\n⚙️ <b>Система:</b>\n"

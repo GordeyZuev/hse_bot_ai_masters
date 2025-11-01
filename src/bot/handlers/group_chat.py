@@ -202,6 +202,7 @@ async def send_chat_help_message(message: Message, edit_mode: bool = False):
 <b>Лучше использовать кнопки, но вот команды:</b>
 <blockquote expandable>
 • /start — краткое приветствие и ссылки
+• /info — показать информацию о предмете и актуальные дедлайны
 • /setup_discipline — выбрать предмет и привязать бота (только для админов)
 • /disable_chat — включить/выключить уведомления в чате (для админов)
 • /help — эта справка
@@ -394,12 +395,14 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
         chat_group = await chat_service.get_chat_group(chat_id)
 
         if chat_group:
-            # Чат уже настроен — краткое приветствие и ссылка на помощь
             text = f"""
-🤖 <b>Привет!</b>
+🤖 <b>Настройка бота в чате</b>
 
-Бот уже настроен на предмет: <b>«{chat_group.subject.name}»</b>
+Чат уже настроен на предмет: <b>«{chat_group.subject.name}»</b>
+
 Статус: {'✅ Активен' if chat_group.is_active else '❌ Отключен'}
+
+💡 Используйте команду /info для просмотра информации о предмете и актуальных дедлайнах.
 
 <i>Все о настройке и возможностях — в разделе помощи.</i>
             """
@@ -1110,24 +1113,25 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
 
         logger.info(f"[CHAT] back_to_start в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
 
-        # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
             await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
             return
 
         await callback.answer()
 
-        # Проверяем, настроен ли уже чат
         chat_group = await chat_service.get_chat_group(chat_id)
 
         if chat_group:
-            # Чат уже настроен
             text = f"""
 🤖 <b>Настройка бота в чате</b>
 
 Чат уже настроен на предмет: <b>«{chat_group.subject.name}»</b>
 
 Статус: {'✅ Активен' if chat_group.is_active else '❌ Отключен'}
+
+💡 Используйте команду /info для просмотра информации о предмете и актуальных дедлайнах.
+
+<i>Все о настройке и возможностях — в разделе помощи.</i>
             """
 
             builder = InlineKeyboardBuilder()

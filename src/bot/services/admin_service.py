@@ -12,6 +12,8 @@ from sqlalchemy import case, func, select
 from src.bot.services.subscription_service import subscription_service
 from src.core.database import db_manager
 from src.core.models import (
+    ChatGroup,
+    ChatScheduledNotification,
     Deadline,
     ScheduledNotification,
     User,
@@ -73,6 +75,18 @@ class AdminService:
                 )
                 result = await session.execute(stmt)
                 stats["scheduled_notifications"] = result.scalar() or 0
+
+                # Запланированные уведомления для чатов
+                stmt = select(func.count(ChatScheduledNotification.id)).where(
+                    ChatScheduledNotification.status == "scheduled"
+                )
+                result = await session.execute(stmt)
+                stats["scheduled_chat_notifications"] = result.scalar() or 0
+
+                # Статистика по групповым чатам (только активные)
+                stmt = select(func.count(ChatGroup.chat_id)).where(ChatGroup.is_active == True)
+                result = await session.execute(stmt)
+                stats["total_chats"] = result.scalar() or 0
 
                 stmt = select(func.max(Deadline.last_updated))
                 result = await session.execute(stmt)

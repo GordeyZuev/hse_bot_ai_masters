@@ -17,15 +17,6 @@ class ChatService:
     def __init__(self):
         pass
 
-    async def get_chat_administrators(self, bot: Bot, chat_id: int) -> list[int]:
-        """Получить список ID администраторов чата"""
-        try:
-            chat_member = await bot.get_chat_administrators(chat_id)
-            return [admin.user.id for admin in chat_member]
-        except Exception as e:
-            logger.error(f"Ошибка получения админов чата {chat_id}: {e}")
-            return []
-
     async def is_chat_admin(self, bot: Bot, chat_id: int, user_id: int) -> bool:
         """Проверка, является ли пользователь админом чата"""
         try:
@@ -129,6 +120,7 @@ class ChatService:
                     chat_info = await bot.get_chat(chat_id)
                     chat_type = chat_info.type
                     chat_title = getattr(chat_info, "title", None)
+                    logger.debug(f"Получена информация о чате {chat_id}: тип={chat_type}, название={chat_title}")
                 except Exception as e:
                     logger.error(f"Ошибка получения информации о чате {chat_id}: {e}")
                     return False, "Не удалось получить информацию о чате"
@@ -171,6 +163,8 @@ class ChatService:
 
                 session.add(chat_group)
                 await session.commit()
+                
+                logger.debug(f"Чат {chat_id} создан с названием: {chat_title}")
 
                 logger.info(f"(C) {chat_id} - Настроен на предмет: «{subject.name}»")
                 return True, f"Чат успешно настроен на предмет «{subject.name}»!"
@@ -226,16 +220,7 @@ class ChatService:
                 if not await self.is_chat_admin(bot, chat_id, user_id):
                     return False, "У вас нет прав для изменения настроек"
 
-                # Обновляем название чата, если оно изменилось
-                try:
-                    chat_info = await bot.get_chat(chat_id)
-                    new_chat_title = getattr(chat_info, "title", None)
-                    if new_chat_title and new_chat_title != chat_group.chat_title:
-                        chat_group.chat_title = new_chat_title
-                except Exception as e:
-                    logger.debug(f"Не удалось обновить chat_title для чата {chat_id}: {e}")
-
-                # Вычисляем финальные значения после обновления
+                # Вычисляем финальные значения
                 final_reminder1_offset = reminder1_offset if reminder1_offset is not None else chat_group.reminder1_offset
                 final_reminder1_unit = reminder1_unit if reminder1_unit is not None else chat_group.reminder1_unit
                 final_reminder2_offset = reminder2_offset if reminder2_offset is not None else chat_group.reminder2_offset
@@ -264,6 +249,15 @@ class ChatService:
                 if topic_id_set:
                     chat_group.topic_id = topic_id
                     chat_group.topic_title = topic_title if topic_id is not None else None
+
+                # Обновляем название чата, если оно изменилось
+                try:
+                    chat_info = await bot.get_chat(chat_id)
+                    new_chat_title = getattr(chat_info, "title", None)
+                    if new_chat_title and new_chat_title != chat_group.chat_title:
+                        chat_group.chat_title = new_chat_title
+                except Exception as e:
+                    logger.debug(f"Не удалось обновить chat_title для чата {chat_id}: {e}")
 
                 await session.commit()
 

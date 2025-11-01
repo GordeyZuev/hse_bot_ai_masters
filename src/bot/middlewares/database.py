@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
 from src.core.database import db_manager
-from src.core.models import User
+from src.core.models import User, ChatGroup
 from src.utils import get_logger
 from src.utils.time import utc_now
 
@@ -36,6 +36,14 @@ class DatabaseMiddleware(BaseMiddleware):
         except Exception as e:
             logger.error(f"Ошибка в DatabaseMiddleware: {e}")
             raise
+
+        # Обновляем chat_title для групповых чатов (не блокируем основной flow при ошибках)
+        try:
+            chat = event.chat if hasattr(event, "chat") else (event.message.chat if hasattr(event, "message") else None)
+            if chat and chat.type in ["group", "supergroup"]:
+                await self.update_chat_title(chat)
+        except Exception as e:
+            logger.debug(f"Не удалось обновить chat_title в middleware: {e}")
 
         return await handler(event, data)
 
@@ -86,3 +94,21 @@ class DatabaseMiddleware(BaseMiddleware):
                 await session.rollback()
                 logger.error(f"Ошибка работы с пользователем {tg_user.id}: {e}")
                 raise
+
+    async def update_chat_title(self, chat):
+        """Обновить название чата в БД, если оно изменилось"""
+        try:
+            async with db_manager.async_session() as session:
+                stmt = select(ChatGroup).where(ChatGroup.chat_id == chat.id)
+                result = await session.execute(stmt)
+                chat_group = result.scalar_one_or_none()
+                
+                if chat_group and chat.title:
+                    # Обновляем только если название изменилось
+                    if chat_group.chat_title != chat.title:
+                        chat_group.chat_title = chat.title
+                        await session.commit()
+                        logger.debug(f"Обновлено название чата {chat.id}: {chat.title}")
+        except Exception as e:
+            # Игнорируем ошибки обновления chat_title (не критично)
+            logger.debug(f"Не удалось обновить chat_title для чата {chat.id if chat else 'unknown'}: {e}")

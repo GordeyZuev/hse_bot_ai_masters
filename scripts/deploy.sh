@@ -4,11 +4,22 @@
 
 set -e
 
+# Включаем BuildKit для ускорения сборки и параллелизации
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 # Загружаем переменные окружения из .env файла
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 if [ -f "$PROJECT_DIR/src/config/.env" ]; then
     export $(grep -v '^#' "$PROJECT_DIR/src/config/.env" | xargs)
+fi
+
+# Проверяем флаг для полной пересборки
+NO_CACHE_FLAG=""
+if [ "$1" == "--no-cache" ] || [ "$1" == "-n" ]; then
+    NO_CACHE_FLAG="--no-cache"
+    echo "⚠️  ВНИМАНИЕ: Выполняется полная пересборка без кэша (медленно!)"
 fi
 
 echo "🚀 Начинаю развертывание обновлений..."
@@ -29,9 +40,9 @@ if [ -d ".git" ]; then
     fi
 fi
 
-# Пересборка контейнеров
-echo "🔨 Пересборка контейнеров..."
-if ! docker-compose build --no-cache; then
+# Пересборка контейнеров с использованием кэша (если не указан --no-cache)
+echo "🔨 Пересборка контейнеров (с использованием кэша)..."
+if ! docker-compose build $NO_CACHE_FLAG; then
     echo "❌ Ошибка при пересборке контейнеров"
     exit 1
 fi

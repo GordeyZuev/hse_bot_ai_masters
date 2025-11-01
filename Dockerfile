@@ -23,26 +23,24 @@ WORKDIR /app
 # Создаем директорию и даем права пользователю app
 RUN mkdir -p /app && chown -R app:app /app
 
-# Копируем все файлы проекта (от root)
-COPY --chown=app:app pyproject.toml uv.lock* README.md ./
+COPY --chown=app:app pyproject.toml uv.lock* ./
 
 # Переключаемся на пользователя app
 USER app
 
 # Устанавливаем Python зависимости через uv
+# Этот слой будет кэшироваться, пока не изменятся pyproject.toml или uv.lock
 RUN uv sync --frozen --no-dev
 
 # Возвращаемся к root для копирования кода
 USER root
 
-# Копируем весь код приложения
 COPY --chown=app:app . .
 
-# Переключаемся обратно на пользователя app
-USER app
+# Создаем директории для логов перед переключением пользователя
+RUN mkdir -p logs && chown -R app:app logs
 
-# Создаем директории для логов
-RUN mkdir -p logs
+USER app
 
 # Открываем порт (если понадобится для webhook)
 EXPOSE 8000

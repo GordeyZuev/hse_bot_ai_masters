@@ -29,7 +29,7 @@ async def handle_user_chat_member_update(update: ChatMemberUpdated):
         old_status = update.old_chat_member.status
         new_status = update.new_chat_member.status
 
-        logger.info(f"[USER] Статус пользователя {user_id} изменился: {old_status} → {new_status}")
+        logger.debug(f"Статус пользователя {user_id}: {old_status} → {new_status}")
 
         # Пользователь заблокировал бота
         if old_status in ["member"] and new_status in ["kicked", "left"]:
@@ -40,7 +40,7 @@ async def handle_user_chat_member_update(update: ChatMemberUpdated):
             await handle_user_unblocked_bot(user_id)
 
     except Exception as e:
-        logger.error(f"Ошибка обработки события изменения статуса пользователя: {e}")
+        logger.error(f"Ошибка изменения статуса пользователя: {e}")
 
 
 async def handle_user_blocked_bot(user_id: int):
@@ -53,13 +53,12 @@ async def handle_user_blocked_bot(user_id: int):
             # Отменяем все запланированные уведомления пользователя
             cancelled_count = await cancel_user_notifications(user_id)
 
-            logger.info(f"[USER] Пользователь {user_id} заблокировал бота. "
-                       f"Отменено уведомлений: {cancelled_count}")
+            logger.info(f"(U) {user_id} - Заблокирован. Отменено уведомлений: {cancelled_count}")
         else:
-            logger.info(f"[USER] Пользователь {user_id} заблокировал бота (пользователь не найден в БД)")
+            logger.info(f"(U) {user_id} - Заблокирован (не найден в БД)")
 
     except Exception as e:
-        logger.error(f"Ошибка обработки блокировки бота пользователем {user_id}: {e}")
+        logger.error(f"(U) {user_id} - Ошибка блокировки: {e}")
 
 
 async def handle_user_unblocked_bot(user_id: int):
@@ -69,12 +68,12 @@ async def handle_user_unblocked_bot(user_id: int):
         success = await activate_user(user_id)
 
         if success:
-            logger.info(f"[USER] Пользователь {user_id} разблокировал бота. Пользователь активирован.")
+            logger.info(f"(U) {user_id} - Разблокирован, активирован")
         else:
-            logger.info(f"[USER] Пользователь {user_id} разблокировал бота (пользователь не найден в БД)")
+            logger.info(f"(U) {user_id} - Разблокирован (не найден в БД)")
 
     except Exception as e:
-        logger.error(f"Ошибка обработки разблокировки бота пользователем {user_id}: {e}")
+        logger.error(f"(U) {user_id} - Ошибка разблокировки: {e}")
 
 
 async def deactivate_user(user_id: int) -> bool:
@@ -87,11 +86,11 @@ async def deactivate_user(user_id: int) -> bool:
             if user:
                 user.is_active = False
                 await session.commit()
-                logger.info(f"Пользователь {user_id} деактивирован")
+                logger.info(f"(U) {user_id} - Деактивирован")
                 return True
             return False
     except Exception as e:
-        logger.error(f"Ошибка деактивации пользователя {user_id}: {e}")
+        logger.error(f"(U) {user_id} - Ошибка деактивации: {e}")
         return False
 
 
@@ -105,11 +104,11 @@ async def activate_user(user_id: int) -> bool:
             if user:
                 user.is_active = True
                 await session.commit()
-                logger.info(f"Пользователь {user_id} активирован")
+                logger.info(f"(U) {user_id} - Активирован")
                 return True
             return False
     except Exception as e:
-        logger.error(f"Ошибка активации пользователя {user_id}: {e}")
+        logger.error(f"(U) {user_id} - Ошибка активации: {e}")
         return False
 
 

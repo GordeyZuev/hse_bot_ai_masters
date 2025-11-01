@@ -302,9 +302,9 @@ class NotificationSender:
                 if user and user.is_active:
                     user.is_active = False
                     await session.commit()
-                    logger.info(f"Пользователь {user_id} деактивирован из-за ошибки отправки уведомления")
+                    logger.info(f"(U) {user_id} - Деактивирован")
         except Exception as e:
-            logger.error(f"Ошибка деактивации пользователя {user_id}: {e}")
+            logger.error(f"(U) {user_id} - Ошибка деактивации: {e}")
 
     def _format_single_deadline_notification(
         self,
@@ -417,7 +417,7 @@ class NotificationSender:
                     )
                     
                     if is_sleep:
-                        message = message + "\n\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
+                        message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
 
                     keyboard = InlineKeyboardMarkup(
                         inline_keyboard=[

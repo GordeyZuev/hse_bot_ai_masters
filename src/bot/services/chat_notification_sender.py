@@ -35,8 +35,6 @@ class ChatNotificationSender:
                 logger.info("Нет уведомлений для чатов")
                 return stats
 
-            logger.info(f"Найдено {len(notifications)} уведомлений для чатов")
-
             # Группируем уведомления по чатам
             chat_notifications = self._group_notifications_by_chat(notifications)
             logger.debug(f"Уведомления разбиты по {len(chat_notifications)} чатам: {[(cid, len(notifs)) for cid, notifs in chat_notifications.items()]}")
@@ -58,11 +56,10 @@ class ChatNotificationSender:
 
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-            logger.info(f"Отправка в чаты завершена: {stats}")
             return stats
 
         except Exception as e:
-            logger.error(f"Критическая ошибка при отправке уведомлений в чаты: {e}")
+            logger.error(f"Ошибка отправки уведомлений в чаты: {e}")
             return stats
 
     async def _get_scheduled_notifications_for_delivery(self) -> list[ChatScheduledNotification]:
@@ -121,7 +118,6 @@ class ChatNotificationSender:
             # Проверяем, активен ли чат
             chat_group = notifications[0].chat_group
             if not chat_group.is_active:
-                logger.info(f"Чат {chat_id} неактивен, пропускаем")
                 stats["skipped"] += len(notifications)
                 return
 
@@ -149,7 +145,7 @@ class ChatNotificationSender:
                 await self._mark_notifications_as_failed(list(notifications))
 
         except Exception as e:
-            logger.error(f"Ошибка обработки уведомлений для чата {chat_id}: {e}")
+            logger.error(f"(C) {chat_id} - Ошибка обработки: {e}")
             stats["failed"] += len(notifications)
             stats["total_processed"] += len(notifications)
 
@@ -178,19 +174,16 @@ class ChatNotificationSender:
                 message_thread_id=message_thread_id,
                 disable_web_page_preview=True,
             )
-            logger.info(
-                f"Уведомление (batch) отправлено в чат {chat_id}"
-                + (f" (топик {message_thread_id})" if message_thread_id else "")
-            )
+            logger.info(f"(C) {chat_id} - Уведомление отправлено")
             return True
         except TelegramForbiddenError:
-            logger.warning(f"Бот заблокирован в чате {chat_id}")
+            logger.warning(f"(C) {chat_id} - Заблокирован")
             return False
         except TelegramBadRequest as e:
-            logger.error(f"Ошибка отправки (batch) в чат {chat_id}: {e}")
+            logger.error(f"(C) {chat_id} - Ошибка: {e}")
             return False
         except Exception as e:
-            logger.error(f"Неожиданная ошибка отправки (batch) в чат {chat_id}: {e}")
+            logger.error(f"(C) {chat_id} - Ошибка: {e}")
             return False
 
     def _format_multiple_notifications(
@@ -278,17 +271,17 @@ class ChatNotificationSender:
                 message_thread_id=message_thread_id
             )
 
-            logger.info(f"Уведомление отправлено в чат {chat_id}" + (f" (топик {message_thread_id})" if message_thread_id else ""))
+            logger.info(f"(C) {chat_id} - Уведомление отправлено")
             return True
 
         except TelegramForbiddenError:
-            logger.warning(f"Бот заблокирован в чате {chat_id}")
+            logger.warning(f"(C) {chat_id} - Заблокирован")
             return False
         except TelegramBadRequest as e:
-            logger.error(f"Ошибка отправки в чат {chat_id}: {e}")
+            logger.error(f"(C) {chat_id} - Ошибка: {e}")
             return False
         except Exception as e:
-            logger.error(f"Неожиданная ошибка отправки в чат {chat_id}: {e}")
+            logger.error(f"(C) {chat_id} - Ошибка: {e}")
             return False
 
     def _format_chat_notification_message(

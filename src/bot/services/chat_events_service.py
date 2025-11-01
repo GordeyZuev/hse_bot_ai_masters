@@ -30,7 +30,7 @@ async def handle_bot_chat_member_update(update: ChatMemberUpdated):
         old_status = update.old_chat_member.status
         new_status = update.new_chat_member.status
 
-        logger.info(f"[CHAT] Статус бота в чате '{chat_title}' (ID: {chat_id}) изменился: {old_status} → {new_status}")
+        logger.debug(f"Статус бота в чате '{chat_title}' ({chat_id}): {old_status} → {new_status}")
 
         # Бот был удален из чата
         if old_status in ["member", "administrator"] and new_status in ["left", "kicked"]:
@@ -41,7 +41,7 @@ async def handle_bot_chat_member_update(update: ChatMemberUpdated):
             await handle_bot_added_to_chat(chat_id, chat_title, new_status)
 
     except Exception as e:
-        logger.error(f"Ошибка обработки события изменения статуса бота: {e}")
+        logger.error(f"Ошибка изменения статуса бота в чате: {e}")
 
 
 async def handle_bot_removed_from_chat(chat_id: int, chat_title: str, removal_status: str):
@@ -57,14 +57,12 @@ async def handle_bot_removed_from_chat(chat_id: int, chat_title: str, removal_st
             # Отменяем все запланированные уведомления
             cancelled_count = await chat_notification_scheduler_service.cancel_chat_notifications(chat_id)
 
-            logger.info(f"[CHAT] Бот удален из чата '{chat_title}' (ID: {chat_id}). "
-                       f"Статус: {removal_status}. Отменено уведомлений: {cancelled_count}")
+            logger.info(f"(C) {chat_id} - Удален. Отменено уведомлений: {cancelled_count}")
         else:
-            logger.info(f"[CHAT] Бот удален из ненастроенного чата '{chat_title}' (ID: {chat_id}). "
-                       f"Статус: {removal_status}")
+            logger.info(f"(C) {chat_id} - Удален из ненастроенного чата")
 
     except Exception as e:
-        logger.error(f"Ошибка обработки удаления бота из чата {chat_id}: {e}")
+        logger.error(f"(C) {chat_id} - Ошибка удаления: {e}")
 
 
 async def handle_bot_added_to_chat(chat_id: int, chat_title: str, new_status: str):
@@ -77,17 +75,14 @@ async def handle_bot_added_to_chat(chat_id: int, chat_title: str, new_status: st
             # Если чат был деактивирован при удалении, активируем его обратно
             if not chat_group.is_active:
                 await chat_service.activate_chat(chat_id)
-                logger.info(f"[CHAT] Бот добавлен обратно в настроенный чат '{chat_title}' (ID: {chat_id}). "
-                           f"Статус: {new_status}. Чат активирован.")
+                logger.info(f"(C) {chat_id} - Добавлен обратно, активирован")
             else:
-                logger.info(f"[CHAT] Бот добавлен в уже активный чат '{chat_title}' (ID: {chat_id}). "
-                           f"Статус: {new_status}")
+                logger.info(f"(C) {chat_id} - Добавлен в активный чат")
         else:
-            logger.info(f"[CHAT] Бот добавлен в новый чат '{chat_title}' (ID: {chat_id}). "
-                       f"Статус: {new_status}. Чат не настроен.")
+            logger.info(f"(C) {chat_id} - Добавлен в новый чат (не настроен)")
 
     except Exception as e:
-        logger.error(f"Ошибка обработки добавления бота в чат {chat_id}: {e}")
+        logger.error(f"(C) {chat_id} - Ошибка добавления: {e}")
 
 
 def register_chat_events_handlers(dp):

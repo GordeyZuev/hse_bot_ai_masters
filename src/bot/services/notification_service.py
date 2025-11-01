@@ -183,13 +183,13 @@ class NotificationService:
             await db_manager.update_user_notification_settings(user_id, settings_data)
 
             if sleep_start is None or sleep_end is None:
-                logger.info(f"Пользователь {user_id} сбросил время сна")
+                logger.info(f"(U) {user_id} - Время сна сброшено")
                 return True, "Время сна отключено"
             else:
                 start_str = sleep_start.strftime("%H:%M")
                 end_str = sleep_end.strftime("%H:%M")
                 logger.info(
-                    f"Пользователь {user_id} установил время сна: {start_str} - {end_str}"
+                    f"(U) {user_id} - Время сна: {start_str} - {end_str}"
                 )
                 return True, f"Время сна установлено: {start_str} - {end_str}"
 

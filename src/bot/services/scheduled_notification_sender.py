@@ -61,11 +61,10 @@ class ScheduledNotificationSender:
                 # Ждем завершения всех задач в батче
                 await asyncio.gather(*tasks, return_exceptions=True)
 
-            logger.info(f"Отправка завершена: {stats}")
             return stats
 
         except Exception as e:
-            logger.error(f"Критическая ошибка при отправке уведомлений: {e}")
+            logger.error(f"Ошибка отправки уведомлений: {e}")
             return stats
 
     def _group_notifications_by_user(
@@ -197,7 +196,7 @@ class ScheduledNotificationSender:
                 )
                 
                 if is_sleep:
-                    message = message + "\n\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
+                    message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
 
             # Клавиатура для быстрого перехода к дедлайнам
             keyboard = InlineKeyboardMarkup(
@@ -251,9 +250,9 @@ class ScheduledNotificationSender:
                 if user and user.is_active:
                     user.is_active = False
                     await session.commit()
-                    logger.info(f"Пользователь {user_id} деактивирован из-за ошибки отправки уведомления")
+                    logger.info(f"(U) {user_id} - Деактивирован")
         except Exception as e:
-            logger.error(f"Ошибка деактивации пользователя {user_id}: {e}")
+            logger.error(f"(U) {user_id} - Ошибка деактивации: {e}")
 
     async def _format_notifications_message(
         self, notification_data: list[dict[str, Any]], user_tz

@@ -4,13 +4,12 @@ from typing import Any
 
 import pytz
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from src.core.database import db_manager
 from src.core.models import Deadline, ScheduledNotification, Subject
-from src.utils import get_logger
+from src.utils import get_logger, safe_send_message
 
 
 logger = get_logger()
@@ -120,139 +119,91 @@ class ScheduledNotificationSender:
         self, bot: Bot, user_id: int, notifications: list[ScheduledNotification]
     ) -> bool:
         """Отправить уведомления конкретному пользователю"""
-        try:
-            # Загружаем полную информацию о дедлайнах одним запросом
-            notification_data = []
+        # Загружаем полную информацию о дедлайнах одним запросом
+        notification_data = []
 
-            # Собираем все ID дедлайнов для одного запроса
-            deadline_ids = [notification.deadline_id for notification in notifications]
+        # Собираем все ID дедлайнов для одного запроса
+        deadline_ids = [notification.deadline_id for notification in notifications]
 
-            async with db_manager.async_session() as session:
-                stmt = (
-                    select(Deadline, Subject)
-                    .join(Subject)
-                    .where(Deadline.id.in_(deadline_ids))
-                )
-                result = await session.execute(stmt)
-                deadline_subjects = result.all()
-
-                # Создаем словарь для быстрого поиска
-                deadline_dict = {
-                    deadline.id: (deadline, subject)
-                    for deadline, subject in deadline_subjects
-                }
-
-                for notification in notifications:
-                    if notification.deadline_id in deadline_dict:
-                        deadline, subject = deadline_dict[notification.deadline_id]
-                        notification_data.append(
-                            {
-                                "notification": notification,
-                                "deadline": deadline,
-                                "subject": subject,
-                            }
-                        )
-
-            if not notification_data:
-                logger.warning(
-                    f"Не найдены дедлайны для уведомлений пользователя {user_id}"
-                )
-                return False
-
-            # Определяем TZ пользователя для форматирования
-            user = await db_manager.get_user_by_id(user_id)
-            user_tz = (
-                pytz.timezone(user.timezone) if user and user.timezone else pytz.UTC
+        async with db_manager.async_session() as session:
+            stmt = (
+                select(Deadline, Subject)
+                .join(Subject)
+                .where(Deadline.id.in_(deadline_ids))
             )
+            result = await session.execute(stmt)
+            deadline_subjects = result.all()
 
-            # Получаем настройки уведомлений для проверки времени сна
-            from src.bot.services.notification_service import notification_service
-            settings = await notification_service.get_user_notification_settings(user_id)
+            # Создаем словарь для быстрого поиска
+            deadline_dict = {
+                deadline.id: (deadline, subject)
+                for deadline, subject in deadline_subjects
+            }
 
-            message = await self._format_notifications_message(
-                notification_data, user_tz
+            for notification in notifications:
+                if notification.deadline_id in deadline_dict:
+                    deadline, subject = deadline_dict[notification.deadline_id]
+                    notification_data.append(
+                        {
+                            "notification": notification,
+                            "deadline": deadline,
+                            "subject": subject,
+                        }
+                    )
+
+        if not notification_data:
+            logger.warning(
+                f"Не найдены дедлайны для уведомлений пользователя {user_id}"
             )
+            return False
 
-            # Проверяем задержку по UTC
-            now_utc = datetime.now(UTC)
-            planned_times = [
-                d["notification"].planned_delivery_time for d in notification_data
-            ]
-            delay_threshold = now_utc - timedelta(minutes=30)
-            is_delayed = any(pt and pt < delay_threshold for pt in planned_times)
+        # Определяем TZ пользователя для форматирования
+        user = await db_manager.get_user_by_id(user_id)
+        user_tz = (
+            pytz.timezone(user.timezone) if user and user.timezone else pytz.UTC
+        )
 
-            if is_delayed:
-                message = "⚠️ <i>Отправлено с задержкой (>30 мин)</i>\n\n" + message
+        # Получаем настройки уведомлений для проверки времени сна
+        from src.bot.services.notification_service import notification_service
+        await notification_service.get_user_notification_settings(user_id)
 
-            # Проверяем время сна пользователя
-            is_sleep = False
-            if settings and user:
-                from src.utils.time import is_sleep_time
-                user_tz_name = user.timezone if user.timezone else "Europe/Moscow"
-                is_sleep = is_sleep_time(
-                    settings.sleep_start_time,
-                    settings.sleep_end_time,
-                    user_tz_name
-                )
+        message = await self._format_notifications_message(
+            notification_data, user_tz
+        )
 
-                if is_sleep:
-                    message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
+        # Проверяем задержку по UTC
+        now_utc = datetime.now(UTC)
+        planned_times = [
+            d["notification"].planned_delivery_time for d in notification_data
+        ]
+        delay_threshold = now_utc - timedelta(minutes=30)
+        is_delayed = any(pt and pt < delay_threshold for pt in planned_times)
 
-            # Клавиатура для быстрого перехода к дедлайнам
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="📅 Дедлайны", callback_data="quick_deadlines"
-                        )
-                    ]
+        if is_delayed:
+            message = "⚠️ <i>Отправлено с задержкой (>30 мин)</i>\n\n" + message
+
+        # Клавиатура для быстрого перехода к дедлайнам
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📅 Дедлайны", callback_data="quick_deadlines"
+                    )
                 ]
-            )
+            ]
+        )
 
-            # Отправляем сообщение
-            await bot.send_message(
-                chat_id=user_id,
-                text=message,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-                reply_markup=keyboard,
-                disable_notification=is_sleep,
-            )
-
-            logger.info(
-                f"(U) {user_id} - Отправлено {len(notifications)} уведомлений"
-            )
-            return True
-
-        except TelegramForbiddenError:
-            logger.warning(f"(U) {user_id} - Заблокирован")
-            # Деактивируем пользователя при блокировке бота
-            await self._deactivate_user(user_id)
-            return False
-
-        except TelegramBadRequest as e:
-            logger.error(f"(U) {user_id} - Ошибка Telegram API: {e}")
-            # Деактивируем пользователя при ошибке отправки
-            await self._deactivate_user(user_id)
-            return False
-
-        except Exception as e:
-            logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
-            return False
-
-    async def _deactivate_user(self, user_id: int):
-        """Деактивировать пользователя при ошибке отправки уведомления"""
-        try:
-            async with db_manager.async_session() as session:
-                from src.core.models.models import User
-
-                user = await session.get(User, user_id)
-                if user and user.is_active:
-                    user.is_active = False
-                    await session.commit()
-                    logger.info(f"(U) {user_id} - Деактивирован")
-        except Exception as e:
-            logger.error(f"(U) {user_id} - Ошибка деактивации: {e}")
+        # Отправляем сообщение
+        return await safe_send_message(
+            bot,
+            chat_id=user_id,
+            text=message,
+            user_id=user_id,
+            success_message=f"(U) {user_id} - Отправлено {len(notifications)} уведомлений",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=keyboard,
+        )
 
     async def _format_notifications_message(
         self, notification_data: list[dict[str, Any]], user_tz

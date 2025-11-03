@@ -8,6 +8,7 @@ from src.core.models import (
     ScheduledNotification,
     Subject,
     Subscription,
+    TaskUserStatus,
     User,
     UserNotificationSettings,
 )
@@ -24,11 +25,24 @@ class NotificationSchedulerService:
     async def _get_user_deadlines(self, user_id: int) -> list[Deadline]:
         """Получить все активные дедлайны пользователя"""
         async with db_manager.async_session() as session:
+            tus = (
+                select(TaskUserStatus.deadline_id)
+                .where(TaskUserStatus.user_id == user_id)
+                .subquery()
+            )
+
             stmt = (
                 select(Deadline)
                 .join(Subject)
                 .join(Subscription)
-                .where(and_(Subscription.user_id == user_id, Subject.is_active))
+                .outerjoin(tus, tus.c.deadline_id == Deadline.id)
+                .where(
+                    and_(
+                        Subscription.user_id == user_id,
+                        Subject.is_active,
+                        tus.c.deadline_id.is_(None),
+                    )
+                )
             )
             result = await session.execute(stmt)
             return list(result.scalars().all())

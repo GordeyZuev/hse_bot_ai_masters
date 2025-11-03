@@ -26,7 +26,7 @@ from src.bot.services.chat_service import chat_service
 from src.core.database import db_manager
 from src.core.models import Subject
 from src.core.models.models import Deadline
-from src.utils import get_logger
+from src.utils import get_logger, safe_edit_message
 from src.utils.notification_text import build_custom_offset_prompt, parse_offset_text
 
 
@@ -39,7 +39,8 @@ async def _safe_send(message: Message, text: str, reply_markup=None, edit: bool 
             return await message.edit_text(text.strip(), reply_markup=reply_markup, parse_mode="HTML")
         return await message.answer(text.strip(), reply_markup=reply_markup, parse_mode="HTML")
     except TelegramBadRequest as e:
-        if "TOPIC_CLOSED" in str(e):
+        err_str = str(e).lower()
+        if "topic_closed" in err_str:
             # Падение из-за закрытого топика – отправляем в общий чат без thread_id
             return await message.bot.send_message(
                 chat_id=message.chat.id,
@@ -47,6 +48,9 @@ async def _safe_send(message: Message, text: str, reply_markup=None, edit: bool 
                 reply_markup=reply_markup,
                 parse_mode="HTML",
             )
+        if "message is not modified" in err_str or "message not found" in err_str:
+            # Сообщение не изменилось или удалено - это нормально
+            return None
         raise
 
 # Унифицированное получение отображаемого названия топика
@@ -682,11 +686,11 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
             chat_group = await chat_service.get_chat_group(chat_id)
             await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
         else:
-            await callback.message.edit_text(message_text, parse_mode="HTML")
+            await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_setup_chat_subject: {e}")
-        await callback.message.edit_text("Произошла ошибка при настройке бота")
+        await safe_edit_message(callback.message, "Произошла ошибка при настройке бота")
 
 
 @router.callback_query(F.data == "chat_setup_cancel")
@@ -712,7 +716,7 @@ async def callback_setup_chat_cancel(callback: CallbackQuery, db_user, state: FS
 
     except Exception as e:
         logger.error(f"Ошибка в callback_setup_chat_cancel: {e}")
-        await callback.message.edit_text("Произошла ошибка при отмене настройки")
+        await safe_edit_message(callback.message, "Произошла ошибка при отмене настройки")
 
 
 @router.callback_query(F.data == "chat_setup_reminder1")
@@ -757,12 +761,12 @@ async def callback_setup_reminder1(callback: CallbackQuery, db_user, state: FSMC
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(2)
 
-        await callback.message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
         await state.set_state(ChatSetupStates.waiting_reminder1_selection)
 
     except Exception as e:
         logger.error(f"Ошибка в callback_setup_reminder1: {e}")
-        await callback.message.edit_text("Произошла ошибка при настройке напоминания")
+        await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
 
 
 @router.callback_query(F.data == "chat_setup_reminder2")
@@ -807,12 +811,12 @@ async def callback_setup_reminder2(callback: CallbackQuery, db_user, state: FSMC
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(2)
 
-        await callback.message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
         await state.set_state(ChatSetupStates.waiting_reminder2_selection)
 
     except Exception as e:
         logger.error(f"Ошибка в callback_setup_reminder2: {e}")
-        await callback.message.edit_text("Произошла ошибка при настройке напоминания")
+        await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
 
 
 @router.callback_query(F.data == "chat_setup_finish")
@@ -843,7 +847,7 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
         reminder2_unit = data.get("reminder2_unit", "days")
 
         if not subject_id:
-            await callback.message.edit_text("❌ Ошибка: предмет не выбран")
+            await safe_edit_message(callback.message, "❌ Ошибка: предмет не выбран")
             await state.clear()
             return
 
@@ -894,13 +898,13 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
 
             await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
         else:
-            await callback.message.edit_text(message_text, parse_mode="HTML")
+            await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
         await state.clear()
 
     except Exception as e:
         logger.error(f"Ошибка в callback_setup_finish: {e}")
-        await callback.message.edit_text("Произошла ошибка при завершении настройки")
+        await safe_edit_message(callback.message, "Произошла ошибка при завершении настройки")
 
 
 @router.callback_query(F.data.startswith("chat_setup_reminder1_"))
@@ -945,12 +949,12 @@ async def callback_set_reminder1_value(callback: CallbackQuery, db_user, state: 
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(1)
 
-        await callback.message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
         await state.set_state(ChatSetupStates.waiting_time_settings)
 
     except Exception as e:
         logger.error(f"Ошибка в callback_set_reminder1_value: {e}")
-        await callback.message.edit_text("Произошла ошибка при настройке напоминания")
+        await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
 
 
 @router.callback_query(F.data.startswith("chat_setup_reminder2_"))
@@ -995,12 +999,12 @@ async def callback_set_reminder2_value(callback: CallbackQuery, db_user, state: 
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(1)
 
-        await callback.message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
         await state.set_state(ChatSetupStates.waiting_time_settings)
 
     except Exception as e:
         logger.error(f"Ошибка в callback_set_reminder2_value: {e}")
-        await callback.message.edit_text("Произошла ошибка при настройке напоминания")
+        await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
 
 
 @router.callback_query(F.data == "chat_delete_message")
@@ -1018,7 +1022,7 @@ async def callback_delete_message(callback: CallbackQuery, db_user):
         await callback.message.delete()
     except Exception as e:
         logger.error(f"Ошибка при удалении сообщения: {e}")
-        await callback.message.edit_text("❌ Не удалось удалить сообщение")
+        await safe_edit_message(callback.message, "❌ Не удалось удалить сообщение")
 
 @router.callback_query(F.data == "chat_setup_from_start")
 async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSMContext):
@@ -1046,7 +1050,7 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
             subjects = list(result.scalars().all())
 
         if not subjects:
-            await callback.message.edit_text("❌ Нет доступных предметов для настройки")
+            await safe_edit_message(callback.message, "❌ Нет доступных предметов для настройки")
             return
 
         # Показываем список предметов
@@ -1063,11 +1067,11 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
         builder.adjust(1)
 
         await state.set_state(ChatSetupStates.waiting_subject_selection)
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_setup_from_start: {e}")
-        await callback.message.edit_text("Произошла ошибка при настройке бота")
+        await safe_edit_message(callback.message, "Произошла ошибка при настройке бота")
 
 
 @router.callback_query(F.data == "chat_settings_from_start")
@@ -1098,7 +1102,7 @@ async def callback_settings_from_start(callback: CallbackQuery, db_user):
 
     except Exception as e:
         logger.error(f"Ошибка в callback_settings_from_start: {e}")
-        await callback.message.edit_text("Произошла ошибка при получении настроек бота")
+        await safe_edit_message(callback.message, "Произошла ошибка при получении настроек бота")
 
 
 @router.callback_query(F.data == "back_to_start")
@@ -1161,11 +1165,11 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
             builder.button(text="❓ Помощь", callback_data="quick_help")
             builder.adjust(1)
 
-        await callback.message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_back_to_start: {e}")
-        await callback.message.edit_text("Произошла ошибка при возврате к главному меню")
+        await safe_edit_message(callback.message, "Произошла ошибка при возврате к главному меню")
 
 
 @router.callback_query(F.data == "chat_change_subject")
@@ -1220,12 +1224,12 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(1)
 
-        await callback.message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
         await state.set_state(ChatSetupStates.waiting_subject_selection)
 
     except Exception as e:
         logger.error(f"Ошибка в callback_change_subject: {e}")
-        await callback.message.edit_text("Произошла ошибка при смене дисциплины")
+        await safe_edit_message(callback.message, "Произошла ошибка при смене дисциплины")
 
 
 @router.callback_query(F.data.startswith("chat_change_subject_"))
@@ -1266,13 +1270,13 @@ async def callback_change_subject_selected(callback: CallbackQuery, db_user, sta
             chat_group = await chat_service.get_chat_group(chat_id)
             await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
         else:
-            await callback.message.edit_text(message_text, parse_mode="HTML")
+            await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
         await state.clear()
 
     except Exception as e:
         logger.error(f"Ошибка в callback_change_subject_selected: {e}")
-        await callback.message.edit_text("Произошла ошибка при смене дисциплины")
+        await safe_edit_message(callback.message, "Произошла ошибка при смене дисциплины")
 
 @router.callback_query(F.data == "chat_edit_settings")
 async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
@@ -1288,7 +1292,7 @@ async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
         await callback.answer()
         chat_group = await chat_service.get_chat_group(chat_id)
         if not chat_group:
-            await callback.message.edit_text("❌ Чат не настроен")
+            await safe_edit_message(callback.message, "❌ Чат не настроен")
             return
 
         text = "⚙️ <b>Настройка бота</b>\n\n"
@@ -1305,11 +1309,11 @@ async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(1)
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_edit_chat_settings: {e}")
-        await callback.message.edit_text("Произошла ошибка при редактировании настроек")
+        await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
 
 
 @router.callback_query(F.data == "chat_edit_reminder1")
@@ -1328,7 +1332,7 @@ async def callback_edit_reminder1(callback: CallbackQuery, db_user):
 
         chat_group = await chat_service.get_chat_group(chat_id)
         if not chat_group:
-            await callback.message.edit_text("❌ Чат не настроен")
+            await safe_edit_message(callback.message, "❌ Чат не настроен")
             return
 
         text = "1️⃣ <b>Первое напоминание</b>\n\n"
@@ -1358,11 +1362,11 @@ async def callback_edit_reminder1(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(2)
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_edit_reminder1: {e}")
-        await callback.message.edit_text("Произошла ошибка при редактировании настроек")
+        await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
 
 
 @router.callback_query(F.data.startswith("chat_set_reminder1_"))
@@ -1401,11 +1405,11 @@ async def callback_set_reminder1(callback: CallbackQuery, db_user):
             # Возвращаемся к интерфейсу настроек
             await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
         else:
-            await callback.message.edit_text(message_text, parse_mode="HTML")
+            await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_set_reminder1: {e}")
-        await callback.message.edit_text("Произошла ошибка при изменении настроек")
+        await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
 
 
 @router.callback_query(F.data == "chat_edit_reminder2")
@@ -1424,7 +1428,7 @@ async def callback_edit_reminder2(callback: CallbackQuery, db_user):
 
         chat_group = await chat_service.get_chat_group(chat_id)
         if not chat_group:
-            await callback.message.edit_text("❌ Чат не настроен")
+            await safe_edit_message(callback.message, "❌ Чат не настроен")
             return
 
         text = "2️⃣ <b>Второе напоминание</b>\n\n"
@@ -1454,11 +1458,11 @@ async def callback_edit_reminder2(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(2)
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_edit_reminder2: {e}")
-        await callback.message.edit_text("Произошла ошибка при редактировании настроек")
+        await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
 
 
 @router.callback_query(F.data.startswith("chat_set_reminder2_"))
@@ -1497,11 +1501,11 @@ async def callback_set_reminder2(callback: CallbackQuery, db_user):
             # Возвращаемся к интерфейсу настроек
             await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
         else:
-            await callback.message.edit_text(message_text, parse_mode="HTML")
+            await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_set_reminder2: {e}")
-        await callback.message.edit_text("Произошла ошибка при изменении настроек")
+        await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
 
 
 @router.callback_query(F.data == "chat_toggle_active")
@@ -1539,11 +1543,11 @@ async def callback_toggle_chat_active(callback: CallbackQuery, db_user):
             # Возвращаемся к интерфейсу настроек
             await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
         else:
-            await callback.message.edit_text(message_text, parse_mode="HTML")
+            await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_toggle_chat_active: {e}")
-        await callback.message.edit_text("Произошла ошибка при изменении настроек")
+        await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
 
 
 @router.callback_query(F.data.startswith("chat_custom_reminder_"))
@@ -1569,7 +1573,7 @@ async def callback_custom_reminder_setup(callback: CallbackQuery, db_user, state
 
         await state.update_data(reminder_number=reminder_number, is_setup=True)
         await state.set_state(ChatSetupStates.waiting_custom_reminder)
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except (ValueError, IndexError) as e:
         logger.error(f"Ошибка в callback_custom_reminder_setup: {e}")
@@ -1599,7 +1603,7 @@ async def callback_custom_reminder_edit(callback: CallbackQuery, db_user, state:
 
         await state.update_data(reminder_number=reminder_number, is_setup=False)
         await state.set_state(ChatSettingsStates.waiting_custom_reminder)
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except (ValueError, IndexError) as e:
         logger.error(f"Ошибка в callback_custom_reminder_edit: {e}")
@@ -1834,11 +1838,12 @@ async def callback_chat_info(callback: CallbackQuery, db_user):
     try:
         text = await _compose_info_text(callback.message.chat.id)
         if text is None:
-            await callback.message.edit_text(
+            await safe_edit_message(
+                callback.message,
                 "Этот чат еще не настроен на дисциплину.\n\nПопросите администратора нажать «Настроить бота»."
             )
             return
-        await callback.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True)
+        await safe_edit_message(callback.message, text, parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Ошибка в callback_chat_info: {e}")
         await callback.answer("Ошибка при получении информации", show_alert=True)

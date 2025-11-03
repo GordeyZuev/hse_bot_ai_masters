@@ -5,7 +5,7 @@ import pytz
 from sqlalchemy import and_, or_, select
 
 from src.core.database import db_manager
-from src.core.models import Deadline, Subject, Subscription
+from src.core.models import Deadline, Subject, Subscription, TaskUserStatus
 from src.utils import get_logger
 
 
@@ -19,7 +19,7 @@ class DeadlineService:
         pass
 
     async def get_user_deadlines(
-        self, user_id: int, days: int = 15
+        self, user_id: int, days: int = 15, hide_done: bool = False
     ) -> list[dict[str, Any]]:
         """Получить дедлайны пользователя на указанное количество дней"""
         async with db_manager.async_session() as session:
@@ -29,10 +29,13 @@ class DeadlineService:
                 end_date = now + timedelta(days=days)
 
                 # Дедлайны по подписанным предметам
+                tus = select(TaskUserStatus.deadline_id).where(TaskUserStatus.user_id == user_id).subquery()
+
                 stmt = (
-                    select(Deadline, Subject)
+                    select(Deadline, Subject, tus.c.deadline_id)
                     .join(Subject)
                     .join(Subscription)
+                    .outerjoin(tus, tus.c.deadline_id == Deadline.id)
                     .where(
                         and_(
                             Subscription.user_id == user_id,
@@ -55,10 +58,11 @@ class DeadlineService:
                 result = await session.execute(stmt)
                 deadlines_data = []
 
-                for deadline, subject in result.fetchall():
+                for deadline, subject, done_deadline_id in result.fetchall():
                     # Определяем ближайший актуальный дедлайн
                     nearest_deadline = None
                     deadline_type = None
+                    is_done = done_deadline_id is not None
 
                     # Проверяем, какие дедлайны еще актуальны (все в UTC)
                     soft_valid = (
@@ -91,6 +95,10 @@ class DeadlineService:
                         days_left = time_left.days
                         hours_left = time_left.seconds // 3600
 
+                        # Пропускаем выполненные, если включен фильтр
+                        if hide_done and is_done:
+                            continue
+
                         deadlines_data.append(
                             {
                                 "deadline": deadline,
@@ -100,11 +108,12 @@ class DeadlineService:
                                 "days_left": days_left,
                                 "hours_left": hours_left,
                                 "time_left": time_left,
+                                "is_done": is_done,
                             }
                         )
 
-                # Сортируем по времени ближайшего дедлайна (от ближайшего к дальнему)
-                deadlines_data.sort(key=lambda x: x["nearest_deadline"])
+                # Сортируем: сначала невыполненные, затем по времени ближайшего дедлайна
+                deadlines_data.sort(key=lambda x: (x.get("is_done", False), x["nearest_deadline"]))
 
                 return deadlines_data
 

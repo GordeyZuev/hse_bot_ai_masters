@@ -2,14 +2,13 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
 from src.core.database import db_manager
 from src.core.models import ChatScheduledNotification, Deadline
-from src.utils import get_logger
+from src.utils import get_logger, safe_send_message
 
 
 logger = get_logger()
@@ -164,27 +163,17 @@ class ChatNotificationSender:
     async def _safe_send_batch(
         self, bot: Bot, chat_id: int, text: str, message_thread_id: int | None
     ) -> bool:
-        try:
-            if not text.strip():
-                return False
-            await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode="HTML",
-                message_thread_id=message_thread_id,
-                disable_web_page_preview=True,
-            )
-            logger.info(f"(C) {chat_id} - Уведомление отправлено")
-            return True
-        except TelegramForbiddenError:
-            logger.warning(f"(C) {chat_id} - Заблокирован")
+        if not text.strip():
             return False
-        except TelegramBadRequest as e:
-            logger.error(f"(C) {chat_id} - Ошибка: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"(C) {chat_id} - Ошибка: {e}")
-            return False
+        return await safe_send_message(
+            bot,
+            chat_id=chat_id,
+            text=text,
+            success_message=f"(C) {chat_id} - Уведомление отправлено",
+            parse_mode="HTML",
+            message_thread_id=message_thread_id,
+            disable_web_page_preview=True,
+        )
 
     def _format_multiple_notifications(
         self, deadline_notifications: dict[int, list[ChatScheduledNotification]]
@@ -248,41 +237,29 @@ class ChatNotificationSender:
         notifications: list[ChatScheduledNotification]
     ) -> bool:
         """Отправить уведомление в чат"""
-        try:
-            if not notifications:
-                return False
-
-            # Формируем сообщение
-            message_text = self._format_chat_notification_message(notifications)
-
-            # Создаем клавиатуру
-            keyboard = self._create_chat_notification_keyboard(notifications[0].deadline)
-
-            # Получаем topic_id для отправки в топик
-            chat_group = notifications[0].chat_group
-            message_thread_id = chat_group.topic_id
-
-            # Отправляем сообщение
-            await bot.send_message(
-                chat_id=chat_id,
-                text=message_text,
-                reply_markup=keyboard,
-                parse_mode="HTML",
-                message_thread_id=message_thread_id
-            )
-
-            logger.info(f"(C) {chat_id} - Уведомление отправлено")
-            return True
-
-        except TelegramForbiddenError:
-            logger.warning(f"(C) {chat_id} - Заблокирован")
+        if not notifications:
             return False
-        except TelegramBadRequest as e:
-            logger.error(f"(C) {chat_id} - Ошибка: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"(C) {chat_id} - Ошибка: {e}")
-            return False
+
+        # Формируем сообщение
+        message_text = self._format_chat_notification_message(notifications)
+
+        # Создаем клавиатуру
+        keyboard = self._create_chat_notification_keyboard(notifications[0].deadline)
+
+        # Получаем topic_id для отправки в топик
+        chat_group = notifications[0].chat_group
+        message_thread_id = chat_group.topic_id
+
+        # Отправляем сообщение
+        return await safe_send_message(
+            bot,
+            chat_id=chat_id,
+            text=message_text,
+            success_message=f"(C) {chat_id} - Уведомление отправлено",
+            reply_markup=keyboard,
+            parse_mode="HTML",
+            message_thread_id=message_thread_id
+        )
 
     def _format_chat_notification_message(
         self, notifications: list[ChatScheduledNotification]

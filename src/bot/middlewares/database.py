@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
 from src.core.database import db_manager
-from src.core.models import User, ChatGroup
+from src.core.models import ChatGroup, User
 from src.utils import get_logger
 from src.utils.time import utc_now
 
@@ -102,7 +102,7 @@ class DatabaseMiddleware(BaseMiddleware):
                 stmt = select(ChatGroup).where(ChatGroup.chat_id == chat.id)
                 result = await session.execute(stmt)
                 chat_group = result.scalar_one_or_none()
-                
+
                 if chat_group and chat.title:
                     # Обновляем только если название изменилось
                     if chat_group.chat_title != chat.title:

@@ -11,7 +11,7 @@ from src.bot.services.admin_service import admin_service
 from src.bot.services.notification_sender import notification_sender
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
-from src.utils import get_logger
+from src.utils import get_logger, safe_edit_message
 
 
 logger = get_logger()
@@ -56,8 +56,8 @@ async def show_statistics(message_or_callback, db_user, show_back_button: bool =
             builder.adjust(1, 1)
 
         if isinstance(message_or_callback, CallbackQuery):
-            await message_or_callback.message.edit_text(
-                text, reply_markup=builder.as_markup()
+            await safe_edit_message(
+                message_or_callback.message, text, reply_markup=builder.as_markup()
             )
         else:
             await message_or_callback.answer(text, reply_markup=builder.as_markup())
@@ -65,29 +65,24 @@ async def show_statistics(message_or_callback, db_user, show_back_button: bool =
         logger.info(f"(A) {db_user.tg_user_id} - Статистика")
 
     except Exception as e:
-        # Проверяем, является ли ошибка "message is not modified"
-        if "message is not modified" in str(e):
-            # Если сообщение не изменилось, просто логируем и ничего не показываем
-            logger.info(f"(A) {db_user.tg_user_id} - Статистика не изменилась")
+        logger.error(f"Ошибка при получении статистики: {e}")
+        error_text = "Произошла ошибка при получении статистики."
+
+        if show_back_button:
+            error_keyboard = (
+                InlineKeyboardBuilder()
+                .button(text="🔙 Назад", callback_data="admin_panel")
+                .as_markup()
+            )
         else:
-            logger.error(f"Ошибка при получении статистики: {e}")
-            error_text = "Произошла ошибка при получении статистики."
+            error_keyboard = None
 
-            if show_back_button:
-                error_keyboard = (
-                    InlineKeyboardBuilder()
-                    .button(text="🔙 Назад", callback_data="admin_panel")
-                    .as_markup()
-                )
-            else:
-                error_keyboard = None
-
-            if isinstance(message_or_callback, CallbackQuery):
-                await message_or_callback.message.edit_text(
-                    error_text, reply_markup=error_keyboard
-                )
-            else:
-                await message_or_callback.answer(error_text)
+        if isinstance(message_or_callback, CallbackQuery):
+            await safe_edit_message(
+                message_or_callback.message, error_text, reply_markup=error_keyboard
+            )
+        else:
+            await message_or_callback.answer(error_text)
 
 
 async def perform_sync(message_or_callback, db_user, show_back_button: bool = False):
@@ -137,10 +132,10 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
             keyboard = None
 
         if isinstance(message_or_callback, CallbackQuery):
-            await message_or_callback.message.edit_text(text, reply_markup=keyboard)
+            await safe_edit_message(message_or_callback.message, text, reply_markup=keyboard)
         else:
             # Для команды /fast_sync статусное сообщение редактируем напрямую
-            await message_or_callback.edit_text(text)
+            await safe_edit_message(message_or_callback, text)
 
         logger.info(
             f"Синхронизация завершена. Результат: {'успех' if success else 'ошибка'}"
@@ -160,8 +155,8 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
             error_keyboard = None
 
         if isinstance(message_or_callback, CallbackQuery):
-            await message_or_callback.message.edit_text(
-                error_text, reply_markup=error_keyboard
+            await safe_edit_message(
+                message_or_callback.message, error_text, reply_markup=error_keyboard
             )
         else:
             await message_or_callback.answer(
@@ -361,7 +356,7 @@ async def callback_confirm_broadcast(
         broadcast_text = data.get("broadcast_text")
 
         if not broadcast_text:
-            await callback.message.edit_text("❌ Сообщение для рассылки не найдено.")
+            await safe_edit_message(callback.message, "❌ Сообщение для рассылки не найдено.")
             await state.clear()
             return
 
@@ -384,7 +379,7 @@ async def callback_confirm_broadcast(
         if error_count > 0:
             result_text += "\n<i>Ошибки могут возникать из-за заблокированных ботов или удаленных аккаунтов.</i>"
 
-        await callback.message.edit_text(result_text)
+        await safe_edit_message(callback.message, result_text)
         await state.clear()
 
         logger.info(
@@ -393,7 +388,7 @@ async def callback_confirm_broadcast(
 
     except Exception as e:
         logger.error(f"Ошибка выполнения рассылки: {e}")
-        await callback.message.edit_text("❌ Произошла ошибка при выполнении рассылки.")
+        await safe_edit_message(callback.message, "❌ Произошла ошибка при выполнении рассылки.")
         await state.clear()
 
 
@@ -420,22 +415,22 @@ async def callback_admin_panel(callback: CallbackQuery, db_user):
     text = "👨‍💼 <b>Админ-панель</b>\n\nВыберите действие:"
 
     builder = InlineKeyboardBuilder()
-    # Ряд 1: Статистика и Логи
+
     builder.button(text="📊 Статистика", callback_data="admin_stats")
     builder.button(text="📄 Логи", callback_data="admin_logs")
-    # Ряд 2: Синхронизации
+
     builder.button(text="🔄 Sync - Дедлайны", callback_data="admin_sync")
     builder.button(text="🔄 Sync - Дисциплины", callback_data="admin_sync_subjects")
-    # Ряд 3: Broadcast и Управление чатами
+
     builder.row()
     builder.button(text="📢 Broadcast", callback_data="admin_broadcast")
     builder.button(text="💬 Управление чатами", callback_data="admin_chat_management")
-    # Ряд 4: Назад
+
     builder.row()
     builder.button(text="🔙 Назад", callback_data="back_to_menu")
     builder.adjust(2, 2)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
 
 
 @router.callback_query(F.data == "admin_stats")
@@ -520,10 +515,10 @@ async def callback_admin_sync_subjects(callback: CallbackQuery, db_user):
         )
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
     except Exception as e:
         logger.error(f"Ошибка синхронизации дисциплин: {e}")
-        await callback.message.edit_text("❌ Ошибка при синхронизации дисциплин", parse_mode="HTML")
+        await safe_edit_message(callback.message, "❌ Ошибка при синхронизации дисциплин", parse_mode="HTML")
 
 
 @router.message(Command("chat_stats"))
@@ -601,11 +596,11 @@ async def callback_admin_chat_management(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="admin_panel")
         builder.adjust(1)
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в обработчике управления чатами: {e}")
-        await callback.message.edit_text("Произошла ошибка при загрузке управления чатами")
+        await safe_edit_message(callback.message, "Произошла ошибка при загрузке управления чатами")
 
 
 @router.callback_query(F.data == "admin_chat_list")
@@ -674,11 +669,11 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="admin_chat_management")
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в обработчике списка чатов: {e}")
-        await callback.message.edit_text("Произошла ошибка при получении списка чатов")
+        await safe_edit_message(callback.message, "Произошла ошибка при получении списка чатов")
 
 
 @router.callback_query(F.data == "admin_chat_toggle_confirm")
@@ -697,7 +692,7 @@ async def callback_admin_chat_toggle_confirm(callback: CallbackQuery, db_user):
         chat_groups = await chat_service.get_all_chat_groups()
 
         if not chat_groups:
-            await callback.message.edit_text("❌ Нет настроенных чатов")
+            await safe_edit_message(callback.message, "❌ Нет настроенных чатов")
             return
 
         # Определяем действие на основе первого чата
@@ -714,11 +709,11 @@ async def callback_admin_chat_toggle_confirm(callback: CallbackQuery, db_user):
         builder.button(text="❌ Отмена", callback_data="admin_chat_management")
         builder.adjust(1)
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в обработчике подтверждения toggle: {e}")
-        await callback.message.edit_text("Произошла ошибка при управлении чатами")
+        await safe_edit_message(callback.message, "Произошла ошибка при управлении чатами")
 
 
 @router.message(Command("chat_toggle_all"))
@@ -793,11 +788,11 @@ async def callback_chat_toggle_all(callback: CallbackQuery, db_user):
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="admin_chat_management")
 
-        await callback.message.edit_text(result_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(callback.message, result_text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в callback_chat_toggle_all: {e}")
-        await callback.message.edit_text("❌ Произошла ошибка при выполнении операции")
+        await safe_edit_message(callback.message, "❌ Произошла ошибка при выполнении операции")
 
 
 def register_admin_handlers(dp):

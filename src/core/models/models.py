@@ -318,3 +318,18 @@ class ChatScheduledNotification(Base):
             name="check_chat_deadline_type_valid"
         ),
     )
+
+
+class TaskUserStatus(Base):
+    __tablename__ = "task_user_status"
+
+    user_id = Column(
+        BigInteger, ForeignKey("users.tg_user_id", ondelete="CASCADE"), primary_key=True
+    )
+    deadline_id = Column(
+        Integer, ForeignKey("deadlines.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    __table_args__ = (
+        Index("ix_tus_deadline_id", "deadline_id"),
+    )

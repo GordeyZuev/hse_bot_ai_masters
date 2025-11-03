@@ -8,7 +8,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from src.bot.services.subscription_service import subscription_service
 from src.core.database import db_manager
 from src.core.models import Subject
-from src.utils import get_logger
+from src.utils import get_logger, safe_edit_message
 
 
 logger = get_logger()
@@ -60,7 +60,7 @@ async def show_subjects_for_year(
         subjects = await subscription_service.get_subjects_by_year(year)
 
         if not subjects:
-            await message.edit_text(f"Предметы {year} курса не найдены.")
+            await safe_edit_message(message, f"Предметы {year} курса не найдены.")
             return
 
         # Получаем текущие подписки пользователя
@@ -94,11 +94,11 @@ async def show_subjects_for_year(
 
         await state.update_data(year=year)
         await state.set_state(SubscriptionStates.choosing_subject)
-        await message.edit_text(text, reply_markup=builder.as_markup())
+        await safe_edit_message(message, text, reply_markup=builder.as_markup())
 
     except Exception as e:
         logger.error(f"Ошибка показа предметов: {e}")
-        await message.edit_text("Произошла ошибка при загрузке предметов.")
+        await safe_edit_message(message, "Произошла ошибка при загрузке предметов.")
 
 
 @router.callback_query(F.data.startswith("toggle_sub_"))
@@ -165,7 +165,7 @@ async def cmd_unsubscribe_all(event: Message | CallbackQuery, db_user):
             builder.button(text="🔙 Назад", callback_data="back_to_menu")
 
             if edit_mode:
-                await message.edit_text(text, reply_markup=builder.as_markup())
+                await safe_edit_message(message, text, reply_markup=builder.as_markup())
             else:
                 await message.answer(text, reply_markup=builder.as_markup())
             return
@@ -182,7 +182,7 @@ async def cmd_unsubscribe_all(event: Message | CallbackQuery, db_user):
         builder.adjust(1)
 
         if edit_mode:
-            await message.edit_text(text, reply_markup=builder.as_markup())
+            await safe_edit_message(message, text, reply_markup=builder.as_markup())
         else:
             await message.answer(text, reply_markup=builder.as_markup())
 
@@ -208,7 +208,7 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(1)
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
 
     except Exception as e:
         logger.error(f"Ошибка выполнения отписки от всего: {e}")
@@ -249,7 +249,7 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
     else:
         builder.adjust(2, 2)
 
-    await callback.message.edit_text(text, reply_markup=builder.as_markup())
+    await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
 
 
 def register_subscription_handlers(dp):
@@ -311,7 +311,7 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
         builder.adjust(1)
 
     if edit_mode:
-        await message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+        await safe_edit_message(message, text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
     else:
         await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
 
@@ -326,7 +326,7 @@ async def subjects_year_to_subscribe(callback: CallbackQuery, db_user, state: FS
         await show_subjects_for_year(callback.message, db_user, year, state)
     except Exception as e:
         logger.error(f"Ошибка перехода к управлению подписками: {e}")
-        await callback.message.edit_text("Произошла ошибка при загрузке дисциплин.")
+        await safe_edit_message(callback.message, "Произошла ошибка при загрузке дисциплин.")
 
 
 @router.callback_query(F.data.startswith("subject_info_"))
@@ -343,7 +343,7 @@ async def show_subject_info(callback: CallbackQuery, db_user):
             subject = result.scalar_one_or_none()
 
         if not subject:
-            await callback.message.edit_text("Дисциплина не найдена.")
+            await safe_edit_message(callback.message, "Дисциплина не найдена.")
             return
 
         modules_text = None
@@ -368,7 +368,7 @@ async def show_subject_info(callback: CallbackQuery, db_user):
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="quick_subjects")
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Ошибка показа карточки дисциплины: {e}")
-        await callback.message.edit_text("Произошла ошибка при показе дисциплины.")
+        await safe_edit_message(callback.message, "Произошла ошибка при показе дисциплины.")

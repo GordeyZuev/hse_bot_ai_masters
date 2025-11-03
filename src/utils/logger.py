@@ -58,7 +58,7 @@ def setup_logging(
             colorize=True,
             backtrace=True,
             diagnose=True,
-            filter=lambda record: record["level"].name in ["INFO", "WARNING", "ERROR", "CRITICAL"],
+            filter=lambda record: record["level"].name in ["INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"],
         )
 
     try:

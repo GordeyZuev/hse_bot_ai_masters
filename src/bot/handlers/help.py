@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.handlers.admin import is_admin
-from src.utils import get_logger
+from src.utils import get_logger, safe_edit_message
 
 
 logger = get_logger()
@@ -66,8 +66,7 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
 🔗 <a href="{fcs_wiki_url}">ФКН Вики - страничка программы</a>
 
 <b>🎯 Основные команды:</b>
-<blockquote expandable>
-<b>📚 Управление подписками:</b>
+<blockquote expandable><b>📚 Управление подписками:</b>
 • /sub — подписаться на предметы.
 • /unsub — отписаться от предмета.
 • /unsuball — отписаться от всех предметов.
@@ -125,8 +124,8 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
         builder.adjust(1)
 
         if edit_mode:
-            await message.edit_text(
-                text.strip(),
+            await safe_edit_message(
+                message, text.strip(),
                 reply_markup=builder.as_markup(),
                 disable_web_page_preview=True,
             )

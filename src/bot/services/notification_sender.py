@@ -3,7 +3,6 @@ from typing import Any
 
 import pytz
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, or_, select
 
@@ -12,10 +11,11 @@ from src.core.models import (
     Deadline,
     Subject,
     Subscription,
+    TaskUserStatus,
     User,
     UserNotificationSettings,
 )
-from src.utils import get_logger
+from src.utils import get_logger, safe_send_message
 
 
 logger = get_logger()
@@ -198,13 +198,21 @@ class NotificationSender:
                 start_time = notification_time["start"]
                 end_time = notification_time["end"]
 
-                # Получаем дедлайны в нужном временном диапазоне
+                # Получаем дедлайны в нужном временном диапазоне, исключая выполненные
+                tus = (
+                    select(TaskUserStatus.deadline_id)
+                    .where(TaskUserStatus.user_id == user_id)
+                    .subquery()
+                )
+
                 stmt = (
                     select(Deadline, Subject)
                     .join(Subject)
+                    .outerjoin(tus, tus.c.deadline_id == Deadline.id)
                     .where(
                         and_(
                             Deadline.subject_id.in_(subscribed_subject_ids),
+                            tus.c.deadline_id.is_(None),
                             or_(
                                 and_(
                                     Deadline.soft_deadline_ts.isnot(None),
@@ -246,65 +254,36 @@ class NotificationSender:
         offset_unit: str,
     ) -> bool:
         """Отправить уведомление пользователю"""
-        try:
-            if len(deadlines_data) == 1:
-                data = deadlines_data[0]
-                message_text = self._format_single_deadline_notification(
-                    user, data, notification_number, offset_value, offset_unit
-                )
-            else:
-                message_text = self._format_multiple_deadlines_notification(
-                    user, deadlines_data, notification_number, offset_value, offset_unit
-                )
+        if len(deadlines_data) == 1:
+            data = deadlines_data[0]
+            message_text = self._format_single_deadline_notification(
+                user, data, notification_number, offset_value, offset_unit
+            )
+        else:
+            message_text = self._format_multiple_deadlines_notification(
+                user, deadlines_data, notification_number, offset_value, offset_unit
+            )
 
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="📅 Дедлайны", callback_data="quick_deadlines"
-                        )
-                    ]
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📅 Дедлайны", callback_data="quick_deadlines"
+                    )
                 ]
-            )
+            ]
+        )
 
-            await bot.send_message(
-                chat_id=user.tg_user_id,
-                text=message_text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-                reply_markup=keyboard,
-            )
-
-            logger.info(f"(U) {user.tg_user_id} - Уведомление отправлено")
-            return True
-
-        except TelegramForbiddenError:
-            logger.warning(f"(U) {user.tg_user_id} - Заблокирован")
-            # Деактивируем пользователя при блокировке бота
-            await self._deactivate_user(user.tg_user_id)
-            return False
-        except TelegramBadRequest as e:
-            logger.warning(f"Ошибка отправки пользователю {user.tg_user_id}: {e}")
-            # Деактивируем пользователя при ошибке отправки
-            await self._deactivate_user(user.tg_user_id)
-            return False
-        except Exception as e:
-            logger.error(
-                f"Неожиданная ошибка отправки пользователю {user.tg_user_id}: {e}"
-            )
-            return False
-
-    async def _deactivate_user(self, user_id: int):
-        """Деактивировать пользователя при ошибке отправки уведомления"""
-        try:
-            async with db_manager.async_session() as session:
-                user = await session.get(User, user_id)
-                if user and user.is_active:
-                    user.is_active = False
-                    await session.commit()
-                    logger.info(f"(U) {user_id} - Деактивирован")
-        except Exception as e:
-            logger.error(f"(U) {user_id} - Ошибка деактивации: {e}")
+        return await safe_send_message(
+            bot,
+            chat_id=user.tg_user_id,
+            text=message_text,
+            user_id=user.tg_user_id,
+            success_message=f"(U) {user.tg_user_id} - Уведомление отправлено",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=keyboard,
+        )
 
     def _format_single_deadline_notification(
         self,
@@ -372,82 +351,61 @@ class NotificationSender:
 
             sent = 0
             for user in users:
-                try:
-                    settings = await db_manager.get_user_notification_settings(
-                        user.tg_user_id
-                    )
-                    if not settings or not settings.is_active:
-                        continue
+                settings = await db_manager.get_user_notification_settings(
+                    user.tg_user_id
+                )
+                if not settings or not settings.is_active:
+                    continue
 
-                    # Проверяем, включены ли уведомления об обновлениях
-                    if not settings.enable_deadline_update_notifications:
-                        continue
+                # Проверяем, включены ли уведомления об обновлениях
+                if not settings.enable_deadline_update_notifications:
+                    continue
 
-                    user_tz = (
-                        pytz.timezone(user.timezone)
-                        if user and user.timezone
-                        else pytz.UTC
-                    )
+                user_tz = (
+                    pytz.timezone(user.timezone)
+                    if user and user.timezone
+                    else pytz.UTC
+                )
 
-                    message = f"📌 <b>{action_text}</b>\n\n"
-                    message += f"📚 <b>Предмет:</b> {subject_name}\n"
-                    if deadline.source_link:
-                        message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
-                    else:
-                        message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
-                    if soft:
-                        soft_local = soft.astimezone(user_tz)
-                        soft_str = soft_local.strftime("%d.%m.%Y в %H:%M")
-                        message += f"🟡 <b>Мягкий дедлайн:</b> {soft_str}\n"
-                    if hard:
-                        hard_local = hard.astimezone(user_tz)
-                        hard_str = hard_local.strftime("%d.%m.%Y в %H:%M")
-                        message += f"🔴 <b>Жёсткий дедлайн:</b> {hard_str}\n"
-                    if deadline.note:
-                        message += f"\n💬 <i>{deadline.note}</i>"
+                message = f"📌 <b>{action_text}</b>\n\n"
+                message += f"📚 <b>Предмет:</b> {subject_name}\n"
+                if deadline.source_link:
+                    message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                else:
+                    message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
+                if soft:
+                    soft_local = soft.astimezone(user_tz)
+                    soft_str = soft_local.strftime("%d.%m.%Y в %H:%M")
+                    message += f"🟡 <b>Мягкий дедлайн:</b> {soft_str}\n"
+                if hard:
+                    hard_local = hard.astimezone(user_tz)
+                    hard_str = hard_local.strftime("%d.%m.%Y в %H:%M")
+                    message += f"🔴 <b>Жёсткий дедлайн:</b> {hard_str}\n"
+                if deadline.note:
+                    message += f"\n💬 <i>{deadline.note}</i>"
 
-                    # Проверяем время сна
-                    is_sleep = False
-                    user_tz_name = user.timezone if user.timezone else "Europe/Moscow"
-                    from src.utils.time import is_sleep_time
-                    is_sleep = is_sleep_time(
-                        settings.sleep_start_time,
-                        settings.sleep_end_time,
-                        user_tz_name
-                    )
-
-                    if is_sleep:
-                        message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
-
-                    keyboard = InlineKeyboardMarkup(
-                        inline_keyboard=[
-                            [
-                                InlineKeyboardButton(
-                                    text="📅 Дедлайны", callback_data="quick_deadlines"
-                                )
-                            ]
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="📅 Дедлайны", callback_data="quick_deadlines"
+                            )
                         ]
-                    )
+                    ]
+                )
 
-                    await bot.send_message(
-                        user.tg_user_id,
-                        message,
-                        parse_mode="HTML",
-                        disable_web_page_preview=True,
-                        reply_markup=keyboard,
-                        disable_notification=is_sleep,
-                    )
+                success = await safe_send_message(
+                    bot,
+                    chat_id=user.tg_user_id,
+                    text=message,
+                    user_id=user.tg_user_id,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                    reply_markup=keyboard,
+                )
+
+                if success:
                     sent += 1
-                except TelegramForbiddenError:
-                    logger.warning(f"(U) {user.tg_user_id} - Заблокирован")
-                except TelegramBadRequest as e:
-                    logger.warning(
-                        f"Ошибка отправки пользователю {user.tg_user_id}: {e}"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Неожиданная ошибка отправки пользователю {user.tg_user_id}: {e}"
-                    )
 
             logger.info(
                 f"Отправлено {sent} мгновенных уведомлений об обновлении дедлайна {deadline.id}"
@@ -526,69 +484,48 @@ class NotificationSender:
                 rows = usr_res.fetchall()
 
             for user, settings in rows:
-                try:
-                    if not settings or not settings.is_active:
-                        continue
+                if not settings or not settings.is_active:
+                    continue
 
-                    # Проверяем, включены ли уведомления об обновлениях
-                    if not settings.enable_deadline_update_notifications:
-                        continue
+                # Проверяем, включены ли уведомления об обновлениях
+                if not settings.enable_deadline_update_notifications:
+                    continue
 
-                    entries = user_entries.get(user.tg_user_id) or []
-                    if not entries:
-                        continue
+                entries = user_entries.get(user.tg_user_id) or []
+                if not entries:
+                    continue
 
-                    # Формируем единое сообщение о нескольких обновлениях
-                    user_tz = (
-                        pytz.timezone(user.timezone)
-                        if user and user.timezone
-                        else pytz.UTC
-                    )
-                    message = self._format_multiple_deadline_updates(entries, user_tz)
+                # Формируем единое сообщение о нескольких обновлениях
+                user_tz = (
+                    pytz.timezone(user.timezone)
+                    if user and user.timezone
+                    else pytz.UTC
+                )
+                message = self._format_multiple_deadline_updates(entries, user_tz)
 
-                    # Проверяем время сна
-                    is_sleep = False
-                    user_tz_name = user.timezone if user.timezone else "Europe/Moscow"
-                    from src.utils.time import is_sleep_time
-                    is_sleep = is_sleep_time(
-                        settings.sleep_start_time,
-                        settings.sleep_end_time,
-                        user_tz_name
-                    )
-
-                    if is_sleep:
-                        message = message + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
-
-                    keyboard = InlineKeyboardMarkup(
-                        inline_keyboard=[
-                            [
-                                InlineKeyboardButton(
-                                    text="📅 Дедлайны", callback_data="quick_deadlines"
-                                )
-                            ]
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="📅 Дедлайны", callback_data="quick_deadlines"
+                            )
                         ]
-                    )
+                    ]
+                )
 
-                    await bot.send_message(
-                        user.tg_user_id,
-                        message,
-                        parse_mode="HTML",
-                        disable_web_page_preview=True,
-                        reply_markup=keyboard,
-                        disable_notification=is_sleep,
-                    )
+                success = await safe_send_message(
+                    bot,
+                    chat_id=user.tg_user_id,
+                    text=message,
+                    user_id=user.tg_user_id,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                    reply_markup=keyboard,
+                )
+
+                if success:
                     stats["messages_sent"] += 1
                     stats["users_processed"] += 1
-                except TelegramForbiddenError:
-                    logger.warning(f"(U) {user.tg_user_id} - Заблокирован")
-                except TelegramBadRequest as e:
-                    logger.warning(
-                        f"Ошибка отправки пользователю {user.tg_user_id}: {e}"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Неожиданная ошибка отправки пользователю {user.tg_user_id}: {e}"
-                    )
 
             return stats
         except Exception as e:

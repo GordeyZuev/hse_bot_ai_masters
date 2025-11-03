@@ -18,7 +18,7 @@ from src.core.models import (
     ScheduledNotification,
     User,
 )
-from src.utils import get_logger, get_week_monday
+from src.utils import get_logger, get_week_monday, safe_send_message
 
 
 logger = get_logger()
@@ -149,28 +149,25 @@ class AdminService:
             logger.info(f"Рассылка для {total_users} пользователей")
 
             for i, user in enumerate(users, 1):
-                try:
-                    await bot.send_message(
-                        chat_id=user.tg_user_id, text=message_text, parse_mode="HTML"
-                    )
+                success = await safe_send_message(
+                    bot,
+                    chat_id=user.tg_user_id,
+                    text=message_text,
+                    user_id=user.tg_user_id,
+                    parse_mode="HTML"
+                )
+
+                if success:
                     success_count += 1
-
-                    # Задержка между отправками (30 сообщений в секунду - лимит Telegram)
-                    if i % 30 == 0:
-                        await asyncio.sleep(1)
-
-                    if progress_callback and i % 10 == 0:
-                        progress_callback(i, total_users)
-
-                except Exception as e:
+                else:
                     error_count += 1
-                    logger.warning(
-                        f"Ошибка отправки пользователю {user.tg_user_id}: {e}"
-                    )
 
-                    if "bot was blocked" in str(e).lower():
-                        # TODO: блок
-                        pass
+                # Задержка между отправками (30 сообщений в секунду - лимит Telegram)
+                if i % 30 == 0:
+                    await asyncio.sleep(1)
+
+                if progress_callback and i % 10 == 0:
+                    progress_callback(i, total_users)
 
             logger.info(
                 f"Рассылка завершена: {success_count} успешно, {error_count} ошибок"

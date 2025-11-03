@@ -6,6 +6,7 @@ from .models import (
     ScheduledNotification,
     Subject,
     Subscription,
+    TaskUserStatus,
     User,
     UserNotificationSettings,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "ScheduledNotification",
     "Subject",
     "Subscription",
+    "TaskUserStatus",
     "User",
     "UserNotificationSettings",
 ]

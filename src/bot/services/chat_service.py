@@ -163,7 +163,7 @@ class ChatService:
 
                 session.add(chat_group)
                 await session.commit()
-                
+
                 logger.debug(f"Чат {chat_id} создан с названием: {chat_title}")
 
                 logger.info(f"(C) {chat_id} - Настроен на предмет: «{subject.name}»")

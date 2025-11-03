@@ -9,7 +9,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.services.notification_service import notification_service
 from src.core.database import db_manager
-from src.utils import get_logger
+from src.utils import get_logger, safe_edit_message
 from src.utils.notification_text import build_custom_offset_prompt, parse_offset_text
 
 
@@ -117,7 +117,7 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         builder.adjust(2, 2, 1, 1, 1)
 
         if edit_mode:
-            await message.edit_text(text, reply_markup=builder.as_markup())
+            await safe_edit_message(message, text, reply_markup=builder.as_markup())
         else:
             await message.answer(text, reply_markup=builder.as_markup())
 
@@ -145,7 +145,7 @@ async def callback_choose_timezone(callback: CallbackQuery, db_user, state: FSMC
         )
         builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
         builder.adjust(1, 1)
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
     except Exception as e:
         logger.error(f"Ошибка запуска выбора часового пояса: {e}")
         await callback.answer("Ошибка", show_alert=True)
@@ -166,7 +166,7 @@ async def callback_request_location(
         )
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="choose_timezone")
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
     except Exception as e:
         logger.error(f"Ошибка запроса местоположения: {e}")
         await callback.answer("Ошибка", show_alert=True)
@@ -255,7 +255,7 @@ async def callback_setup_notification(
 
         await state.update_data(notification_number=notification_number)
         await state.set_state(SettingsStates.choosing_notification)
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
 
     except (ValueError, IndexError):
         await callback.answer("Ошибка настройки уведомления", show_alert=True)
@@ -359,7 +359,7 @@ async def callback_custom_notification(
 
         await state.update_data(notification_number=notification_number)
         await state.set_state(SettingsStates.setting_offset)
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
 
     except (ValueError, IndexError):
         await callback.answer("Ошибка настройки", show_alert=True)
@@ -448,7 +448,7 @@ async def callback_sleep_settings(callback: CallbackQuery, db_user):
         builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
         builder.adjust(2, 1)
 
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
     except Exception as e:
         logger.error(f"Ошибка открытия настроек сна: {e}")
         await callback.answer("Ошибка", show_alert=True)
@@ -475,7 +475,7 @@ async def callback_setup_sleep_time(
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 К режиму сна", callback_data="sleep_settings")
         await state.set_state(SettingsStates.setting_sleep_time)
-        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
     except Exception as e:
         logger.error(f"Ошибка настройки времени сна: {e}")
         await callback.answer("Ошибка", show_alert=True)

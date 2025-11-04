@@ -83,7 +83,7 @@ Scheduler → ChatNotificationScheduler → ChatScheduledNotification → ChatNo
 
 #### 4. **Система мгновенных уведомлений об изменениях**
 ```
-Sync (DataSyncer) → Deadline Changes Detector → NotificationSender.send_immediate_task_changes → Telegram
+Sync (DataSyncer) → Task Changes Detector → NotificationSender.send_immediate_task_changes → Telegram
     ↓                          ↓                                  ↓
   Sheets              Изменения только soft/hard          Группировка и отправка
                     дедлайнов (не названий/ссылок)        с показом изменений
@@ -120,7 +120,7 @@ Telegram Chat → GroupChat Handler → ChatService → ChatNotificationSchedule
 - **`chat_service.py`** - Управление групповыми чатами (настройка, привязка к предметам)
 - **`chat_events_service.py`** - Обработка событий в чатах (добавление/удаление бота)
 - **`admin_service.py`** - Админские функции
-- **`deadline_service.py`** - Работа с дедлайнами (включая фильтрацию выполненных)
+- **`deadline_service.py`** - Работа с заданиями/дедлайнами (включая фильтрацию выполненных)
 - **`subscription_service.py`** - Управление подписками
 
 #### Middlewares (`src/bot/middlewares/`)
@@ -134,7 +134,7 @@ Telegram Chat → GroupChat Handler → ChatService → ChatNotificationSchedule
 
 #### Models (`src/core/models/`)
 - **`models.py`** - Определения таблиц и связей
-  - `User`, `Subject`, `Deadline`, `Subscription` - базовые модели
+  - `User`, `Subject`, `Task`, `Subscription` - базовые модели
   - `UserNotificationSettings`, `ScheduledNotification` - модели уведомлений для пользователей
     - `UserNotificationSettings` включает: `enable_deadline_update_notifications` (управление уведомлениями об обновлениях), `sleep_start_time`, `sleep_end_time` (режим сна)
   - `TaskUserStatus` - модель для отслеживания статуса выполнения заданий пользователями
@@ -232,7 +232,7 @@ Telegram Chat → /start → GroupChatHandler → ChatService → Database (Chat
                                                  Привязка к предмету
 
 2. Планирование уведомлений:
-New/Updated Deadline → ChatNotificationScheduler → ChatScheduledNotification → Database
+New/Updated Task → ChatNotificationScheduler → ChatScheduledNotification → Database
                     ↓
               Для всех чатов по предмету
 
@@ -331,7 +331,7 @@ Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram 
 
 ### 🔄 Техническая реализация
 
-Метод `upsert_deadline` теперь возвращает детальную информацию:
+Метод `upsert_task` теперь возвращает детальную информацию:
 - `is_new` — новый дедлайн или обновление
 - `deadline_changed` — изменился ли дедлайн
 - `soft_deadline_changed` / `hard_deadline_changed` — какие именно дедлайны изменились
@@ -453,7 +453,7 @@ Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram 
                                               NotificationSchedulerService (перепланирование)
 
 3. Просмотр дедлайнов:
-   User → Handler → DeadlineService.get_user_deadlines() → Database (LEFT JOIN TaskUserStatus)
+   User → Handler → DeadlineService.get_user_tasks() → Database (LEFT JOIN TaskUserStatus)
                                                              ↓
                                                       Форматирование с разделителем
 

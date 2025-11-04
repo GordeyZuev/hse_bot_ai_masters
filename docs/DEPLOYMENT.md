@@ -724,8 +724,8 @@ docker-compose exec db psql -U postgres -d hse_bot_db -c "\dt"
 # Проверка пользователей
 docker-compose exec db psql -U postgres -d hse_bot_db -c "SELECT COUNT(*) FROM users;"
 
-# Проверка дедлайнов
-docker-compose exec db psql -U postgres -d hse_bot_db -c "SELECT COUNT(*) FROM deadlines;"
+# Проверка заданий/дедлайнов
+docker-compose exec db psql -U postgres -d hse_bot_db -c "SELECT COUNT(*) FROM tasks;"
 ```
 
 ### 🤖 Проверка работы бота

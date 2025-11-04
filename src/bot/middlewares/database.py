@@ -63,7 +63,7 @@ class DatabaseMiddleware(BaseMiddleware):
                     user.first_name = tg_user.first_name
                     user.last_name = tg_user.last_name
                     user.username = tg_user.username
-                    user.last_activity_ts = current_time
+                    user.last_activity = current_time
                 else:
                     # Создаем нового пользователя
                     user = User(
@@ -71,8 +71,8 @@ class DatabaseMiddleware(BaseMiddleware):
                         first_name=tg_user.first_name,
                         last_name=tg_user.last_name,
                         username=tg_user.username,
-                        subscribed_at=current_time,
-                        last_activity_ts=current_time,
+                        created_at=current_time,
+                        last_activity=current_time,
                         timezone="Europe/Moscow",
                     )
                     session.add(user)
@@ -103,12 +103,11 @@ class DatabaseMiddleware(BaseMiddleware):
                 result = await session.execute(stmt)
                 chat_group = result.scalar_one_or_none()
 
-                if chat_group and chat.title:
+                if chat_group and chat.title and chat_group.chat_title != chat.title:
                     # Обновляем только если название изменилось
-                    if chat_group.chat_title != chat.title:
-                        chat_group.chat_title = chat.title
-                        await session.commit()
-                        logger.debug(f"Обновлено название чата {chat.id}: {chat.title}")
+                    chat_group.chat_title = chat.title
+                    await session.commit()
+                    logger.debug(f"Обновлено название чата {chat.id}: {chat.title}")
         except Exception as e:
             # Игнорируем ошибки обновления chat_title (не критично)
             logger.debug(f"Не удалось обновить chat_title для чата {chat.id if chat else 'unknown'}: {e}")

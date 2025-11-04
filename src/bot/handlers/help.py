@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.handlers.admin import is_admin
+from src.bot.texts import ADMIN_HELP_TEXT, HELP_TEXT
 from src.utils import get_logger, safe_edit_message
 
 
@@ -54,66 +55,9 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
     try:
         fcs_wiki_url = os.getenv("FCS_WIKI_URL", "https://wiki.cs.hse.ru")
 
-        text = (
-            f"""
-<b>📖 Справка по боту:</b>
-Бот автоматически присылает уведомления о приближающихся дедлайнах. Информация о дедлайнах берется из таблиц в ведомостях.
-
-<b>🔍 Легенда по типам дедлайнов:</b>
-• Мягкий дедлайн – 🟡
-• Жёсткий дедлайн – 🔴
-
-🔗 <a href="{fcs_wiki_url}">ФКН Вики - страничка программы</a>
-
-<b>🎯 Основные команды:</b>
-<blockquote expandable><b>📚 Управление подписками:</b>
-• /sub — подписаться на предметы.
-• /unsub — отписаться от предмета.
-• /unsuball — отписаться от всех предметов.
-• /mysubs — показать мои подписки.
-
-<b>📅 Дедлайны:</b>
-• /deadlines N — дедлайны в ближайшие N дней (по умолчанию N = 15).
-
-<b>⚙️ Настройки:</b>
-• /settings — настройки времени уведомлений и часового пояса.
-
-<b>ℹ️ Информация:</b>
-• /start — главное меню.
-• /help — эта справка.
-
-<b>👥 Для групповых чатов:</b>
-• /start — краткое приветствие и ссылки.
-• /setup_discipline — выбрать предмет и привязать бота (только для админов).
-• /disable_chat — включить/выключить уведомления в чате.
-
-<b>Как настроить бота в чате:</b>
-1) Убедитесь, что вы администратор чата.
-2) Откройте нужный топик (или останьтесь в общем чате).
-3) Вызовите /setup_discipline и выберите предмет.
-4) При необходимости привяжите бота к текущему топику (кнопка «Привязать к этому топику» в настройках).
-5) Проверьте права бота: рекомендуется «Управление темами форума», чтобы бот мог писать в закрытых темах.
-"""
-            + (
-                """
-
-<b>📊 Для администраторов:</b>
-• /stats — статистика использования и админ-панель.
-• /fast_sync — быстрая синхронизация с Google Sheets.
-• /broadcast — массовая рассылка.
-• /logs — получить файлы логов.
-• /chat_stats — статистика по чатам.
-• /chat_toggle_all — массовое управление чатами.
-"""
-                if is_admin(db_user.tg_user_id)
-                else ""
-            )
-            + """
-</blockquote>
-
-<b>💡 Совет:</b> Начните с подписок на предметы!
-        """
-        )
+        text = HELP_TEXT.format(fcs_wiki_url=fcs_wiki_url)
+        if is_admin(db_user.tg_user_id):
+            text += ADMIN_HELP_TEXT
 
         # Создаем клавиатуру с полезными действиями
         builder = InlineKeyboardBuilder()
@@ -125,13 +69,13 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
 
         if edit_mode:
             await safe_edit_message(
-                message, text.strip(),
+                message, text,
                 reply_markup=builder.as_markup(),
                 disable_web_page_preview=True,
             )
         else:
             await message.answer(
-                text.strip(),
+                text,
                 reply_markup=builder.as_markup(),
                 disable_web_page_preview=True,
             )

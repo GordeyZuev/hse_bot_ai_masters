@@ -47,11 +47,11 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
 
         if settings:
             # Уведомления о дедлайнах
-            deadline_status = "✅" if settings.is_active else "❌"
+            deadline_status = "✅ Включены" if settings.is_active else "❌ Отключены"
             text += f"Уведомления о дедлайнах {deadline_status}\n"
 
             # Уведомления об обновлениях
-            update_status = "✅ Включены" if settings.enable_deadline_update_notifications else "❌ Выключены"
+            update_status = "✅ Включены" if settings.enable_deadline_update_notifications else "❌ Отключены"
             text += f"Уведомления об обновлениях {update_status}\n\n"
 
             unit1_text = {"days": "дн.", "hours": "ч."}.get(
@@ -91,7 +91,7 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         if settings:
             if settings.is_active:
                 builder.button(
-                    text="🔕 Выключить уведомления о дедлайнах",
+                    text="🔕 Отключить уведомления о дедлайнах",
                     callback_data="disable_notifications",
                 )
             else:
@@ -313,7 +313,7 @@ async def callback_enable_notifications(callback: CallbackQuery, db_user):
 
 @router.callback_query(F.data == "disable_notifications")
 async def callback_disable_notifications(callback: CallbackQuery, db_user):
-    """Обработчик выключения всех уведомлений"""
+    """Обработчик отключения всех уведомлений"""
     await callback.answer()
 
     try:
@@ -327,8 +327,8 @@ async def callback_disable_notifications(callback: CallbackQuery, db_user):
             await cmd_settings(callback, db_user, None)
 
     except Exception as e:
-        logger.error(f"Ошибка выключения уведомлений: {e}")
-        await callback.answer("Ошибка выключения уведомлений", show_alert=True)
+        logger.error(f"Ошибка отключения уведомлений: {e}")
+        await callback.answer("Ошибка отключения уведомлений", show_alert=True)
 
 
 @router.callback_query(F.data == "back_to_settings")
@@ -507,7 +507,6 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
             end_hour = int(match.group(3))
             end_minute = int(match.group(4))
 
-            # Валидация часов и минут
             if not (0 <= start_hour <= 23 and 0 <= start_minute <= 59):
                 await message.answer("❌ Неверное время начала. Часы: 0-23, минуты: 0-59")
                 return
@@ -520,7 +519,6 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
             sleep_start = time(start_hour, start_minute)
             sleep_end = time(end_hour, end_minute)
 
-            # Проверяем, что время начала и конца не одинаковые
             if sleep_start == sleep_end:
                 await message.answer(
                     "❌ Время начала и окончания не могут быть одинаковыми!\n\n"
@@ -528,7 +526,6 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
                 )
                 return
 
-            # Сохраняем настройки
             success, message_text = await notification_service.set_sleep_time(
                 db_user.tg_user_id, sleep_start, sleep_end
             )
@@ -538,7 +535,6 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
                 end_str = sleep_end.strftime("%H:%M")
                 await state.clear()
 
-                # Показываем экран настроек сна
                 await notification_service.get_user_notification_settings(
                     db_user.tg_user_id
                 )
@@ -577,7 +573,6 @@ async def callback_clear_sleep_time(callback: CallbackQuery, db_user):
         await callback.answer(message_text, show_alert=True)
 
         if success:
-            # Возвращаемся к экрану настроек сна
             await callback_sleep_settings(callback, db_user)
 
     except Exception as e:

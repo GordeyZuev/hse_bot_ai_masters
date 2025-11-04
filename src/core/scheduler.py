@@ -64,7 +64,7 @@ class HSEScheduler:
                     try:
                         # Передаем changes с информацией об изменениях
                         if changes:
-                            await notification_sender.send_immediate_deadline_changes(
+                            await notification_sender.send_immediate_task_changes(
                                 self.bot, changes
                             )
                     except Exception as e:

@@ -29,14 +29,17 @@ class Subject(Base):
     start_module = Column(Integer)
     end_module = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     is_active = Column(Boolean, default=True)
 
     wiki_url = Column(Text)
     vk_playlist_url = Column(Text)
     yt_playlist_url = Column(Text)
 
-    deadlines = relationship(
-        "Deadline", back_populates="subject", cascade="all, delete-orphan"
+    tasks = relationship(
+        "Task", back_populates="subject", cascade="all, delete-orphan"
     )
     subscriptions = relationship(
         "Subscription", back_populates="subject", cascade="all, delete-orphan"
@@ -50,8 +53,8 @@ class Subject(Base):
     )
 
 
-class Deadline(Base):
-    __tablename__ = "deadlines"
+class Task(Base):
+    __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True)
     subject_id = Column(
@@ -63,21 +66,21 @@ class Deadline(Base):
     hard_deadline_ts = Column(DateTime(timezone=True))
     note = Column(Text)
     sheet_row_id = Column(Integer, unique=True)
-    last_updated = Column(DateTime(timezone=True))
+    updated_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    subject = relationship("Subject", back_populates="deadlines")
+    subject = relationship("Subject", back_populates="tasks")
     notifications = relationship(
-        "ScheduledNotification", back_populates="deadline", cascade="all, delete-orphan"
+        "ScheduledNotification", back_populates="task", cascade="all, delete-orphan"
     )
     chat_notifications = relationship(
-        "ChatScheduledNotification", back_populates="deadline", cascade="all, delete-orphan"
+        "ChatScheduledNotification", back_populates="task", cascade="all, delete-orphan"
     )
 
     __table_args__ = (
-        Index("idx_deadlines_subject_id", "subject_id"),
-        Index("idx_deadlines_soft_ts", "soft_deadline_ts"),
-        Index("idx_deadlines_hard_ts", "hard_deadline_ts"),
+        Index("idx_tasks_subject_id", "subject_id"),
+        Index("idx_tasks_soft_ts", "soft_deadline_ts"),
+        Index("idx_tasks_hard_ts", "hard_deadline_ts"),
     )
 
 
@@ -88,12 +91,11 @@ class User(Base):
     first_name = Column(Text)
     last_name = Column(Text)
     username = Column(Text)
-    subscribed_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_activity_ts = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_activity = Column(DateTime(timezone=True))
     timezone = Column(
         Text, nullable=False, default="Europe/Moscow", server_default="Europe/Moscow"
     )
-    settings_version = Column(Integer, default=1)
     is_active = Column(Boolean, nullable=False, default=True)
 
     subscriptions = relationship(
@@ -178,7 +180,7 @@ class ScheduledNotification(Base):
         BigInteger, ForeignKey("users.tg_user_id", ondelete="CASCADE"), nullable=False
     )
     deadline_id = Column(
-        Integer, ForeignKey("deadlines.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
     )
 
     deadline_type = Column(Text, nullable=False)
@@ -195,7 +197,7 @@ class ScheduledNotification(Base):
     )
 
     user = relationship("User", back_populates="notifications")
-    deadline = relationship("Deadline", back_populates="notifications")
+    task = relationship("Task", back_populates="notifications")
 
     __table_args__ = (
         UniqueConstraint(
@@ -274,7 +276,7 @@ class ChatScheduledNotification(Base):
         BigInteger, ForeignKey("chat_groups.chat_id", ondelete="CASCADE"), nullable=False
     )
     deadline_id = Column(
-        Integer, ForeignKey("deadlines.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
     )
 
     deadline_type = Column(Text, nullable=False)
@@ -291,7 +293,7 @@ class ChatScheduledNotification(Base):
     )
 
     chat_group = relationship("ChatGroup", back_populates="notifications")
-    deadline = relationship("Deadline", back_populates="chat_notifications")
+    task = relationship("Task", back_populates="chat_notifications")
 
     __table_args__ = (
         UniqueConstraint(
@@ -327,7 +329,7 @@ class TaskUserStatus(Base):
         BigInteger, ForeignKey("users.tg_user_id", ondelete="CASCADE"), primary_key=True
     )
     deadline_id = Column(
-        Integer, ForeignKey("deadlines.id", ondelete="CASCADE"), primary_key=True
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True
     )
 
     __table_args__ = (

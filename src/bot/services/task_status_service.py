@@ -1,7 +1,7 @@
 from sqlalchemy import and_, delete, select
 
 from src.core.database import db_manager
-from src.core.models import Deadline, ScheduledNotification, TaskUserStatus
+from src.core.models import ScheduledNotification, Task, TaskUserStatus
 from src.utils import get_logger
 from src.utils.time import utc_now
 
@@ -45,7 +45,7 @@ class TaskStatusService:
         # Reschedule notifications for this user+deadline (if still in future)
         try:
             async with db_manager.async_session() as session:
-                d = await session.get(Deadline, deadline_id)
+                d = await session.get(Task, deadline_id)
             if not d:
                 return
 
@@ -57,11 +57,11 @@ class TaskStatusService:
             )
             count = 0
             if d.soft_deadline_ts:
-                count += await notification_scheduler_service._schedule_notifications_for_user_deadline(
+                count += await notification_scheduler_service._schedule_notifications_for_user_task(
                     user, d, "soft", d.soft_deadline_ts, settings
                 )
             if d.hard_deadline_ts:
-                count += await notification_scheduler_service._schedule_notifications_for_user_deadline(
+                count += await notification_scheduler_service._schedule_notifications_for_user_task(
                     user, d, "hard", d.hard_deadline_ts, settings
                 )
             logger.debug(

@@ -7,7 +7,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
 from src.core.database import db_manager
-from src.core.models import ChatScheduledNotification, Deadline
+from src.core.models import ChatScheduledNotification, Task
 from src.utils import get_logger, safe_send_message
 
 
@@ -76,7 +76,7 @@ class ChatNotificationSender:
                 .join(ChatGroup)
                 .options(
                     selectinload(ChatScheduledNotification.chat_group),
-                    selectinload(ChatScheduledNotification.deadline)
+                    selectinload(ChatScheduledNotification.task)
                 )
                 .where(
                     and_(
@@ -120,7 +120,7 @@ class ChatNotificationSender:
                 stats["skipped"] += len(notifications)
                 return
 
-            # Группируем уведомления по дедлайнам
+            # Группируем уведомления по задачам
             deadline_notifications = self._group_notifications_by_deadline(notifications)
 
             # Формируем единое сообщение (как в scheduled_notification_sender)
@@ -151,7 +151,7 @@ class ChatNotificationSender:
     def _group_notifications_by_deadline(
         self, notifications: list[ChatScheduledNotification]
     ) -> dict[int, list[ChatScheduledNotification]]:
-        """Группировать уведомления по дедлайнам"""
+        """Группировать уведомления по задачам"""
         grouped = {}
         for notification in notifications:
             deadline_id = notification.deadline_id
@@ -205,7 +205,7 @@ class ChatNotificationSender:
 
         for idx, (_planned, notifs) in enumerate(items, 1):
             n0 = notifs[0]
-            deadline = n0.deadline
+            deadline = n0.task
             hw_name = deadline.hw_name or "Без названия"
 
             # Не показываем нумерацию если дедлайн один
@@ -244,7 +244,7 @@ class ChatNotificationSender:
         message_text = self._format_chat_notification_message(notifications)
 
         # Создаем клавиатуру
-        keyboard = self._create_chat_notification_keyboard(notifications[0].deadline)
+        keyboard = self._create_chat_notification_keyboard(notifications[0].task)
 
         # Получаем topic_id для отправки в топик
         chat_group = notifications[0].chat_group
@@ -268,7 +268,7 @@ class ChatNotificationSender:
         if not notifications:
             return ""
 
-        deadline = notifications[0].deadline
+        deadline = notifications[0].task
         subject = deadline.subject
 
         # Определяем тип дедлайна
@@ -300,7 +300,7 @@ class ChatNotificationSender:
 
         return text
 
-    def _create_chat_notification_keyboard(self, deadline: Deadline) -> InlineKeyboardMarkup:
+    def _create_chat_notification_keyboard(self, deadline: Task) -> InlineKeyboardMarkup:
         """Создать клавиатуру для уведомления"""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 

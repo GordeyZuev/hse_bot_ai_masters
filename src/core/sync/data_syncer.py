@@ -94,7 +94,7 @@ class DataSyncer:
                     )
                     continue
 
-                deadline_data = {
+                task_data = {
                     "subject_id": subject.id,
                     "hw_name": hw_name,
                     "source_link": row_data.get("Источник (Link)", "").strip() or None,
@@ -108,7 +108,7 @@ class DataSyncer:
                     "sheet_row_id": self.extract_sheet_row_id(row_data),
                 }
 
-                transformed_data.append(deadline_data)
+                transformed_data.append(task_data)
 
             except Exception as e:
                 logger.error(f"Ошибка преобразования строки {row_data}: {e}")
@@ -150,30 +150,31 @@ class DataSyncer:
             current_sheet_row_ids = []
             changes: list[dict[str, Any]] = []
 
-            for deadline_data in db_data:
-                deadline, change_info = await db_manager.upsert_deadline(deadline_data)
-                if deadline:
+            for task_data in db_data:
+                task, change_info = await db_manager.upsert_task(task_data)
+                if task:
                     synced_count += 1
-                    current_sheet_row_ids.append(deadline.sheet_row_id)
+                    current_sheet_row_ids.append(task.sheet_row_id)
 
                     # Планируем уведомления и отправляем сообщение только если изменились дедлайны
                     if change_info.get("deadline_changed", False):
+                        logger.info(f"sync_data: обнаружено изменение дедлайна {task.id} (soft={change_info.get('soft_deadline_changed', False)}, hard={change_info.get('hard_deadline_changed', False)})")
                         try:
-                            notifications_count = await notification_scheduler_service.reschedule_notifications_for_updated_deadline(
-                                deadline
+                            notifications_count = await notification_scheduler_service.reschedule_notifications_for_updated_task(
+                                task
                             )
                             scheduled_notifications_count += notifications_count
                             # Добавляем информацию об изменениях для отправки уведомлений
                             changes.append({
-                                "deadline": deadline,
+                                "deadline": task,
                                 "change_info": change_info
                             })
                         except Exception as e:
                             logger.error(
-                                f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}"
+                                f"Ошибка планирования уведомлений для дедлайна {task.id}: {e}"
                             )
 
-            await db_manager.delete_outdated_deadlines(current_sheet_row_ids)
+            await db_manager.delete_outdated_tasks(current_sheet_row_ids)
             logger.info(
                 f"Синхронизация: {synced_count} дедлайнов, {scheduled_notifications_count} увед."
             )

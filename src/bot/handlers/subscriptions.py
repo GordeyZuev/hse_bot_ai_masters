@@ -1,3 +1,4 @@
+# ruff: noqa: ARG001
 from aiogram import F, Router
 from aiogram.filters import Command, and_f
 from aiogram.fsm.context import FSMContext

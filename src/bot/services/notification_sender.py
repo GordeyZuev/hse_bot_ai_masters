@@ -8,14 +8,17 @@ from sqlalchemy import and_, or_, select
 
 from src.core.database import db_manager
 from src.core.models import (
-    Deadline,
     Subject,
     Subscription,
+    Task,
     TaskUserStatus,
     User,
     UserNotificationSettings,
 )
 from src.utils import get_logger, safe_send_message
+from src.utils.notification_formatting import (
+    format_deadline_datetime_with_time_word,
+)
 
 
 logger = get_logger()
@@ -24,7 +27,7 @@ logger = get_logger()
 class NotificationSender:
     """Сервис для отправки уведомлений о дедлайнах"""
 
-    async def send_deadline_notifications(self, bot: Bot) -> dict[str, int]:
+    async def send_task_notifications(self, bot: Bot) -> dict[str, int]:
         """Отправить уведомления о приближающихся дедлайнах"""
         try:
             logger.info("Отправка уведомлений")
@@ -206,23 +209,23 @@ class NotificationSender:
                 )
 
                 stmt = (
-                    select(Deadline, Subject)
+                    select(Task, Subject)
                     .join(Subject)
-                    .outerjoin(tus, tus.c.deadline_id == Deadline.id)
+                    .outerjoin(tus, tus.c.deadline_id == Task.id)
                     .where(
                         and_(
-                            Deadline.subject_id.in_(subscribed_subject_ids),
+                            Task.subject_id.in_(subscribed_subject_ids),
                             tus.c.deadline_id.is_(None),
                             or_(
                                 and_(
-                                    Deadline.soft_deadline_ts.isnot(None),
-                                    Deadline.soft_deadline_ts >= start_time,
-                                    Deadline.soft_deadline_ts <= end_time,
+                                    Task.soft_deadline_ts.isnot(None),
+                                    Task.soft_deadline_ts >= start_time,
+                                    Task.soft_deadline_ts <= end_time,
                                 ),
                                 and_(
-                                    Deadline.hard_deadline_ts.isnot(None),
-                                    Deadline.hard_deadline_ts >= start_time,
-                                    Deadline.hard_deadline_ts <= end_time,
+                                    Task.hard_deadline_ts.isnot(None),
+                                    Task.hard_deadline_ts >= start_time,
+                                    Task.hard_deadline_ts <= end_time,
                                 ),
                             ),
                         )
@@ -309,15 +312,14 @@ class NotificationSender:
             message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
 
         # Информация о дедлайнах
-        user_tz = pytz.timezone(getattr(user, "timezone", "") or "UTC")
+        user_tz_name = getattr(user, "timezone", "") or "UTC"
+
         if deadline.soft_deadline_ts:
-            soft_local = deadline.soft_deadline_ts.astimezone(user_tz)
-            soft_date = soft_local.strftime("%d.%m.%Y в %H:%M")
+            soft_date = format_deadline_datetime_with_time_word(deadline.soft_deadline_ts, user_tz_name)
             message += f"🟡 <b>Дедлайн:</b> {soft_date} (Осталось {offset_value} {unit_text})\n"
 
         if deadline.hard_deadline_ts:
-            hard_local = deadline.hard_deadline_ts.astimezone(user_tz)
-            hard_date = hard_local.strftime("%d.%m.%Y в %H:%M")
+            hard_date = format_deadline_datetime_with_time_word(deadline.hard_deadline_ts, user_tz_name)
             message += f"🔴 <b>Дедлайн:</b> {hard_date} (Осталось {offset_value} {unit_text})\n"
 
         if deadline.note:
@@ -325,7 +327,7 @@ class NotificationSender:
 
         return message
 
-    async def send_immediate_deadline_change(self, bot: Bot, deadline: Deadline) -> int:
+    async def send_immediate_task_change(self, bot: Bot, deadline: Task) -> int:
         """Отправить мгновенное уведомление подписчикам о создании/изменении дедлайна"""
         try:
             async with db_manager.async_session() as session:
@@ -361,7 +363,7 @@ class NotificationSender:
                 if not settings.enable_deadline_update_notifications:
                     continue
 
-                user_tz = (
+                (
                     pytz.timezone(user.timezone)
                     if user and user.timezone
                     else pytz.UTC
@@ -374,13 +376,11 @@ class NotificationSender:
                 else:
                     message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
                 if soft:
-                    soft_local = soft.astimezone(user_tz)
-                    soft_str = soft_local.strftime("%d.%m.%Y в %H:%M")
-                    message += f"🟡 <b>Мягкий дедлайн:</b> {soft_str}\n"
+                    soft_str = format_deadline_datetime_with_time_word(soft, user.timezone)
+                    message += f"🟡 {soft_str}\n"
                 if hard:
-                    hard_local = hard.astimezone(user_tz)
-                    hard_str = hard_local.strftime("%d.%m.%Y в %H:%M")
-                    message += f"🔴 <b>Жёсткий дедлайн:</b> {hard_str}\n"
+                    hard_str = format_deadline_datetime_with_time_word(hard, user.timezone)
+                    message += f"🔴 {hard_str}\n"
                 if deadline.note:
                     message += f"\n💬 <i>{deadline.note}</i>"
 
@@ -415,14 +415,14 @@ class NotificationSender:
             logger.error(f"Ошибка мгновенной отправки для дедлайна {deadline.id}: {e}")
             return 0
 
-    async def send_immediate_deadline_changes(
+    async def send_immediate_task_changes(
         self, bot: Bot, changes: list[dict[str, Any]]
     ) -> dict[str, int]:
         """Отправить одно групповое сообщение пользователю, если за синхронизацию изменилось несколько дедлайнов.
 
         Args:
             bot: Экземпляр бота для отправки сообщений
-            changes: Список словарей с ключами "deadline" (Deadline) и "change_info" (dict с информацией об изменениях)
+            changes: Список словарей с ключами "deadline" (Task) и "change_info" (dict с информацией об изменениях)
         """
         stats = {"users_processed": 0, "messages_sent": 0}
         try:
@@ -478,7 +478,12 @@ class NotificationSender:
                         UserNotificationSettings,
                         User.tg_user_id == UserNotificationSettings.user_id,
                     )
-                    .where(User.tg_user_id.in_(user_ids))
+                    .where(
+                        and_(
+                            User.tg_user_id.in_(user_ids),
+                            User.is_active,
+                        )
+                    )
                 )
                 usr_res = await session.execute(usr_stmt)
                 rows = usr_res.fetchall()
@@ -568,13 +573,9 @@ class NotificationSender:
         self, entries: list[dict[str, Any]], user_tz, is_new: bool = False
     ) -> str:
         """Форматировать список дедлайнов с информацией об изменениях."""
-        from src.utils.notification_formatting import (
-            format_deadline_datetime_with_time_word,
-        )
-
         # Сортируем по ближайшему времени дедлайна (soft/hard, что доступно)
         def deadline_key(e):
-            d: Deadline = e["deadline"]
+            d: Task = e["deadline"]
             return min(
                 [
                     dt
@@ -588,7 +589,7 @@ class NotificationSender:
         lines = []
 
         for i, e in enumerate(entries_sorted, 1):
-            d: Deadline = e["deadline"]
+            d: Task = e["deadline"]
             s: Subject = e["subject"]
             change_info = e.get("change_info", {})
 
@@ -607,11 +608,11 @@ class NotificationSender:
                     old_soft = change_info.get("old_soft_deadline_ts")
                     if old_soft:
                         old_soft_str = format_deadline_datetime_with_time_word(old_soft, user_tz.zone)
-                        lines.append(f"🟡 <b>Мягкий дедлайн:</b> {soft_str} (<s>{old_soft_str}</s>)")
+                        lines.append(f"🟡 {soft_str} (<s>{old_soft_str}</s>)")
                     else:
-                        lines.append(f"🟡 <b>Мягкий дедлайн:</b> {soft_str} <i>(добавлен)</i>")
+                        lines.append(f"🟡 {soft_str} <i>(добавлен)</i>")
                 else:
-                    lines.append(f"🟡 <b>Мягкий дедлайн:</b> {soft_str}")
+                    lines.append(f"🟡 {soft_str}")
 
             # Жесткий дедлайн
             if d.hard_deadline_ts:
@@ -622,11 +623,11 @@ class NotificationSender:
                     old_hard = change_info.get("old_hard_deadline_ts")
                     if old_hard:
                         old_hard_str = format_deadline_datetime_with_time_word(old_hard, user_tz.zone)
-                        lines.append(f"🔴 <b>Жёсткий дедлайн:</b> {hard_str} (<s>{old_hard_str}</s>)")
+                        lines.append(f"🔴 {hard_str} (<s>{old_hard_str}</s>)")
                     else:
-                        lines.append(f"🔴 <b>Жёсткий дедлайн:</b> {hard_str} <i>(добавлен)</i>")
+                        lines.append(f"🔴 {hard_str} <i>(добавлен)</i>")
                 else:
-                    lines.append(f"🔴 <b>Жёсткий дедлайн:</b> {hard_str}")
+                    lines.append(f"🔴 {hard_str}")
 
             if d.note:
                 lines.append(f"💬 <i>{d.note}</i>")
@@ -664,12 +665,10 @@ class NotificationSender:
                 message += f"📝 {deadline.hw_name}\n"
 
             if deadline.soft_deadline_ts:
-                local_time = deadline.soft_deadline_ts.astimezone(user_tz)
-                date_str = local_time.strftime("%d.%m.%Y в %H:%M")
+                date_str = format_deadline_datetime_with_time_word(deadline.soft_deadline_ts, user_tz.zone)
                 message += f"🟡 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
             elif deadline.hard_deadline_ts:
-                local_time = deadline.hard_deadline_ts.astimezone(user_tz)
-                date_str = local_time.strftime("%d.%m.%Y в %H:%M")
+                date_str = format_deadline_datetime_with_time_word(deadline.hard_deadline_ts, user_tz.zone)
                 message += f"🔴 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
 
             message += "\n"

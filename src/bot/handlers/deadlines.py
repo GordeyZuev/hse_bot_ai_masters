@@ -1,7 +1,6 @@
 import re
 from datetime import UTC, datetime
 
-import pytz
 from aiogram import F, Router
 from aiogram.filters import Command, and_f
 from aiogram.types import CallbackQuery, Message
@@ -10,6 +9,10 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from src.bot.services.deadline_service import deadline_service
 from src.bot.services.task_status_service import task_status_service
 from src.utils import get_logger, safe_edit_message
+from src.utils.notification_formatting import (
+    format_deadline_datetime,
+    format_time_remaining,
+)
 
 
 logger = get_logger()
@@ -22,78 +25,74 @@ def _format_deadlines_with_divider(
     """Форматирование списка дедлайнов с разделителем между выполненными и невыполненными"""
     if not all_deadlines:
         return deadline_service.format_deadlines_list([], days, user_tz_name=user_tz_name)
-    
+
     # Сначала создаем фиксированную нумерацию на основе общего отсортированного списка
     # Это гарантирует, что номер каждого задания не изменится при изменении его статуса
     sorted_all = sorted(all_deadlines, key=lambda x: x["deadline"].id)
     deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(sorted_all)}
-    
+
     # Разделяем на выполненные и невыполненные
     not_done_deadlines = [d for d in all_deadlines if not d.get("is_done", False)]
     done_deadlines = [d for d in all_deadlines if d.get("is_done", False)]
-    
+
     # Сортируем каждую группу по ID дедлайна для стабильности порядка
     not_done_deadlines.sort(key=lambda x: x["deadline"].id)
     done_deadlines.sort(key=lambda x: x["deadline"].id)
-    
+
     # Специальный случай: все выполнено и скрыты выполненные
     if not not_done_deadlines and done_deadlines and hide_done:
         return f"📅 <b>Дедлайны на {days} дней</b>\n\nВы все выполнили! Поздравляем!"
-    
-    # Форматируем текст с разделителем
+
+    # Форматируем текст с маркерами статуса
     text = f"📅 <b>Дедлайны на {days} дней</b>\n\n"
-    user_tz = pytz.timezone(user_tz_name)
-    
-    # Невыполненные задания
+
+    # Невыполненные задания с маркером 🟡/🔴 перед датой дедлайна
     if not_done_deadlines:
         for data in not_done_deadlines:
             deadline = data["deadline"]
             subject = data["subject"]
             i = deadline_numbers[deadline.id]
-            
+
             text += f"<b>{i}. {subject.name}</b>\n"
             if deadline.source_link:
                 text += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
             else:
                 text += f"📝 {deadline.hw_name}\n"
-            
+
             if data.get("nearest_deadline"):
                 now = datetime.now(UTC)
-                local_time = data["nearest_deadline"].astimezone(user_tz)
-                date_str = local_time.strftime("%d.%m.%Y %H:%M")
+                date_str = format_deadline_datetime(data["nearest_deadline"], user_tz_name)
                 deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"
-                from src.utils.notification_formatting import format_time_remaining
                 remain = format_time_remaining(data["nearest_deadline"], now)
                 text += f"{deadline_type_icon} {date_str} {remain}"
-            
+
             text += "\n\n"
-    
-    # Разделитель и выполненные задания (показываем только если hide_done=False)
+
+    # Разделитель (дополнительная пустая строка) между секциями
+    if not_done_deadlines and done_deadlines and not hide_done:
+        text += "\n"
+
+    # Выполненные задания с маркером ✅ перед датой дедлайна (показываем только если hide_done=False)
     if done_deadlines and not hide_done:
-        text += "\n\n✅ <b>Выполненные задания:</b>\n\n"
-        
         for data in done_deadlines:
             deadline = data["deadline"]
             subject = data["subject"]
             i = deadline_numbers[deadline.id]
-            
+
             text += f"<b>{i}. {subject.name}</b>\n"
             if deadline.source_link:
                 text += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
             else:
                 text += f"📝 {deadline.hw_name}\n"
-            
+
             if data.get("nearest_deadline"):
                 now = datetime.now(UTC)
-                local_time = data["nearest_deadline"].astimezone(user_tz)
-                date_str = local_time.strftime("%d.%m.%Y %H:%M")
-                deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"
-                from src.utils.notification_formatting import format_time_remaining
+                date_str = format_deadline_datetime(data["nearest_deadline"], user_tz_name)
                 remain = format_time_remaining(data["nearest_deadline"], now)
-                text += f"{deadline_type_icon} {date_str} {remain}"
-            
+                text += f"✅ {date_str} {remain}"
+
             text += "\n\n"
-    
+
     text += f"<i>Всего дедлайнов: {len(all_deadlines)}</i>"
     return text
 
@@ -116,7 +115,7 @@ async def cmd_deadlines(message: Message, db_user):
             except ValueError:
                 days = 7
 
-        await send_deadlines_list(message, db_user, days, hide_done=False)
+        await send_deadlines_list(message, db_user, days, hide_done=True)
 
     except Exception as e:
         logger.error(f"Ошибка в обработчике /deadlines: {e}")
@@ -127,7 +126,7 @@ async def cmd_deadlines(message: Message, db_user):
 async def callback_deadlines(callback: CallbackQuery, db_user):
     """Обработчик кнопки быстрого доступа к дедлайнам"""
     await callback.answer()
-    await send_deadlines_list(callback.message, db_user, 7, hide_done=False, edit=True)
+    await send_deadlines_list(callback.message, db_user, 7, hide_done=True, edit=True)
 
 
 @router.callback_query(F.data.startswith("deadlines_"))
@@ -138,7 +137,7 @@ async def callback_deadlines_period(callback: CallbackQuery, db_user):
     try:
         parts = callback.data.split("_")
         days = int(parts[1])
-        hide_done = False
+        hide_done = True
         if len(parts) >= 3 and parts[2].startswith("h"):
             hide_done = parts[2] == "h1"
         await send_deadlines_list(callback.message, db_user, days, hide_done=hide_done, edit=True)
@@ -228,18 +227,18 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         # Сначала создаем фиксированную нумерацию на основе общего отсортированного списка
         sorted_all = sorted(deadlines_data, key=lambda x: x["deadline"].id)
         deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(sorted_all)}
-        
+
         # Разделяем на выполненные и невыполненные для форматирования текста
         not_done_deadlines = [d for d in deadlines_data if not d.get("is_done", False)]
         done_deadlines = [d for d in deadlines_data if d.get("is_done", False)]
-        
+
         # Сортируем каждую группу по ID дедлайна для стабильности порядка
         not_done_deadlines.sort(key=lambda x: x["deadline"].id)
         done_deadlines.sort(key=lambda x: x["deadline"].id)
-        
+
         # Переупорядочиваем deadlines_data для форматирования текста: сначала невыполненные, потом выполненные
         deadlines_data_for_text = not_done_deadlines + done_deadlines
-        
+
         # Форматируем текст с разделителем (всегда показываем выполненные)
         text = _format_deadlines_with_divider(deadlines_data_for_text, days, db_user.timezone, hide_done=False)
 
@@ -277,7 +276,7 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
             bottom_builder.button(text="🔙 Назад", callback_data="back_to_menu")
             bottom_builder.adjust(2)
         else:
-            bottom_builder.button(text="💾 Сохранить", callback_data=f"deadlines_{days}_h{1 if hide_done else 0}")
+            bottom_builder.button(text="🔙 Сохранить и выйти", callback_data=f"deadlines_{days}_h{1 if hide_done else 0}")
             bottom_builder.adjust(1)
 
         # Объединяем все построители
@@ -448,7 +447,6 @@ async def callback_toggle_task(callback: CallbackQuery, db_user):
     deadline_id = int(parts[2])
     int(parts[3])
     days = int(parts[4])
-    parts[5] == "h1"
 
     data = await deadline_service.get_user_deadlines(db_user.tg_user_id, days, hide_done=False)
     current = next((x for x in data if x["deadline"].id == deadline_id), None)

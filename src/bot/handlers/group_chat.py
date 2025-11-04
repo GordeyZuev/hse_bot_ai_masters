@@ -1,3 +1,4 @@
+# ruff: noqa: ARG001
 """
 Обработчики для групповых чатов и топиков.
 
@@ -23,9 +24,18 @@ from src.bot.services.chat_notification_scheduler_service import (
     chat_notification_scheduler_service,
 )
 from src.bot.services.chat_service import chat_service
+from src.bot.texts import (
+    CHAT_SETUP_PROMPT_TEXT,
+    GROUP_CHAT_HELP_TEXT,
+    GROUP_START_CONFIGURED_TEXT,
+    GROUP_START_UNCONFIGURED_TEXT,
+    REMINDER1_SETUP_TEXT,
+    REMINDER2_SETUP_TEXT,
+    TIME_SETTINGS_SELECTED_SUBJECT_TEMPLATE,
+)
 from src.core.database import db_manager
 from src.core.models import Subject
-from src.core.models.models import Deadline
+from src.core.models.models import Task
 from src.utils import get_logger, safe_edit_message
 from src.utils.notification_text import build_custom_offset_prompt, parse_offset_text
 
@@ -189,32 +199,7 @@ async def send_chat_help_message(message: Message, edit_mode: bool = False):
     """Отправка сообщения со справкой для групповых чатов"""
     try:
 
-        text = """
-🤖 <b>Справка для группового чата</b>
-
-Бот помогает отслеживать дедлайны по предметам прямо в чате.
-
-<b>Как настроить:</b>
-1) Убедитесь, что вы администратор чата
-2) Перейдите в топик, в котором хотите отслеживать дедлайны (Можно изменить позже в настройках бота)
-3) Нажмите «Настройка бота» и выберите предмет
-4) При желании, можно изменить стандартные настройки уведомлений
-
-<b>Важно:</b> для закрытых тем у бота должно быть право админа «Управление темами».
-
-
-
-<b>Лучше использовать кнопки, но вот команды:</b>
-<blockquote expandable>
-• /start — краткое приветствие и ссылки
-• /info — показать информацию о предмете и актуальные дедлайны
-• /setup_discipline — выбрать предмет и привязать бота (только для админов)
-• /disable_chat — включить/выключить уведомления в чате (для админов)
-• /help — эта справка
-</blockquote>
-
-<i><b>P.S.</b> Если хотите настроить личные уведомления, вызовите бота в личных сообщениях.</i>
-"""
+        text = GROUP_CHAT_HELP_TEXT
 
         builder = InlineKeyboardBuilder()
         # Кнопка настройки бота показывается только если бот уже настроен в этом чате
@@ -229,9 +214,9 @@ async def send_chat_help_message(message: Message, edit_mode: bool = False):
         builder.adjust(1)
 
         if edit_mode:
-            await message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
         else:
-            await message.answer(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка отправки справки чата: {e}")
@@ -243,11 +228,7 @@ async def show_chat_setup_interface(message: Message, edit_mode: bool = False):
     """Показать интерфейс настройки бота (когда еще не настроен)"""
     try:
 
-        text = """
-⚙️ <b>Настройка бота</b>
-
-Выберите предмет для отслеживания дедлайнов в этом чате:
-        """
+        text = CHAT_SETUP_PROMPT_TEXT
 
         builder = InlineKeyboardBuilder()
         builder.button(text="⚙️ Настроить бота", callback_data="chat_setup_from_start")
@@ -345,7 +326,7 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
         builder.button(text="⚙️ Настроить уведомления", callback_data="chat_edit_settings")
         # Добавляем переключатель уведомлений в общий раздел
         if chat_group.is_active:
-            builder.button(text="🔕 Выключить уведомления", callback_data="chat_toggle_active")
+            builder.button(text="🔕 Отключить уведомления", callback_data="chat_toggle_active")
         else:
             builder.button(text="🔔 Включить уведомления", callback_data="chat_toggle_active")
 
@@ -382,10 +363,6 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
             await message.answer("Произошла ошибка при получении настроек бота")
 
 
-# ============================================================================
-# ОСНОВНЫЕ КОМАНДЫ ЧАТОВ
-# ============================================================================
-
 async def handle_start_in_group(message: Message, db_user, user_name: str):
     """Обработка команды /start в групповом чате"""
     try:
@@ -400,17 +377,10 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
         chat_group = await chat_service.get_chat_group(chat_id)
 
         if chat_group:
-            text = f"""
-🤖 <b>Настройка бота в чате</b>
-
-Чат уже настроен на предмет: <b>«{chat_group.subject.name}»</b>
-
-Статус: {'✅ Активен' if chat_group.is_active else '❌ Отключен'}
-
-💡 Используйте команду /info для просмотра информации о предмете и актуальных дедлайнах.
-
-<i>Все о настройке и возможностях — в разделе помощи.</i>
-            """
+            text = GROUP_START_CONFIGURED_TEXT.format(
+                subject_name=chat_group.subject.name,
+                status=("✅ Активен" if chat_group.is_active else "❌ Отключен"),
+            )
 
             builder = InlineKeyboardBuilder()
             builder.button(text="ℹ️ Информация", callback_data="chat_info")
@@ -420,20 +390,7 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
 
         else:
             # Чат не настроен — краткое приветствие и ссылка на помощь
-            text = """
-🤖 <b>Привет!</b>
-
-Этот бот помогает отслеживать дедлайны по предметам в этом чате.
-
-<b>Как начать:</b>
-1) Убедитесь, что вы администратор чата
-2) Нажмите «Настроить бота» ниже
-3) Выберите предмет для отслеживания дедлайнов
-
-<b>Совет:</b> Настраивайте бота в нужном топике — тогда напоминания будут приходить только туда.
-
-Подробные инструкции — в разделе помощи.
-            """
+            text = GROUP_START_UNCONFIGURED_TEXT
 
             builder = InlineKeyboardBuilder()
             builder.button(text="⚙️ Настроить бота", callback_data="chat_setup_from_start")
@@ -732,11 +689,7 @@ async def callback_setup_reminder1(callback: CallbackQuery, db_user, state: FSMC
 
         await callback.answer()
 
-        text = """
-⚙️ <b>Настройка первого напоминания</b>
-
-Выберите за сколько времени до дедлайна отправлять первое напоминание:
-        """
+        text = REMINDER1_SETUP_TEXT
 
         builder = InlineKeyboardBuilder()
 
@@ -782,11 +735,7 @@ async def callback_setup_reminder2(callback: CallbackQuery, db_user, state: FSMC
 
         await callback.answer()
 
-        text = """
-⚙️ <b>Настройка второго напоминания</b>
-
-Выберите за сколько времени до дедлайна отправлять второе напоминание:
-        """
+        text = REMINDER2_SETUP_TEXT
 
         builder = InlineKeyboardBuilder()
 
@@ -933,14 +882,10 @@ async def callback_set_reminder1_value(callback: CallbackQuery, db_user, state: 
         subject_id = data.get("subject_id")
         subject = await db_manager.get_subject_by_id(subject_id)
 
-        text = f"""
-⚙️ <b>Настройка времени уведомлений</b>
-
-Выбран предмет: <b>«{subject.name}»</b>
-
-Настройте время уведомлений о дедлайнах:
-• Первое напоминание: за {offset} {unit}
-        """
+        text = (
+            TIME_SETTINGS_SELECTED_SUBJECT_TEMPLATE.format(subject_name=subject.name)
+            + f"• Первое напоминание: за {offset} {unit}\n"
+        )
 
         builder = InlineKeyboardBuilder()
         builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
@@ -983,14 +928,10 @@ async def callback_set_reminder2_value(callback: CallbackQuery, db_user, state: 
         subject_id = data.get("subject_id")
         subject = await db_manager.get_subject_by_id(subject_id)
 
-        text = f"""
-⚙️ <b>Настройка времени уведомлений</b>
-
-Выбран предмет: <b>«{subject.name}»</b>
-
-Настройте время уведомлений о дедлайнах:
-• Второе напоминание: за {offset} {unit}
-        """
+        text = (
+            TIME_SETTINGS_SELECTED_SUBJECT_TEMPLATE.format(subject_name=subject.name)
+            + f"• Второе напоминание: за {offset} {unit}\n"
+        )
 
         builder = InlineKeyboardBuilder()
         builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
@@ -1151,7 +1092,7 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
 Этот бот помогает отслеживать дедлайны по предметам в этом чате.
 
 <b>Как начать:</b>
-1) Убедитесь, что вы администратор чата
+1) Убедитесь, что вы – администратор чата
 2) Нажмите «Настроить бота» ниже
 3) Выберите предмет для отслеживания дедлайнов
 
@@ -1675,15 +1616,11 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
             reminder2_offset = data.get("reminder2_offset", 1)
             reminder2_unit = data.get("reminder2_unit", "days")
 
-            text = f"""
-⚙️ <b>Настройка времени уведомлений</b>
-
-Выбран предмет: <b>«{subject.name}»</b>
-
-Настройте время уведомлений о дедлайнах:
-• Первое напоминание: за {reminder1_offset} {reminder1_unit}
-• Второе напоминание: за {reminder2_offset} {reminder2_unit}
-            """
+            text = (
+                TIME_SETTINGS_SELECTED_SUBJECT_TEMPLATE.format(subject_name=subject.name)
+                + f"• Первое напоминание: за {reminder1_offset} {reminder1_unit}\n"
+                + f"• Второе напоминание: за {reminder2_offset} {reminder2_unit}\n"
+            )
 
             builder = InlineKeyboardBuilder()
             builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
@@ -1733,9 +1670,6 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
         await state.clear()
 
 
-# ============================================================================
-# РЕГИСТРАЦИЯ HANDLERS
-# ============================================================================
 
 def register_group_chat_handlers(dp):
     """Регистрация обработчиков для групповых чатов"""
@@ -1768,29 +1702,29 @@ async def _compose_info_text(chat_id: int) -> str | None:
     async with db_manager.async_session() as session:
         now = datetime.now(UTC)
         stmt = (
-            select(Deadline)
+            select(Task)
             .where(
                 and_(
-                    Deadline.subject_id == subject.id,
+                    Task.subject_id == subject.id,
                     or_(
-                        and_(Deadline.soft_deadline_ts.isnot(None), Deadline.soft_deadline_ts >= now),
-                        and_(Deadline.hard_deadline_ts.isnot(None), Deadline.hard_deadline_ts >= now),
+                        and_(Task.soft_deadline_ts.isnot(None), Task.soft_deadline_ts >= now),
+                        and_(Task.hard_deadline_ts.isnot(None), Task.hard_deadline_ts >= now),
                     ),
                 )
             )
-            .order_by(Deadline.soft_deadline_ts.nulls_last(), Deadline.hard_deadline_ts.nulls_last())
+            .order_by(Task.soft_deadline_ts.nulls_last(), Task.hard_deadline_ts.nulls_last())
         )
         result = await session.execute(stmt)
-        deadlines = list(result.scalars().all())
+        tasks = list(result.scalars().all())
 
     import pytz
     pytz.timezone("Europe/Moscow")
 
-    if not deadlines:
+    if not tasks:
         lines.append("Актуальных дедлайнов нет.")
     else:
         now = datetime.now(UTC)
-        for idx, d in enumerate(deadlines, 1):
+        for idx, d in enumerate(tasks, 1):
             hw = d.hw_name or "Без названия"
             if d.source_link:
                 lines.append(f'\n<b>{idx}. <a href="{d.source_link}">{hw}</a></b>\n')

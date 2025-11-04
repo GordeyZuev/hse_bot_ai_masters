@@ -4,10 +4,10 @@ from sqlalchemy import and_, select
 
 from src.core.database import db_manager
 from src.core.models import (
-    Deadline,
     ScheduledNotification,
     Subject,
     Subscription,
+    Task,
     TaskUserStatus,
     User,
     UserNotificationSettings,
@@ -22,7 +22,7 @@ logger = get_logger()
 class NotificationSchedulerService:
     """Сервис для планирования уведомлений о дедлайнах"""
 
-    async def _get_user_deadlines(self, user_id: int) -> list[Deadline]:
+    async def _get_user_tasks(self, user_id: int) -> list[Task]:
         """Получить все активные дедлайны пользователя"""
         async with db_manager.async_session() as session:
             tus = (
@@ -32,10 +32,10 @@ class NotificationSchedulerService:
             )
 
             stmt = (
-                select(Deadline)
+                select(Task)
                 .join(Subject)
                 .join(Subscription)
-                .outerjoin(tus, tus.c.deadline_id == Deadline.id)
+                .outerjoin(tus, tus.c.deadline_id == Task.id)
                 .where(
                     and_(
                         Subscription.user_id == user_id,
@@ -47,10 +47,10 @@ class NotificationSchedulerService:
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
-    async def _get_subject_deadlines(self, subject_id: int) -> list[Deadline]:
+    async def _get_subject_tasks(self, subject_id: int) -> list[Task]:
         """Получить все активные дедлайны по предмету"""
         async with db_manager.async_session() as session:
-            stmt = select(Deadline).where(Deadline.subject_id == subject_id)
+            stmt = select(Task).where(Task.subject_id == subject_id)
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
@@ -92,29 +92,29 @@ class NotificationSchedulerService:
                 logger.error(f"Ошибка получения пользователя и настроек {user_id}: {e}")
                 raise
 
-    async def _schedule_notifications_for_deadlines(
-        self, user: User, deadlines: list[Deadline], settings: UserNotificationSettings
+    async def _schedule_notifications_for_tasks(
+        self, user: User, deadlines: list[Task], settings: UserNotificationSettings
     ) -> int:
         """Планировать уведомления для списка дедлайнов"""
         total_scheduled = 0
 
         for deadline in deadlines:
             if deadline.soft_deadline_ts:
-                count = await self._schedule_notifications_for_user_deadline(
+                count = await self._schedule_notifications_for_user_task(
                     user, deadline, "soft", deadline.soft_deadline_ts, settings
                 )
                 total_scheduled += count
 
             if deadline.hard_deadline_ts:
-                count = await self._schedule_notifications_for_user_deadline(
+                count = await self._schedule_notifications_for_user_task(
                     user, deadline, "hard", deadline.hard_deadline_ts, settings
                 )
                 total_scheduled += count
 
         return total_scheduled
 
-    async def _cancel_notifications_for_deadlines(
-        self, user_id: int, deadlines: list[Deadline]
+    async def _cancel_notifications_for_tasks(
+        self, user_id: int, deadlines: list[Task]
     ) -> int:
         """Отменить уведомления пользователя для списка дедлайнов"""
         total_cancelled = 0
@@ -140,7 +140,7 @@ class NotificationSchedulerService:
 
         return total_cancelled
 
-    async def schedule_notifications_for_deadline(self, deadline: Deadline) -> int:
+    async def schedule_notifications_for_task(self, deadline: Task) -> int:
         """Создать запланированные уведомления для дедлайна"""
         try:
             # Существующая логика для пользователей
@@ -157,13 +157,13 @@ class NotificationSchedulerService:
                         continue
 
                     if deadline.soft_deadline_ts:
-                        soft_count = await self._schedule_notifications_for_user_deadline(
+                        soft_count = await self._schedule_notifications_for_user_task(
                             user, deadline, "soft", deadline.soft_deadline_ts, settings
                         )
                         user_notifications_scheduled += soft_count
 
                     if deadline.hard_deadline_ts:
-                        hard_count = await self._schedule_notifications_for_user_deadline(
+                        hard_count = await self._schedule_notifications_for_user_task(
                             user, deadline, "hard", deadline.hard_deadline_ts, settings
                         )
                         user_notifications_scheduled += hard_count
@@ -172,7 +172,7 @@ class NotificationSchedulerService:
             from src.bot.services.chat_notification_scheduler_service import (
                 chat_notification_scheduler_service,
             )
-            chat_notifications_scheduled = await chat_notification_scheduler_service.schedule_notifications_for_deadline(deadline)
+            chat_notifications_scheduled = await chat_notification_scheduler_service.schedule_notifications_for_task(deadline)
 
             total_scheduled = user_notifications_scheduled + chat_notifications_scheduled
 
@@ -204,10 +204,10 @@ class NotificationSchedulerService:
                 logger.error(f"Ошибка получения подписчиков предмета {subject_id}: {e}")
                 return []
 
-    async def _schedule_notifications_for_user_deadline(
+    async def _schedule_notifications_for_user_task(
         self,
         user: User,
-        deadline: Deadline,
+        deadline: Task,
         deadline_type: str,
         deadline_ts: datetime,
         settings: UserNotificationSettings,
@@ -327,13 +327,13 @@ class NotificationSchedulerService:
             logger.error(f"Ошибка создания запланированного уведомления: {e}")
             return False
 
-    async def reschedule_notifications_for_updated_deadline(
-        self, deadline: Deadline
+    async def reschedule_notifications_for_updated_task(
+        self, deadline: Task
     ) -> int:
         """Перепланировать уведомления для обновленного дедлайна"""
         try:
             cancelled_count = (
-                await db_manager.cancel_scheduled_notifications_for_deadline(
+                await db_manager.cancel_scheduled_notifications_for_task(
                     deadline.id
                 )
             )
@@ -345,14 +345,14 @@ class NotificationSchedulerService:
             from src.bot.services.chat_notification_scheduler_service import (
                 chat_notification_scheduler_service,
             )
-            cancelled_in_chats = await chat_notification_scheduler_service.cancel_notifications_for_deadline(
+            cancelled_in_chats = await chat_notification_scheduler_service.cancel_notifications_for_task(
                 deadline.id
             )
             logger.info(
                 f"(Чаты) Отменено {cancelled_in_chats} уведомлений для обновленного дедлайна {deadline.id}"
             )
 
-            scheduled_count = await self.schedule_notifications_for_deadline(deadline)
+            scheduled_count = await self.schedule_notifications_for_task(deadline)
 
             return scheduled_count
 
@@ -367,10 +367,10 @@ class NotificationSchedulerService:
     ) -> int:
         """Перепланировать все уведомления пользователя при изменении настроек"""
         try:
-            user_deadlines = await self._get_user_deadlines(user_id)
-            await self._cancel_notifications_for_deadlines(user_id, user_deadlines)
+            user_deadlines = await self._get_user_tasks(user_id)
+            await self._cancel_notifications_for_tasks(user_id, user_deadlines)
             user, settings = await self._get_user_and_settings(user_id)
-            total_rescheduled = await self._schedule_notifications_for_deadlines(
+            total_rescheduled = await self._schedule_notifications_for_tasks(
                 user, user_deadlines, settings
             )
 
@@ -394,8 +394,8 @@ class NotificationSchedulerService:
         """Создать уведомления для пользователя при подписке на предмет"""
         try:
             user, settings = await self._get_user_and_settings(user_id)
-            subject_deadlines = await self._get_subject_deadlines(subject_id)
-            total_scheduled = await self._schedule_notifications_for_deadlines(
+            subject_deadlines = await self._get_subject_tasks(subject_id)
+            total_scheduled = await self._schedule_notifications_for_tasks(
                 user, subject_deadlines, settings
             )
 
@@ -418,7 +418,7 @@ class NotificationSchedulerService:
     ) -> int:
         """Создать уведомления для пользователя при создании настроек уведомлений"""
         try:
-            user_deadlines = await self._get_user_deadlines(user_id)
+            user_deadlines = await self._get_user_tasks(user_id)
 
             if not user_deadlines:
                 logger.info(
@@ -427,7 +427,7 @@ class NotificationSchedulerService:
                 return 0
 
             user, settings = await self._get_user_and_settings(user_id)
-            total_scheduled = await self._schedule_notifications_for_deadlines(
+            total_scheduled = await self._schedule_notifications_for_tasks(
                 user, user_deadlines, settings
             )
 
@@ -450,7 +450,7 @@ class NotificationSchedulerService:
     ) -> int:
         """Отменить уведомления пользователя при отписке от предмета"""
         try:
-            subject_deadlines = await self._get_subject_deadlines(subject_id)
+            subject_deadlines = await self._get_subject_tasks(subject_id)
 
             if not subject_deadlines:
                 logger.info(
@@ -458,7 +458,7 @@ class NotificationSchedulerService:
                 )
                 return 0
 
-            total_cancelled = await self._cancel_notifications_for_deadlines(
+            total_cancelled = await self._cancel_notifications_for_tasks(
                 user_id, subject_deadlines
             )
 

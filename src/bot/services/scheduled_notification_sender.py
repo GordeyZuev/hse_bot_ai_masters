@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from src.core.database import db_manager
-from src.core.models import Deadline, ScheduledNotification, Subject
+from src.core.models import ScheduledNotification, Subject, Task
 from src.utils import get_logger, safe_send_message
 
 
@@ -127,9 +127,9 @@ class ScheduledNotificationSender:
 
         async with db_manager.async_session() as session:
             stmt = (
-                select(Deadline, Subject)
+                select(Task, Subject)
                 .join(Subject)
-                .where(Deadline.id.in_(deadline_ids))
+                .where(Task.id.in_(deadline_ids))
             )
             result = await session.execute(stmt)
             deadline_subjects = result.all()

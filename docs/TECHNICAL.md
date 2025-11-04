@@ -83,7 +83,7 @@ Scheduler → ChatNotificationScheduler → ChatScheduledNotification → ChatNo
 
 #### 4. **Система мгновенных уведомлений об изменениях**
 ```
-Sync (DataSyncer) → Deadline Changes Detector → NotificationSender.send_immediate_deadline_changes → Telegram
+Sync (DataSyncer) → Deadline Changes Detector → NotificationSender.send_immediate_task_changes → Telegram
     ↓                          ↓                                  ↓
   Sheets              Изменения только soft/hard          Группировка и отправка
                     дедлайнов (не названий/ссылок)        с показом изменений
@@ -368,7 +368,7 @@ Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram 
 #### Поведение
 - Если `enable_deadline_update_notifications = False`, пользователь не получит мгновенные уведомления об изменениях дедлайнов
 - Запланированные напоминания (reminder1, reminder2) продолжают работать независимо от этой настройки
-- Настройка применяется в методе `NotificationSender.send_immediate_deadline_changes()`
+- Настройка применяется в методе `NotificationSender.send_immediate_task_changes()`
 
 #### Комбинирование настроек
 При отправке мгновенных уведомлений об обновлениях проверяются:

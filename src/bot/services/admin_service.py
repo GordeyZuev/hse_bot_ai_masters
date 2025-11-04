@@ -14,8 +14,8 @@ from src.core.database import db_manager
 from src.core.models import (
     ChatGroup,
     ChatScheduledNotification,
-    Deadline,
     ScheduledNotification,
+    Task,
     User,
 )
 from src.utils import get_logger, get_week_monday, safe_send_message
@@ -42,10 +42,10 @@ class AdminService:
                 stmt = select(
                     func.count(User.tg_user_id).label("total_users"),
                     func.count(
-                        case((User.last_activity_ts >= week_ago, 1), else_=None)
+                        case((User.last_activity >= week_ago, 1), else_=None)
                     ).label("active_week"),
                     func.count(
-                        case((User.last_activity_ts >= month_ago, 1), else_=None)
+                        case((User.last_activity >= month_ago, 1), else_=None)
                     ).label("active_month"),
                 )
                 result = await session.execute(stmt)
@@ -58,14 +58,14 @@ class AdminService:
                 subscription_stats = await subscription_service.get_subscription_stats()
                 stats.update(subscription_stats)
 
-                stmt = select(func.count(Deadline.id))
+                stmt = select(func.count(Task.id))
                 result = await session.execute(stmt)
                 stats["total_deadlines"] = result.scalar() or 0
 
                 now = datetime.now(UTC)
-                stmt = select(func.count(Deadline.id)).where(
-                    (Deadline.soft_deadline_ts >= now)
-                    | (Deadline.hard_deadline_ts >= now)
+                stmt = select(func.count(Task.id)).where(
+                    (Task.soft_deadline_ts >= now)
+                    | (Task.hard_deadline_ts >= now)
                 )
                 result = await session.execute(stmt)
                 stats["active_deadlines"] = result.scalar() or 0
@@ -88,7 +88,7 @@ class AdminService:
                 result = await session.execute(stmt)
                 stats["total_chats"] = result.scalar() or 0
 
-                stmt = select(func.max(Deadline.last_updated))
+                stmt = select(func.max(Task.updated_at))
                 result = await session.execute(stmt)
                 last_sync_dt = result.scalar()
                 if last_sync_dt:

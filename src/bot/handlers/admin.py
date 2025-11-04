@@ -108,7 +108,7 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
                     changes = sync_result.get("changes", [])
                     if changes:
                         bot = message_or_callback.bot
-                        await notification_sender.send_immediate_deadline_changes(
+                        await notification_sender.send_immediate_task_changes(
                             bot, changes
                         )
                         logger.info(
@@ -588,7 +588,7 @@ async def callback_admin_chat_management(callback: CallbackQuery, db_user):
         if active_chats == 0 and total_chats > 0:
             toggle_text = "🔔 Включить все"
         elif active_chats == total_chats and total_chats > 0:
-            toggle_text = "🔕 Выключить все"
+            toggle_text = "🔕 Отключить все"
         else:
             toggle_text = "🔄 Инвертировать статус"
 

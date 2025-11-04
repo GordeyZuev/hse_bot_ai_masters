@@ -14,6 +14,10 @@ from src.bot.services.chat_notification_scheduler_service import (
     chat_notification_scheduler_service,
 )
 from src.bot.services.chat_service import chat_service
+from src.bot.texts import (
+    GROUP_START_CONFIGURED_TEXT,
+    GROUP_START_UNCONFIGURED_TEXT,
+)
 from src.utils import get_logger
 
 
@@ -35,7 +39,7 @@ async def handle_bot_chat_member_update(update: ChatMemberUpdated):
 
         # Бот был удален из чата
         if old_status in ["member", "administrator"] and new_status in ["left", "kicked"]:
-            await handle_bot_removed_from_chat(chat_id, chat_title, new_status)
+            await handle_bot_removed_from_chat(chat_id)
 
         # Бот был добавлен в чат
         elif old_status in ["left", "kicked"] and new_status in ["member", "administrator"]:
@@ -45,7 +49,7 @@ async def handle_bot_chat_member_update(update: ChatMemberUpdated):
         logger.error(f"Ошибка изменения статуса бота в чате: {e}")
 
 
-async def handle_bot_removed_from_chat(chat_id: int, chat_title: str, removal_status: str):
+async def handle_bot_removed_from_chat(chat_id: int):
     """Обработка удаления бота из чата"""
     try:
         # Получаем чат из базы данных
@@ -90,17 +94,10 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
 
             # Отправляем приветственное сообщение для уже настроенного чата
             try:
-                text = f"""
-🤖 <b>Привет!</b>
-
-Чат уже настроен на предмет: <b>«{chat_group.subject.name}»</b>
-
-Статус: {'✅ Активен' if chat_group.is_active else '❌ Отключен'}
-
-💡 Используйте команду /info для просмотра информации о предмете и актуальных дедлайнах.
-
-<i>Все о настройке и возможностях — в разделе помощи.</i>
-                """
+                text = GROUP_START_CONFIGURED_TEXT.format(
+                    subject_name=chat_group.subject.name,
+                    status=("✅ Активен" if chat_group.is_active else "❌ Отключен"),
+                )
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="ℹ️ Информация", callback_data="chat_info")
@@ -110,7 +107,7 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
 
                 await bot.send_message(
                     chat_id=chat_id,
-                    text=text.strip(),
+                    text=text,
                     reply_markup=builder.as_markup(),
                     parse_mode="HTML"
                 )
@@ -122,20 +119,7 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
 
             # Отправляем приветственное сообщение для нового чата
             try:
-                text = """
-🤖 <b>Привет!</b>
-
-Этот бот помогает отслеживать дедлайны по предметам в этом чате.
-
-<b>Как начать:</b>
-1) Убедитесь, что вы администратор чата
-2) Нажмите «Настроить бота» ниже
-3) Выберите предмет для отслеживания дедлайнов
-
-<b>Совет:</b> Настраивайте бота в нужном топике — тогда напоминания будут приходить только туда.
-
-Подробные инструкции — в разделе помощи.
-                """
+                text = GROUP_START_UNCONFIGURED_TEXT
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="⚙️ Настроить бота", callback_data="chat_setup_from_start")
@@ -144,7 +128,7 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
 
                 await bot.send_message(
                     chat_id=chat_id,
-                    text=text.strip(),
+                    text=text,
                     reply_markup=builder.as_markup(),
                     parse_mode="HTML"
                 )

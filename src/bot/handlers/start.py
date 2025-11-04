@@ -3,6 +3,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from src.bot.texts import START_PRIVATE_TEXT
 from src.utils import get_logger
 
 
@@ -16,13 +17,10 @@ async def cmd_start(message: Message, db_user):
     try:
         user_name = db_user.first_name or "Пользователь"
 
-        # Проверяем, вызвана ли команда в групповом чате
         if message.chat.type in ["group", "supergroup"]:
-            # Для групповых чатов перенаправляем в group_chat.py
             from src.bot.handlers.group_chat import handle_start_in_group
             await handle_start_in_group(message, db_user, user_name)
         else:
-            # Для личных сообщений обрабатываем здесь
             await handle_start_in_private(message, db_user, user_name)
             logger.info(f"(U) {db_user.tg_user_id} - /start")
 
@@ -34,11 +32,7 @@ async def cmd_start(message: Message, db_user):
 async def handle_start_in_private(message: Message, db_user, user_name: str):
     """Обработка команды /start в личных сообщениях"""
     try:
-        text = f"""
-🎓 <b>Добро пожаловать в Бота-оповещателя, {user_name}!</b>
-
-Этот бот поможет вам отслеживать дедлайны по предметам магистратуры «Искусственный Интеллект» (НИУ ВШЭ).
-        """
+        text = START_PRIVATE_TEXT.format(user_name=user_name)
 
         builder = InlineKeyboardBuilder()
         builder.button(text="📖 Дисциплины", callback_data="quick_subjects")

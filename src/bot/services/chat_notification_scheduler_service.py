@@ -4,7 +4,7 @@ from sqlalchemy import and_, delete, select
 from sqlalchemy.dialects.postgresql import insert
 
 from src.core.database import db_manager
-from src.core.models import ChatGroup, ChatScheduledNotification, Deadline
+from src.core.models import ChatGroup, ChatScheduledNotification, Task
 from src.utils import get_logger
 from src.utils.time import utc_now
 
@@ -30,8 +30,8 @@ class ChatNotificationSchedulerService:
                 if not chat_group or not chat_group.is_active:
                     return 0
 
-                # Получаем все активные дедлайны по предмету
-                deadlines = await self._get_subject_deadlines(subject_id)
+                # Получаем все активные задачи по предмету
+                deadlines = await self._get_subject_tasks(subject_id)
 
                 if not deadlines:
                     return 0
@@ -39,7 +39,7 @@ class ChatNotificationSchedulerService:
                 total_scheduled = 0
 
                 for deadline in deadlines:
-                    count = await self._schedule_notifications_for_chat_deadline(
+                    count = await self._schedule_notifications_for_chat_task(
                         chat_group, deadline
                     )
                     total_scheduled += count
@@ -51,7 +51,7 @@ class ChatNotificationSchedulerService:
             logger.error(f"Ошибка планирования уведомлений для чата {chat_id}: {e}")
             return 0
 
-    async def schedule_notifications_for_deadline(self, deadline: Deadline) -> int:
+    async def schedule_notifications_for_task(self, deadline: Task) -> int:
         """Создать запланированные уведомления для дедлайна во всех чатах"""
         try:
             # Получаем все активные чаты по предмету
@@ -71,7 +71,7 @@ class ChatNotificationSchedulerService:
                 total_scheduled = 0
 
                 for chat_group in chat_groups:
-                    count = await self._schedule_notifications_for_chat_deadline(
+                    count = await self._schedule_notifications_for_chat_task(
                         chat_group, deadline
                     )
                     total_scheduled += count
@@ -83,17 +83,17 @@ class ChatNotificationSchedulerService:
             logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}")
             return 0
 
-    async def _get_subject_deadlines(self, subject_id: int) -> list[Deadline]:
-        """Получить все активные дедлайны по предмету"""
+    async def _get_subject_tasks(self, subject_id: int) -> list[Task]:
+        """Получить все активные задачи по предмету"""
         async with db_manager.async_session() as session:
-            stmt = select(Deadline).where(Deadline.subject_id == subject_id)
+            stmt = select(Task).where(Task.subject_id == subject_id)
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
-    async def _schedule_notifications_for_chat_deadline(
-        self, chat_group: ChatGroup, deadline: Deadline
+    async def _schedule_notifications_for_chat_task(
+        self, chat_group: ChatGroup, deadline: Task
     ) -> int:
-        """Создать уведомления для чата по дедлайну"""
+        """Создать уведомления для чата по задаче"""
         try:
             total_scheduled = 0
 
@@ -120,7 +120,7 @@ class ChatNotificationSchedulerService:
     async def _create_chat_notifications(
         self,
         chat_group: ChatGroup,
-        deadline: Deadline,
+        deadline: Task,
         deadline_type: str,
         deadline_ts: datetime
     ) -> int:
@@ -214,7 +214,7 @@ class ChatNotificationSchedulerService:
             raise ValueError(f"Неподдерживаемая единица времени: {unit}")
 
     async def cancel_notifications_for_chat_deadline(
-        self, chat_group: ChatGroup, deadline: Deadline
+        self, chat_group: ChatGroup, deadline: Task
     ) -> int:
         """Отменить уведомления для чата по дедлайну"""
         try:
@@ -283,7 +283,7 @@ class ChatNotificationSchedulerService:
             logger.error(f"Ошибка перепланирования уведомлений для чата {chat_group.chat_id}: {e}")
             return 0
 
-    async def cancel_notifications_for_deadline(self, deadline_id: int) -> int:
+    async def cancel_notifications_for_task(self, deadline_id: int) -> int:
         """Отменить все запланированные уведомления в чатах для указанного дедлайна"""
         try:
             async with db_manager.async_session() as session:

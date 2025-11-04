@@ -116,7 +116,7 @@ class NotificationService:
     async def toggle_notifications(
         self, user_id: int, is_enabled: bool
     ) -> tuple[bool, str]:
-        """Включить/выключить все уведомления пользователя"""
+        """Включить/отключить все уведомления пользователя"""
         try:
             settings_data = {"is_active": is_enabled}
             await db_manager.update_user_notification_settings(user_id, settings_data)
@@ -154,9 +154,9 @@ class NotificationService:
 
                     await session.commit()
 
-                status_text = "выключены"
+                status_text = "отключены"
                 logger.info(
-                    f"Пользователь {user_id} выключил уведомления. Отменено {cancelled_count} уведомлений"
+                    f"Пользователь {user_id} отключил уведомления. Отменено {cancelled_count} уведомлений"
                 )
 
             return True, f"Уведомления {status_text}"
@@ -199,12 +199,12 @@ class NotificationService:
     async def toggle_deadline_update_notifications(
         self, user_id: int, is_enabled: bool
     ) -> tuple[bool, str]:
-        """Включить/выключить уведомления об обновлении дедлайнов"""
+        """Включить/отключить уведомления об обновлении дедлайнов"""
         try:
             settings_data = {"enable_deadline_update_notifications": is_enabled}
             await db_manager.update_user_notification_settings(user_id, settings_data)
 
-            status_text = "включены" if is_enabled else "выключены"
+            status_text = "включены" if is_enabled else "отключены"
             logger.info(
                 f"Пользователь {user_id} {status_text} уведомления об обновлении дедлайнов"
             )

@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.core.models import (
     Base,
-    Deadline,
     ScheduledNotification,
     Subject,
+    Task,
     User,
     UserNotificationSettings,
 )
@@ -212,9 +212,9 @@ class DatabaseManager:
                 logger.error(f"Ошибка работы с предметом {name}: {e}")
                 raise
 
-    async def upsert_deadline(
-        self, deadline_data: dict[str, Any]
-    ) -> tuple[Deadline | None, dict[str, Any]]:
+    async def upsert_task(
+        self, task_data: dict[str, Any]
+    ) -> tuple[Task | None, dict[str, Any]]:
         """Создать или обновить дедлайн.
         Возвращает (deadline, change_info) где change_info содержит:
         - is_new: bool - является ли дедлайн новым
@@ -225,7 +225,7 @@ class DatabaseManager:
         - old_hard_deadline_ts: datetime | None - старое значение hard дедлайна"""
         async with self.async_session() as session:
             try:
-                sheet_row_id = deadline_data.get("sheet_row_id")
+                sheet_row_id = task_data.get("sheet_row_id")
                 if not sheet_row_id:
                     return None, {
                         "is_new": False,
@@ -236,7 +236,7 @@ class DatabaseManager:
                         "old_hard_deadline_ts": None,
                     }
 
-                stmt = select(Deadline).where(Deadline.sheet_row_id == sheet_row_id)
+                stmt = select(Task).where(Task.sheet_row_id == sheet_row_id)
                 result = await session.execute(stmt)
                 deadline = result.scalar_one_or_none()
 
@@ -255,8 +255,8 @@ class DatabaseManager:
                     old_hard = deadline.hard_deadline_ts
 
                     # Проверяем изменения дедлайнов
-                    new_soft = deadline_data.get("soft_deadline_ts")
-                    new_hard = deadline_data.get("hard_deadline_ts")
+                    new_soft = task_data.get("soft_deadline_ts")
+                    new_hard = task_data.get("hard_deadline_ts")
 
                     soft_changed = old_soft != new_soft
                     hard_changed = old_hard != new_hard
@@ -283,20 +283,20 @@ class DatabaseManager:
                     has_changes = False
                     for key in fields_to_compare:
                         if (
-                            key in deadline_data
-                            and getattr(deadline, key, None) != deadline_data[key]
+                            key in task_data
+                            and getattr(deadline, key, None) != task_data[key]
                         ):
                             has_changes = True
-                            setattr(deadline, key, deadline_data[key])
+                            setattr(deadline, key, task_data[key])
 
                     if has_changes:
-                        deadline.last_updated = utc_now()
+                        deadline.updated_at = utc_now()
                 else:
                     # Новый дедлайн
-                    if "last_updated" not in deadline_data:
-                        deadline_data["last_updated"] = utc_now()
+                    if "updated_at" not in task_data:
+                        task_data["updated_at"] = utc_now()
 
-                    deadline = Deadline(**deadline_data)
+                    deadline = Task(**task_data)
                     session.add(deadline)
                     change_info["is_new"] = True
                     # Для нового дедлайна считаем, что дедлайны "изменились" (чтобы отправить уведомление)
@@ -330,12 +330,12 @@ class DatabaseManager:
                 logger.error(f"Ошибка получения предмета {subject_id}: {e}")
                 return None
 
-    async def delete_outdated_deadlines(self, current_sheet_row_ids: list[int]):
+    async def delete_outdated_tasks(self, current_sheet_row_ids: list[int]):
         """Удалить дедлайны, которых нет в текущих данных Google Sheets"""
         async with self.async_session() as session:
             try:
-                stmt = select(Deadline).where(
-                    ~Deadline.sheet_row_id.in_(current_sheet_row_ids)
+                stmt = select(Task).where(
+                    ~Task.sheet_row_id.in_(current_sheet_row_ids)
                 )
                 result = await session.execute(stmt)
                 outdated_deadlines = result.scalars().all()
@@ -367,7 +367,6 @@ class DatabaseManager:
                 await session.rollback()
                 logger.error(f"Ошибка удаления устаревших дедлайнов: {e}")
                 raise
-
 
     async def get_user_by_id(self, tg_user_id: int) -> User:
         """Получить пользователя по ID"""
@@ -564,10 +563,10 @@ class DatabaseManager:
                 )
                 return False
 
-    async def cancel_scheduled_notifications_for_deadline(
+    async def cancel_scheduled_notifications_for_task(
         self, deadline_id: int
     ) -> int:
-        """Отменить все запланированные уведомления для дедлайна"""
+        """Отменить все запланированные уведомления для задачи"""
         async with self.async_session() as session:
             try:
                 stmt = select(ScheduledNotification).where(
@@ -591,7 +590,7 @@ class DatabaseManager:
             except Exception as e:
                 await session.rollback()
                 logger.error(
-                    f"Ошибка отмены уведомлений для дедлайна {deadline_id}: {e}"
+                    f"Ошибка отмены уведомлений для задачи {deadline_id}: {e}"
                 )
                 return 0
 

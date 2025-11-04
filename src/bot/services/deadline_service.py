@@ -1,12 +1,15 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import pytz
 from sqlalchemy import and_, or_, select
 
 from src.core.database import db_manager
-from src.core.models import Deadline, Subject, Subscription, TaskUserStatus
+from src.core.models import Subject, Subscription, Task, TaskUserStatus
 from src.utils import get_logger
+from src.utils.notification_formatting import (
+    format_deadline_datetime,
+    format_time_remaining,
+)
 
 
 logger = get_logger()
@@ -32,23 +35,23 @@ class DeadlineService:
                 tus = select(TaskUserStatus.deadline_id).where(TaskUserStatus.user_id == user_id).subquery()
 
                 stmt = (
-                    select(Deadline, Subject, tus.c.deadline_id)
+                    select(Task, Subject, tus.c.deadline_id)
                     .join(Subject)
                     .join(Subscription)
-                    .outerjoin(tus, tus.c.deadline_id == Deadline.id)
+                    .outerjoin(tus, tus.c.deadline_id == Task.id)
                     .where(
                         and_(
                             Subscription.user_id == user_id,
                             or_(
                                 and_(
-                                    Deadline.soft_deadline_ts.isnot(None),
-                                    Deadline.soft_deadline_ts >= now,
-                                    Deadline.soft_deadline_ts <= end_date,
+                                    Task.soft_deadline_ts.isnot(None),
+                                    Task.soft_deadline_ts >= now,
+                                    Task.soft_deadline_ts <= end_date,
                                 ),
                                 and_(
-                                    Deadline.hard_deadline_ts.isnot(None),
-                                    Deadline.hard_deadline_ts >= now,
-                                    Deadline.hard_deadline_ts <= end_date,
+                                    Task.hard_deadline_ts.isnot(None),
+                                    Task.hard_deadline_ts >= now,
+                                    Task.hard_deadline_ts <= end_date,
                                 ),
                             ),
                         )
@@ -129,19 +132,19 @@ class DeadlineService:
                 end_date = now + timedelta(days=days)
 
                 stmt = (
-                    select(Deadline, Subject)
+                    select(Task, Subject)
                     .join(Subject)
                     .where(
                         or_(
                             and_(
-                                Deadline.soft_deadline_ts.isnot(None),
-                                Deadline.soft_deadline_ts >= now,
-                                Deadline.soft_deadline_ts <= end_date,
+                                Task.soft_deadline_ts.isnot(None),
+                                Task.soft_deadline_ts >= now,
+                                Task.soft_deadline_ts <= end_date,
                             ),
                             and_(
-                                Deadline.hard_deadline_ts.isnot(None),
-                                Deadline.hard_deadline_ts >= now,
-                                Deadline.hard_deadline_ts <= end_date,
+                                Task.hard_deadline_ts.isnot(None),
+                                Task.hard_deadline_ts >= now,
+                                Task.hard_deadline_ts <= end_date,
                             ),
                         )
                     )
@@ -202,14 +205,12 @@ class DeadlineService:
         message = f"📚 <b>{subject.name}</b>\n"
         message += f"📝 <b>{deadline.hw_name}</b>\n\n"
 
-        # Текущее время (UTC) и TZ пользователя
+        # Текущее время (UTC)
         now = datetime.now(UTC)
-        user_tz = pytz.timezone(user_tz_name)
 
         # Дедлайны с проверкой актуальности и правильным форматированием времени
         if deadline.soft_deadline_ts:
-            soft_local = deadline.soft_deadline_ts.astimezone(user_tz)
-            soft_date = soft_local.strftime("%d.%m.%Y %H:%M")
+            soft_date = format_deadline_datetime(deadline.soft_deadline_ts, user_tz_name)
 
             if deadline.soft_deadline_ts >= now:
                 message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date}\n"
@@ -217,8 +218,7 @@ class DeadlineService:
                 message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date} <i>(прошел)</i>\n"
 
         if deadline.hard_deadline_ts:
-            hard_local = deadline.hard_deadline_ts.astimezone(user_tz)
-            hard_date = hard_local.strftime("%d.%m.%Y %H:%M")
+            hard_date = format_deadline_datetime(deadline.hard_deadline_ts, user_tz_name)
 
             if deadline.hard_deadline_ts >= now:
                 message += f"🔴 <b>Жесткий дедлайн:</b> {hard_date}\n"
@@ -229,9 +229,6 @@ class DeadlineService:
         if "nearest_deadline" in deadline_data:
             nearest = deadline_data["nearest_deadline"]
             deadline_type = deadline_data["deadline_type"]
-
-            from src.utils.notification_formatting import format_time_remaining
-
             remain = format_time_remaining(nearest, now)
             deadline_name = "мягкого" if deadline_type == "soft" else "жесткого"
             icon = "🟡" if deadline_type == "soft" else "🔴"
@@ -262,7 +259,6 @@ class DeadlineService:
 
         message = f"📅 <b>Дедлайны на {days} дней</b>\n\n"
 
-        user_tz = pytz.timezone(user_tz_name)
         for i, data in enumerate(deadlines_data, 1):
             deadline = data["deadline"]
             subject = data["subject"]
@@ -280,12 +276,10 @@ class DeadlineService:
             if data.get("nearest_deadline"):
                 # Форматируем время в часовом поясе пользователя
                 now = datetime.now(UTC)
-                local_time = data["nearest_deadline"].astimezone(user_tz)
-                date_str = local_time.strftime("%d.%m.%Y %H:%M")
+                date_str = format_deadline_datetime(data["nearest_deadline"], user_tz_name)
 
                 # Выбираем цвет в зависимости от типа дедлайна
                 deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"
-                from src.utils.notification_formatting import format_time_remaining
                 remain = format_time_remaining(data["nearest_deadline"], now)
                 message += f"{deadline_type_icon} {date_str} {remain}"
 

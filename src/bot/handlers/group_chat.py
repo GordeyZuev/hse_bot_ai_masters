@@ -217,11 +217,8 @@ async def send_chat_help_message(message: Message, edit_mode: bool = False):
             await message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
         else:
             await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
-
-    except Exception as e:
-        logger.error(f"Ошибка отправки справки чата: {e}")
-        if not edit_mode:
-            await message.answer("Произошла ошибка при отправке справки")
+    except Exception:
+        raise
 
 
 async def show_chat_setup_interface(message: Message, edit_mode: bool = False):
@@ -405,39 +402,9 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
         if not is_admin:
             text = text.strip() + "\n\n❗️ Настраивать бота может только администратор этого чата."
 
-        try:
-            await message.answer(text.strip(), reply_markup=builder.as_markup())
-        except TelegramBadRequest as e:
-            if "TOPIC_CLOSED" in str(e):
-                topic_id = getattr(message, "message_thread_id", None)
-                topic_title = await _resolve_topic_title(message, chat_id, topic_id)
-                topic_label = topic_title or (f"ID {topic_id}" if topic_id else "")
-                notice = (
-                    f"<b>⚠️ Топик «{topic_label}» закрыт.</b>\n\n"
-                    "Боту нужно право <b>«Управление темами»</b>\n"
-                    "Выдайте право или вызовите бота в открытом топике."
-                )
-                await message.bot.send_message(chat_id=chat_id, text=notice, parse_mode="HTML")
-                return
-            raise
-
-    except Exception as e:
-        logger.error(f"Ошибка обработки /start в группе: {e}")
-        try:
-            await message.answer("Произошла ошибка при настройке бота.")
-        except TelegramBadRequest as e2:
-            if "TOPIC_CLOSED" in str(e2):
-                topic_id = getattr(message, "message_thread_id", None)
-                topic_title = await _resolve_topic_title(message, message.chat.id, topic_id)
-                topic_label = topic_title or (f"ID {topic_id}" if topic_id else "")
-                notice = (
-                    f"<b>⚠️ Топик «{topic_label}» закрыт.</b>\n\n"
-                    "Боту нужно право <b>«Управление темами»</b>\n"
-                    "Выдайте право или вызовите бота в открытом топике."
-                )
-                await message.bot.send_message(chat_id=message.chat.id, text=notice, parse_mode="HTML")
-            else:
-                raise
+        await message.answer(text.strip(), reply_markup=builder.as_markup())
+    except Exception:
+        raise
 
 
 @router.message(and_f(Command("help"), F.chat.type.in_(["group", "supergroup"])))
@@ -463,14 +430,26 @@ async def cmd_chat_help(message: Message, db_user):
 
 @router.message(and_f(Command("setup_discipline"), F.chat.type.in_(["group", "supergroup"])))
 async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
-    """Команда настройки чата на предмет"""
+    """Команда настройки чата на предмет
+
+    Поддерживает аргументы: /setup_discipline <название предмета>
+    Если указано название, пытается найти предмет и настроить сразу.
+    """
 
     chat_id = message.chat.id
     user_id = message.from_user.id
     chat_title = message.chat.title or f"Чат {chat_id}"
     username = message.from_user.username
 
-    logger.info(f"[CHAT] /setup_discipline в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+    # Извлекаем аргументы команды (название предмета)
+    command_args = message.text.split(maxsplit=1)[1:] if message.text else []
+    subject_name_search = command_args[0].strip() if command_args else None
+
+    logger.info(
+        f"[CHAT] /setup_discipline в чате '{chat_title}' (ID: {chat_id}) "
+        f"пользователем @{username or f'ID{user_id}'}"
+        + (f" с аргументом: '{subject_name_search}'" if subject_name_search else "")
+    )
 
     try:
         if not await chat_service.is_chat_admin(message.bot, chat_id, user_id):
@@ -479,6 +458,7 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                 parse_mode="HTML",
             )
             return
+
         # Проверяем, не настроен ли уже чат
         existing_chat = await chat_service.get_chat_group(chat_id)
         if existing_chat:
@@ -492,31 +472,111 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
             return
 
         # Получаем список доступных предметов
+        matched_subjects = []
+        subjects = []
         async with db_manager.async_session() as session:
             from sqlalchemy import select
-            stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
-            result = await session.execute(stmt)
-            subjects = list(result.scalars().all())
+
+            if subject_name_search:
+                # Поиск по частичному совпадению имени (регистронезависимый)
+                stmt = (
+                    select(Subject)
+                    .where(Subject.is_active, Subject.name.ilike(f"%{subject_name_search}%"))
+                    .order_by(Subject.name)
+                )
+                result = await session.execute(stmt)
+                matched_subjects = list(result.scalars().all())
+
+                if len(matched_subjects) == 1:
+                    # Найдено одно совпадение - настраиваем сразу
+                    subject = matched_subjects[0]
+                    logger.info(
+                        f"[CHAT] Найдено точное совпадение: '{subject.name}' (ID: {subject.id}), "
+                        f"настраиваем чат автоматически"
+                    )
+
+                    # Получаем topic_id если команда вызвана в топике
+                    topic_id = await chat_service.get_topic_id_from_message(message)
+                    topic_title = None
+                    if topic_id is not None:
+                        topic_title = await _resolve_topic_title(message, chat_id, topic_id)
+                        if not topic_title:
+                            try:
+                                topic_title = await chat_service.get_topic_title(message.bot, chat_id, topic_id)
+                            except Exception:
+                                topic_title = None
+
+                    # Настраиваем чат с дефолтными настройками
+                    success, message_text = await chat_service.setup_chat_group(
+                        message.bot,
+                        chat_id,
+                        subject.id,
+                        user_id,
+                        topic_id,
+                        reminder1_offset=7,
+                        reminder1_unit="days",
+                        reminder2_offset=1,
+                        reminder2_unit="days",
+                        is_active=True,
+                    )
+
+                    if success:
+                        # Если определили название топика — сразу сохраним его в БД
+                        if topic_id is not None and topic_title:
+                            with contextlib.suppress(Exception):
+                                await chat_service.update_chat_settings(
+                                    chat_id=chat_id,
+                                    user_id=user_id,
+                                    bot=message.bot,
+                                    topic_id=topic_id,
+                                    topic_title=topic_title,
+                                    topic_id_set=True,
+                                )
+                        chat_group = await chat_service.get_chat_group(chat_id)
+                        await show_chat_settings_interface(message, chat_group, edit_mode=False)
+                    else:
+                        await message.answer(message_text, parse_mode="HTML")
+                    return
+
+                elif len(matched_subjects) > 1:
+                    # Найдено несколько совпадений - показываем список для выбора
+                    text = f"🔍 <b>Найдено несколько предметов по запросу «{subject_name_search}»:</b>\n\n"
+                    subjects = matched_subjects
+                else:
+                    # Ничего не найдено - показываем сообщение и полный список
+                    text = (
+                        f"❌ Предмет по запросу «{subject_name_search}» не найден.\n\n"
+                        "📚 <b>Доступные предметы:</b>\n\n"
+                    )
+                    # Получаем все предметы
+                    stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
+                    result = await session.execute(stmt)
+                    subjects = list(result.scalars().all())
+            else:
+                # Аргументы не переданы - показываем все предметы
+                stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
+                result = await session.execute(stmt)
+                subjects = list(result.scalars().all())
+                text = "📚 <b>Выберите предмет для чата:</b>\n\n"
 
         if not subjects:
             await message.answer("❌ Нет доступных предметов для настройки")
             return
 
-        # Показываем список предметов
-        text = "📚 <b>Выберите предмет для чата:</b>\n\n"
+        # Показываем список предметов (если не было автоматической настройки)
+        if not subject_name_search or len(matched_subjects) != 1:
+            builder = InlineKeyboardBuilder()
+            for subject in subjects:
+                builder.button(
+                    text=f"📖 {subject.name}",
+                    callback_data=f"chat_setup_subject_{subject.id}"
+                )
 
-        builder = InlineKeyboardBuilder()
-        for subject in subjects:
-            builder.button(
-                text=f"📖 {subject.name}",
-                callback_data=f"chat_setup_subject_{subject.id}"
-            )
+            builder.button(text="❌ Отмена", callback_data="chat_setup_cancel")
+            builder.adjust(1)
 
-        builder.button(text="❌ Отмена", callback_data="chat_setup_cancel")
-        builder.adjust(1)
-
-        await state.set_state(ChatSetupStates.waiting_subject_selection)
-        await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await state.set_state(ChatSetupStates.waiting_subject_selection)
+            await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в команде setup_discipline: {e}")
@@ -1066,17 +1126,10 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
         chat_group = await chat_service.get_chat_group(chat_id)
 
         if chat_group:
-            text = f"""
-🤖 <b>Настройка бота в чате</b>
-
-Чат уже настроен на предмет: <b>«{chat_group.subject.name}»</b>
-
-Статус: {'✅ Активен' if chat_group.is_active else '❌ Отключен'}
-
-💡 Используйте команду /info для просмотра информации о предмете и актуальных дедлайнах.
-
-<i>Все о настройке и возможностях — в разделе помощи.</i>
-            """
+            text = GROUP_START_CONFIGURED_TEXT.format(
+                subject_name=chat_group.subject.name,
+                status=("✅ Активен" if chat_group.is_active else "❌ Отключен"),
+            )
 
             builder = InlineKeyboardBuilder()
             builder.button(text="ℹ️ Информация", callback_data="chat_info")
@@ -1086,20 +1139,7 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
 
         else:
             # Чат не настроен — единая инструкция
-            text = """
-🤖 <b>Привет!</b>
-
-Этот бот помогает отслеживать дедлайны по предметам в этом чате.
-
-<b>Как начать:</b>
-1) Убедитесь, что вы – администратор чата
-2) Нажмите «Настроить бота» ниже
-3) Выберите предмет для отслеживания дедлайнов
-
-<b>Совет:</b> Настраивайте бота в нужном топике — тогда напоминания будут приходить только туда.
-
-Подробные инструкции — в разделе помощи.
-            """
+            text = GROUP_START_UNCONFIGURED_TEXT
 
             builder = InlineKeyboardBuilder()
             builder.button(text="⚙️ Настроить бота", callback_data="chat_setup_from_start")
@@ -1677,6 +1717,26 @@ def register_group_chat_handlers(dp):
 
 
 
+async def _compose_start_info_text(chat_id: int) -> str | None:
+    """Собирает HTML-текст со ссылками по предмету (без дедлайнов) для чата."""
+    chat_group = await chat_service.get_chat_group(chat_id)
+    if not chat_group:
+        return None
+
+    subject = chat_group.subject
+    lines: list[str] = []
+    lines.append(f"🔹 <b>{subject.name}</b>\n\n")
+    if getattr(subject, "wiki_url", None):
+        lines.append(f'• <a href="{subject.wiki_url}">ФКН Wiki</a>\n')
+    if getattr(subject, "vk_playlist_url", None):
+        lines.append(f'• <a href="{subject.vk_playlist_url}">VK Video</a>\n')
+    if getattr(subject, "yt_playlist_url", None):
+        lines.append(f'• <a href="{subject.yt_playlist_url}">YouTube</a>\n')
+    # lines.append("\n<i>P.S. Воспользуйтесь /info для быстрого получения дедлайнов в чате</i>")
+
+    return "".join(lines).strip()
+
+
 async def _compose_info_text(chat_id: int) -> str | None:
     """Собирает HTML-текст информации о предмете и дедлайнах для чата."""
     chat_group = await chat_service.get_chat_group(chat_id)
@@ -1688,11 +1748,11 @@ async def _compose_info_text(chat_id: int) -> str | None:
     lines.append("<b>Информация о предмете: </b>\n\n")
     lines.append(f"🔹 <b>{subject.name}</b>\n")
     if getattr(subject, "wiki_url", None):
-        lines.append(f'• <a href="{subject.wiki_url}">Wiki</a>\n')
+        lines.append(f'• <a href="{subject.wiki_url}">ФКН Wiki</a>\n')
     if getattr(subject, "vk_playlist_url", None):
-        lines.append(f'• <a href="{subject.vk_playlist_url}">VK Плейлист</a>\n')
+        lines.append(f'• <a href="{subject.vk_playlist_url}">VK Video</a>\n')
     if getattr(subject, "yt_playlist_url", None):
-        lines.append(f'• <a href="{subject.yt_playlist_url}">YouTube Плейлист</a>\n')
+        lines.append(f'• <a href="{subject.yt_playlist_url}">YouTube</a>\n')
 
     lines.append("\n<b>Актуальные дедлайны:</b>\n")
 
@@ -1749,6 +1809,21 @@ async def _compose_info_text(chat_id: int) -> str | None:
     return "".join(lines).strip()
 
 
+@router.message(and_f(Command("start_info"), F.chat.type.in_(["group", "supergroup"])))
+async def cmd_chat_start_info(message: Message, db_user):
+    """Показать только ссылки по предмету (без дедлайнов)"""
+    try:
+        text = await _compose_start_info_text(message.chat.id)
+        if text is None:
+            await message.answer(
+                "Этот чат еще не настроен на дисциплину.\n\nПопросите администратора нажать «Настроить бота»."
+            )
+            return
+        await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+    except Exception:
+        raise
+
+
 @router.message(and_f(Command("info"), F.chat.type.in_(["group", "supergroup"])))
 async def cmd_chat_info(message: Message, db_user):
     """Показать текущую дисциплину и актуальные дедлайны чата"""
@@ -1760,9 +1835,8 @@ async def cmd_chat_info(message: Message, db_user):
             )
             return
         await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
-    except Exception as e:
-        logger.error(f"Ошибка в /info: {e}")
-        await message.answer("Произошла ошибка при получении информации о дисциплине.")
+    except Exception:
+        raise
 
 
 @router.callback_query(F.data == "chat_info")

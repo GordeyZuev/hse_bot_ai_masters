@@ -283,7 +283,7 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
             for subj in subjects_sorted_all:
                 text_lines.append(f"🔹 <b>{subj.name}</b>")
                 if subj.wiki_url:
-                    text_lines.append(f'• <a href="{subj.wiki_url}">Wiki</a>')
+                    text_lines.append(f'• <a href="{subj.wiki_url}">ФКН Wiki</a>')
                 if subj.vk_playlist_url:
                     text_lines.append(f'• <a href="{subj.vk_playlist_url}">VK Video</a>')
                 if subj.yt_playlist_url:
@@ -355,16 +355,16 @@ async def show_subject_info(callback: CallbackQuery, db_user):
                 modules_text = f"{subject.start_module}-{subject.end_module}"
 
         text = (
-            f"📚 <b>{subject.name}</b> (курс {subject.year})\n"
+            f"🔹 <b>{subject.name}</b> (курс {subject.year})\n"
             + (f"Модули: {modules_text}\n\n" if modules_text else "\n")
         )
 
         if subject.wiki_url:
-            text += f'🔗 <a href="{subject.wiki_url}">Wiki</a>\n'
+            text += f'• <a href="{subject.wiki_url}">ФКН Wiki</a>\n'
         if subject.vk_playlist_url:
-            text += f'▶️ <a href="{subject.vk_playlist_url}">VK</a>\n'
+            text += f'• <a href="{subject.vk_playlist_url}">VK Video</a>\n'
         if subject.yt_playlist_url:
-            text += f'▶️ <a href="{subject.yt_playlist_url}">YouTube</a>\n'
+            text += f'• <a href="{subject.yt_playlist_url}">YouTube</a>\n'
 
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="quick_subjects")

@@ -29,6 +29,9 @@ router = Router()
 async def handle_bot_chat_member_update(update: ChatMemberUpdated):
     """Обработчик изменения статуса бота в чате"""
     try:
+        if update.chat.type not in ["group", "supergroup"]:
+            return
+
         chat_id = update.chat.id
         chat_title = update.chat.title or f"Чат {chat_id}"
 

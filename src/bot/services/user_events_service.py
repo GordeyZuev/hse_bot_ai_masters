@@ -17,19 +17,18 @@ logger = get_logger()
 router = Router()
 
 
-@router.chat_member()
+@router.my_chat_member()
 async def handle_user_chat_member_update(update: ChatMemberUpdated):
-    """Обработчик изменения статуса пользователя в чате с ботом"""
+    """Обработчик изменения статуса бота в личном чате с пользователем"""
     try:
-        # Проверяем, что это личный чат с ботом
         if update.chat.type != "private":
             return
 
-        user_id = update.from_user.id
+        user_id = update.chat.id
         old_status = update.old_chat_member.status
         new_status = update.new_chat_member.status
 
-        logger.debug(f"Статус пользователя {user_id}: {old_status} → {new_status}")
+        logger.debug(f"Статус бота в личном чате с пользователем {user_id}: {old_status} → {new_status}")
 
         # Пользователь заблокировал бота
         if old_status in ["member"] and new_status in ["kicked", "left"]:
@@ -46,16 +45,14 @@ async def handle_user_chat_member_update(update: ChatMemberUpdated):
 async def handle_user_blocked_bot(user_id: int):
     """Обработка блокировки бота пользователем"""
     try:
-        # Деактивируем пользователя
         success = await deactivate_user(user_id)
 
-        if success:
-            # Отменяем все запланированные уведомления пользователя
-            cancelled_count = await cancel_user_notifications(user_id)
+        cancelled_count = await cancel_user_notifications(user_id)
 
-            logger.info(f"(U) {user_id} - Заблокирован. Отменено уведомлений: {cancelled_count}")
+        if success:
+            logger.info(f"(U) {user_id} - Заблокировал бота. Отменено уведомлений: {cancelled_count}")
         else:
-            logger.info(f"(U) {user_id} - Заблокирован (не найден в БД)")
+            logger.info(f"(U) {user_id} - Заблокировал бота (не найден в БД). Отменено уведомлений: {cancelled_count}")
 
     except Exception as e:
         logger.error(f"(U) {user_id} - Ошибка блокировки: {e}")
@@ -68,9 +65,23 @@ async def handle_user_unblocked_bot(user_id: int):
         success = await activate_user(user_id)
 
         if success:
-            logger.info(f"(U) {user_id} - Разблокирован, активирован")
+            try:
+                from src.bot.services.notification_scheduler_service import (
+                    notification_scheduler_service,
+                )
+
+                scheduled_count = await notification_scheduler_service.schedule_notifications_for_user_settings_creation(
+                    user_id
+                )
+                logger.info(
+                    f"(U) {user_id} - Разблокировал бота, активирован. Запланировано уведомлений: {scheduled_count}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"(U) {user_id} - Разблокировал бота, активирован, но не удалось пересоздать уведомления: {e}"
+                )
         else:
-            logger.info(f"(U) {user_id} - Разблокирован (не найден в БД)")
+            logger.info(f"(U) {user_id} - Разблокировал бота (не найден в БД)")
 
     except Exception as e:
         logger.error(f"(U) {user_id} - Ошибка разблокировки: {e}")
@@ -113,19 +124,23 @@ async def activate_user(user_id: int) -> bool:
 
 
 async def cancel_user_notifications(user_id: int) -> int:
-    """Отмена всех запланированных уведомлений пользователя (при блокировке бота)"""
+    """Отмена всех запланированных уведомлений пользователя (при блокировке бота)
+
+    Отменяет уведомления со статусами 'scheduled' и 'failed',
+    так как при блокировке бота не нужно пытаться отправлять уведомления.
+    """
     try:
         async with db_manager.async_session() as session:
             from sqlalchemy import update
 
             from src.core.models.models import ScheduledNotification
 
-            # Обновляем статус всех запланированных уведомлений на 'cancelled'
+            # Обновляем статус всех запланированных и неудачных уведомлений на 'cancelled'
             result = await session.execute(
                 update(ScheduledNotification)
                 .where(
                     ScheduledNotification.user_id == user_id,
-                    ScheduledNotification.status == "scheduled"
+                    ScheduledNotification.status.in_(["scheduled", "failed"])
                 )
                 .values(status="cancelled")
             )
@@ -133,7 +148,8 @@ async def cancel_user_notifications(user_id: int) -> int:
             cancelled_count = result.rowcount
             await session.commit()
 
-            logger.info(f"Отменено {cancelled_count} уведомлений для пользователя {user_id}")
+            if cancelled_count > 0:
+                logger.info(f"Отменено {cancelled_count} уведомлений для пользователя {user_id}")
             return cancelled_count
 
     except Exception as e:

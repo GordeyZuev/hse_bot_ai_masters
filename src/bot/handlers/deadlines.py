@@ -18,6 +18,8 @@ from src.utils.notification_formatting import (
 logger = get_logger()
 router = Router()
 
+FEATURE_ENABLE_TASK_COMPLETION = False
+
 
 def _format_deadlines_with_divider(
     all_deadlines: list[dict], days: int, user_tz_name: str, hide_done: bool = True
@@ -174,18 +176,22 @@ async def send_deadlines_list(message: Message, db_user, days: int, hide_done: b
             builder.button(text="🔙 Назад", callback_data="back_to_menu")
             builder.adjust(3, 1, 1)
         else:
-            builder.button(
-                text=(
-                    "🙈 Скрыть выполненные" if not hide_done else "🐵 Показать выполненные"
-                ),
-                callback_data=f"toggle_hide_done_{days}_h{1 if hide_done else 0}",
-            )
-            builder.button(
-                text="📝 Отметить выполненные",
-                callback_data=f"mark_done_all_{days}_h{1 if hide_done else 0}",
-            )
+            if FEATURE_ENABLE_TASK_COMPLETION:
+                builder.button(
+                    text=(
+                        "🙈 Скрыть выполненные" if not hide_done else "🐵 Показать выполненные"
+                    ),
+                    callback_data=f"toggle_hide_done_{days}_h{1 if hide_done else 0}",
+                )
+                builder.button(
+                    text="📝 Отметить выполненные",
+                    callback_data=f"mark_done_all_{days}_h{1 if hide_done else 0}",
+                )
             builder.button(text="🔙 Назад", callback_data="back_to_menu")
-            builder.adjust(3, 1, 1, 1)
+            if FEATURE_ENABLE_TASK_COMPLETION:
+                builder.adjust(3, 1, 1, 1)
+            else:
+                builder.adjust(3, 1)
 
         if edit:
             await message.edit_text(
@@ -258,7 +264,7 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         # Дедлайны (по 4 кнопки в ряд)
         # Используем исходный отсортированный список для кнопок, чтобы они не перемещались
         deadlines_builder = InlineKeyboardBuilder()
-        if all_deadlines:
+        if FEATURE_ENABLE_TASK_COMPLETION and all_deadlines:
             for d in sorted_all:
                 deadline = d["deadline"]
                 is_done = d.get("is_done", False)
@@ -282,7 +288,7 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         # Объединяем все построители
         builder = InlineKeyboardBuilder()
         builder.attach(periods_builder)
-        if all_deadlines:
+        if FEATURE_ENABLE_TASK_COMPLETION and all_deadlines and deadlines_builder.buttons:
             builder.attach(deadlines_builder)
         builder.attach(bottom_builder)
 

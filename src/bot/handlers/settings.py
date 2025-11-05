@@ -103,12 +103,12 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         if settings:
             if settings.enable_deadline_update_notifications:
                 builder.button(
-                    text="📌 Отключить уведомления об обновлении",
+                    text="🔔 Включить уведомления об изменениях",
                     callback_data="toggle_update_notifications",
                 )
             else:
                 builder.button(
-                    text="📌 Включить уведомления об обновлении",
+                    text="🔕 Отключить уведомления об изменениях",
                     callback_data="toggle_update_notifications",
                 )
 

@@ -103,7 +103,7 @@ class NotificationService:
             unit_text = {"days": "дн.", "hours": "ч."}.get(offset_unit, offset_unit)
 
             logger.info(
-                f"Пользователь {user_id} настроил уведомление {notification_number}: за {offset_value} {unit_text}. Перепланировано {rescheduled_count} уведомлений"
+                f"(U) {user_id} - Настроил уведомление {notification_number}: за {offset_value} {unit_text}. Перепланировано {rescheduled_count} уведомлений"
             )
             return True, f"Уведомление настроено: за {offset_value} {unit_text}"
 
@@ -128,7 +128,7 @@ class NotificationService:
                 )
                 status_text = "включены"
                 logger.info(
-                    f"Пользователь {user_id} включил уведомления. Запланировано {rescheduled_count} уведомлений"
+                    f"(U) {user_id} - Включил уведомления. Запланировано {rescheduled_count} уведомлений"
                 )
             else:
                 # Если выключаем, отменяем все запланированные уведомления пользователя
@@ -156,7 +156,7 @@ class NotificationService:
 
                 status_text = "отключены"
                 logger.info(
-                    f"Пользователь {user_id} отключил уведомления. Отменено {cancelled_count} уведомлений"
+                    f"(U) {user_id} - Отключил уведомления. Отменено {cancelled_count} уведомлений"
                 )
 
             return True, f"Уведомления {status_text}"
@@ -204,11 +204,12 @@ class NotificationService:
             settings_data = {"enable_deadline_update_notifications": is_enabled}
             await db_manager.update_user_notification_settings(user_id, settings_data)
 
-            status_text = "включены" if is_enabled else "отключены"
+            status_text_log = "Включены" if is_enabled else "Отключены"
+            status_text_user = "включены" if is_enabled else "отключены"
             logger.info(
-                f"Пользователь {user_id} {status_text} уведомления об обновлении дедлайнов"
+                f"(U) {user_id} - {status_text_log} уведомления об обновлении дедлайнов"
             )
-            return True, f"Уведомления об обновлениях {status_text}"
+            return True, f"Уведомления об обновлениях {status_text_user}"
 
         except Exception as e:
             logger.error(

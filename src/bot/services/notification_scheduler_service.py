@@ -375,7 +375,7 @@ class NotificationSchedulerService:
             )
 
             logger.info(
-                f"Перепланировано {total_rescheduled} уведомлений для пользователя {user_id}"
+                f"(U) {user_id} - Перепланировано {total_rescheduled} уведомлений"
             )
             return total_rescheduled
 

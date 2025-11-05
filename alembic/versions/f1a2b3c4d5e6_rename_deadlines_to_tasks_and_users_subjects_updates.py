@@ -48,9 +48,22 @@ def upgrade() -> None:
         # Rename indexes for consistency
         dialect_name = conn.dialect.name
         if dialect_name == "postgresql":
-            op.execute("ALTER INDEX IF EXISTS idx_deadlines_subject_id RENAME TO idx_tasks_subject_id")
-            op.execute("ALTER INDEX IF EXISTS idx_deadlines_soft_ts RENAME TO idx_tasks_soft_ts")
-            op.execute("ALTER INDEX IF EXISTS idx_deadlines_hard_ts RENAME TO idx_tasks_hard_ts")
+            # Получаем список всех индексов в базе данных
+            result = conn.execute(sa.text(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"
+            ))
+            all_indexes = {row[0] for row in result}
+            
+            # Переименовываем индексы только если исходный существует, а целевой - нет
+            index_mappings = [
+                ("idx_deadlines_subject_id", "idx_tasks_subject_id"),
+                ("idx_deadlines_soft_ts", "idx_tasks_soft_ts"),
+                ("idx_deadlines_hard_ts", "idx_tasks_hard_ts"),
+            ]
+            
+            for old_name, new_name in index_mappings:
+                if old_name in all_indexes and new_name not in all_indexes:
+                    op.execute(f"ALTER INDEX {old_name} RENAME TO {new_name}")
 
     # 2) users column renames and drop deprecated settings_version
     if "users" in tables:
@@ -130,9 +143,22 @@ def downgrade() -> None:
     # Rename indexes back (PostgreSQL only)
     dialect_name = conn.dialect.name
     if dialect_name == "postgresql":
-        op.execute("ALTER INDEX IF EXISTS idx_tasks_subject_id RENAME TO idx_deadlines_subject_id")
-        op.execute("ALTER INDEX IF EXISTS idx_tasks_soft_ts RENAME TO idx_deadlines_soft_ts")
-        op.execute("ALTER INDEX IF EXISTS idx_tasks_hard_ts RENAME TO idx_deadlines_hard_ts")
+        # Получаем список всех индексов в базе данных
+        result = conn.execute(sa.text(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"
+        ))
+        all_indexes = {row[0] for row in result}
+        
+        # Переименовываем индексы обратно только если исходный существует, а целевой - нет
+        index_mappings = [
+            ("idx_tasks_subject_id", "idx_deadlines_subject_id"),
+            ("idx_tasks_soft_ts", "idx_deadlines_soft_ts"),
+            ("idx_tasks_hard_ts", "idx_deadlines_hard_ts"),
+        ]
+        
+        for old_name, new_name in index_mappings:
+            if old_name in all_indexes and new_name not in all_indexes:
+                op.execute(f"ALTER INDEX {old_name} RENAME TO {new_name}")
 
     # 1) tasks -> deadlines, and updated_at -> last_updated
     if "tasks" in tables:

@@ -125,6 +125,8 @@ Telegram Chat → GroupChat Handler → ChatService → ChatNotificationSchedule
 
 #### Middlewares (`src/bot/middlewares/`)
 - **`database.py`** - Автоматическое создание пользователей и работа с БД
+- **`private_chat.py`** - Обработка ошибок в личных чатах (`TelegramForbiddenError`, `TelegramBadRequest`), автоматическая деактивация пользователей, безопасные функции `safe_edit_message()` и `safe_send_message()`
+- **`group_chat.py`** - Обработка ошибок в групповых чатах (например, закрытые топики), автоматическая отправка уведомлений в общий чат при недоступности топика
 
 ### 🏗️ Core Layer (`src/core/`)
 
@@ -152,8 +154,8 @@ Telegram Chat → GroupChat Handler → ChatService → ChatNotificationSchedule
 ### 🛠️ Utils (`src/utils/`)
 - **`logger.py`** - Настройка логирования
 - **`time.py`** - Утилиты для работы с временем и часовыми поясами
-- **`telegram.py`** - Утилиты для безопасной работы с Telegram API (`safe_send_message`, `safe_edit_message`)
 - **`notification.py`** - Утилиты для работы с уведомлениями (`apply_sleep_mode`)
+- **`__init__.py`** - Ленивая загрузка функций из middleware (`safe_send_message`, `safe_edit_message`) для обратной совместимости
 
 ## ⚙️ Инфраструктура проекта
 
@@ -465,7 +467,21 @@ Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram 
 
 ## 🛠️ Утилиты для работы с Telegram API (v1.0.0)
 
-### 📦 Модуль `src/utils/telegram.py`
+### 📦 Модуль `src/bot/middlewares/private_chat.py`
+
+Функции `safe_edit_message()` и `safe_send_message()` перенесены из `src/utils/telegram.py` в middleware для более централизованной обработки ошибок. Доступны через `src/utils/__init__.py` для обратной совместимости (ленивая загрузка).
+
+#### `TelegramErrorHandler`
+Централизованный класс для обработки ошибок Telegram API:
+- `deactivate_user(user_id)` - деактивирует пользователя в БД при блокировке бота
+- `is_ignorable_error(error)` - проверяет, является ли ошибка некритичной (можно игнорировать)
+- `handle_telegram_error(error, user_id=None)` - обрабатывает ошибку и возвращает `True` если ошибка обработана
+
+#### `PrivateChatMiddleware`
+Middleware для автоматической обработки ошибок в личных чатах:
+- Перехватывает `TelegramBadRequest` и `TelegramForbiddenError` для личных чатов
+- Автоматически деактивирует пользователей при блокировке бота
+- Игнорирует некритичные ошибки (например, "message is not modified")
 
 #### `safe_edit_message(message, text, **kwargs)`
 Безопасное редактирование сообщения с обработкой ошибок Telegram API.
@@ -483,7 +499,7 @@ Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram 
 
 **Особенности:**
 - **Автоматическое применение режима сна**: если передан `user_id`, автоматически проверяет режим сна пользователя и применяет `disable_notification=True` при необходимости
-- **Автоматическая деактивация**: при `TelegramForbiddenError` (бот заблокирован) автоматически деактивирует пользователя через `_deactivate_user()`
+- **Автоматическая деактивация**: при `TelegramForbiddenError` (бот заблокирован) автоматически деактивирует пользователя через `TelegramErrorHandler.deactivate_user()`
 - **Логирование**: логирует успешные отправки (если передан `success_message`) и ошибки
 
 **Обрабатываемые ошибки:**
@@ -493,9 +509,26 @@ Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram 
 
 **Возвращает:** `bool` - `True` если отправка успешна, `False` если была ошибка
 
-**Внутренняя функция `_deactivate_user(user_id)`**:
-- Деактивирует пользователя (устанавливает `is_active = False`)
-- Используется при блокировке бота пользователем
+### 📦 Модуль `src/bot/middlewares/group_chat.py`
+
+#### `GroupChatMiddleware`
+Middleware для обработки ошибок в групповых чатах:
+- Перехватывает ошибки закрытых топиков (`topic_closed`)
+- Автоматически отправляет уведомление в общий чат при недоступности топика
+- Получает название топика из сообщения или через API для информативных уведомлений
+- Логирует ошибки групповых чатов без прерывания основного потока
+
+**Особенности:**
+- Автоматическое определение закрытых топиков
+- Информативные уведомления с указанием прав, необходимых боту
+- Безопасная обработка ошибок без прерывания работы бота
+
+### 📦 Модуль `src/utils/__init__.py`
+
+Ленивая загрузка функций из middleware для избежания циклических импортов:
+- `safe_edit_message` и `safe_send_message` доступны через прокси-класс `_LazyFunction`
+- Функции загружаются только при первом использовании
+- Сохранена обратная совместимость с существующим кодом
 
 ### 📦 Модуль `src/utils/notification.py`
 
@@ -515,19 +548,23 @@ Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram 
 ### 🔄 Использование в сервисах
 
 #### NotificationSender
-- Использует `safe_send_message()` для всех отправок пользователям
+- Использует `safe_send_message()` из `src/utils` (ленивая загрузка из middleware) для всех отправок пользователям
 - Автоматически применяется режим сна через `apply_sleep_mode()` внутри `safe_send_message()`
+- Ошибки обрабатываются автоматически через `PrivateChatMiddleware`
 
 #### ScheduledNotificationSender
 - Использует `safe_send_message()` для отправки запланированных уведомлений
 - Режим сна применяется автоматически
+- Ошибки обрабатываются автоматически через `PrivateChatMiddleware`
 
 #### ChatNotificationSender
 - Использует `safe_send_message()` для отправки в групповые чаты
 - Режим сна не применяется для групповых чатов (только для личных сообщений)
+- Ошибки закрытых топиков обрабатываются автоматически через `GroupChatMiddleware`
 
 #### Handlers
-- Используют `safe_edit_message()` для безопасного редактирования сообщений
+- Используют `safe_edit_message()` из `src/utils` (ленивая загрузка из middleware) для безопасного редактирования сообщений
+- Ошибки обрабатываются автоматически через `PrivateChatMiddleware` и `GroupChatMiddleware`
 - Избегают ошибок при попытке редактирования неизменившегося или удаленного сообщения
 
 ## 📚 Связанная документация

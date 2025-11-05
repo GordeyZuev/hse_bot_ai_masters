@@ -28,18 +28,27 @@ def _format_deadlines_with_divider(
     if not all_deadlines:
         return deadline_service.format_deadlines_list([], days, user_tz_name=user_tz_name)
 
-    # Сначала создаем фиксированную нумерацию на основе общего отсортированного списка
-    # Это гарантирует, что номер каждого задания не изменится при изменении его статуса
-    sorted_all = sorted(all_deadlines, key=lambda x: x["deadline"].id)
-    deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(sorted_all)}
-
     # Разделяем на выполненные и невыполненные
     not_done_deadlines = [d for d in all_deadlines if not d.get("is_done", False)]
     done_deadlines = [d for d in all_deadlines if d.get("is_done", False)]
 
-    # Сортируем каждую группу по ID дедлайна для стабильности порядка
-    not_done_deadlines.sort(key=lambda x: x["deadline"].id)
-    done_deadlines.sort(key=lambda x: x["deadline"].id)
+    # Сортируем каждую группу по ближайшему дедлайну (для стабильности при одинаковых датах используем ID)
+    not_done_deadlines.sort(
+        key=lambda x: (
+            x.get("nearest_deadline") or datetime.max.replace(tzinfo=UTC),
+            x["deadline"].id,
+        )
+    )
+    done_deadlines.sort(
+        key=lambda x: (
+            x.get("nearest_deadline") or datetime.max.replace(tzinfo=UTC),
+            x["deadline"].id,
+        )
+    )
+
+    # Создаем нумерацию на основе отсортированных групп: сначала невыполненные, потом выполненные
+    ordered_deadlines = not_done_deadlines + done_deadlines
+    deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(ordered_deadlines)}
 
     # Специальный случай: все выполнено и скрыты выполненные
     if not not_done_deadlines and done_deadlines and hide_done:
@@ -230,20 +239,32 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         all_deadlines = deadlines_data
 
         # В режиме отметки всегда показываем все задания (и выполненные, и невыполненные)
-        # Сначала создаем фиксированную нумерацию на основе общего отсортированного списка
-        sorted_all = sorted(deadlines_data, key=lambda x: x["deadline"].id)
-        deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(sorted_all)}
-
         # Разделяем на выполненные и невыполненные для форматирования текста
         not_done_deadlines = [d for d in deadlines_data if not d.get("is_done", False)]
         done_deadlines = [d for d in deadlines_data if d.get("is_done", False)]
 
-        # Сортируем каждую группу по ID дедлайна для стабильности порядка
-        not_done_deadlines.sort(key=lambda x: x["deadline"].id)
-        done_deadlines.sort(key=lambda x: x["deadline"].id)
+        # Сортируем каждую группу по ближайшему дедлайну (для стабильности при одинаковых датах используем ID)
+        not_done_deadlines.sort(
+            key=lambda x: (
+                x.get("nearest_deadline") or datetime.max.replace(tzinfo=UTC),
+                x["deadline"].id,
+            )
+        )
+        done_deadlines.sort(
+            key=lambda x: (
+                x.get("nearest_deadline") or datetime.max.replace(tzinfo=UTC),
+                x["deadline"].id,
+            )
+        )
 
         # Переупорядочиваем deadlines_data для форматирования текста: сначала невыполненные, потом выполненные
         deadlines_data_for_text = not_done_deadlines + done_deadlines
+
+        # Создаем нумерацию на основе отсортированных групп: сначала невыполненные, потом выполненные
+        deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(deadlines_data_for_text)}
+
+        # Для кнопок используем тот же отсортированный порядок
+        sorted_all = deadlines_data_for_text
 
         # Форматируем текст с разделителем (всегда показываем выполненные)
         text = _format_deadlines_with_divider(deadlines_data_for_text, days, db_user.timezone, hide_done=False)

@@ -198,8 +198,9 @@ class DataSyncer:
         """Ручная синхронизация дисциплин из листа "Дисциплины".
 
         Правила:
-        - Ключ сопоставления: (sheet_subject_id, name) если ID присутствует, иначе (name, year)
-        - Жесткая перезапись: is_active, ссылки, start/end модули; пустые ссылки затираются в NULL
+        - Если есть sheet_subject_id, сначала ищем предмет только по ID (независимо от названия)
+        - Если ID нет или предмет не найден по ID, ищем по (name, year)
+        - Жесткая перезапись: name, is_active, ссылки, start/end модули; пустые ссылки затираются в NULL
         - Новые строки добавляем
         - Никаких планировщиков, вызывается вручную админом
         """
@@ -219,34 +220,35 @@ class DataSyncer:
                     name = row["name"]
                     year = row["year"]
 
+                    subject = None
+
                     if sheet_subject_id is not None:
                         stmt = select(Subject).where(
-                            and_(
-                                Subject.sheet_subject_id == sheet_subject_id,
-                                Subject.name == name,
-                            )
+                            Subject.sheet_subject_id == sheet_subject_id
                         )
                         result = await session.execute(stmt)
                         subject = result.scalar_one_or_none()
 
-                        # fallback: если не нашли по (id,name), пробуем (name,year)
-                        if subject is None:
-                            stmt2 = select(Subject).where(
-                                and_(Subject.name == name, Subject.year == year)
-                            )
-                            result2 = await session.execute(stmt2)
-                            subject = result2.scalar_one_or_none()
-                    else:
+                    if subject is None:
                         stmt = select(Subject).where(
                             and_(Subject.name == name, Subject.year == year)
                         )
                         result = await session.execute(stmt)
                         subject = result.scalar_one_or_none()
+                        
+                        # Защита: если нашли по названию, но ID отличается - обновляем ID
+                        if subject and sheet_subject_id is not None:
+                            if subject.sheet_subject_id != sheet_subject_id:
+                                logger.warning(
+                                    f"Обнаружена рассинхронизация ID для предмета '{name}' (год {year}): "
+                                    f"в БД ID={subject.sheet_subject_id}, в таблице ID={sheet_subject_id}. "
+                                    f"Обновляю ID на значение из таблицы."
+                                )
 
-                    # Обновляем только при реальных изменениях
                     if subject:
                         incoming = {
                             "sheet_subject_id": sheet_subject_id,
+                            "name": name,
                             "year": year,
                             "start_module": row.get("start_module"),
                             "end_module": row.get("end_module"),

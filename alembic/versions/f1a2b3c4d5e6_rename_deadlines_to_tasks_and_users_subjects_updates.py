@@ -6,6 +6,7 @@ Create Date: 2025-11-04
 """
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -18,83 +19,115 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 1) deadlines -> tasks, and last_updated -> updated_at
-    op.rename_table("deadlines", "tasks")
-
-    with op.batch_alter_table("tasks", schema=None) as batch_op:
-        if op.get_bind().dialect.name == "postgresql":
-            batch_op.alter_column(
-                "last_updated",
-                new_column_name="updated_at",
-                existing_type=sa.DateTime(timezone=True),
-            )
-        else:
-            batch_op.alter_column(
-                "last_updated",
-                new_column_name="updated_at",
-                existing_type=sa.DateTime(timezone=True),
-            )
-
-    # Rename indexes for consistency
     conn = op.get_bind()
-    dialect_name = conn.dialect.name
-    if dialect_name == "postgresql":
-        op.execute("ALTER INDEX IF EXISTS idx_deadlines_subject_id RENAME TO idx_tasks_subject_id")
-        op.execute("ALTER INDEX IF EXISTS idx_deadlines_soft_ts RENAME TO idx_tasks_soft_ts")
-        op.execute("ALTER INDEX IF EXISTS idx_deadlines_hard_ts RENAME TO idx_tasks_hard_ts")
+    inspector = inspect(conn)
+    tables = inspector.get_table_names()
+    
+    # 1) deadlines -> tasks, and last_updated -> updated_at
+    table_was_renamed = False
+    if "deadlines" in tables and "tasks" not in tables:
+        op.rename_table("deadlines", "tasks")
+        table_was_renamed = True
+        # Обновляем список таблиц после переименования
+        tables = inspector.get_table_names()
+    elif "tasks" in tables:
+        # Таблица уже переименована, пропускаем переименование
+        pass
+
+    # Проверяем и переименовываем колонку last_updated -> updated_at
+    if "tasks" in tables:
+        tasks_columns = [col["name"] for col in inspector.get_columns("tasks")]
+        if "last_updated" in tasks_columns and "updated_at" not in tasks_columns:
+            with op.batch_alter_table("tasks", schema=None) as batch_op:
+                batch_op.alter_column(
+                    "last_updated",
+                    new_column_name="updated_at",
+                    existing_type=sa.DateTime(timezone=True),
+                )
+
+        # Rename indexes for consistency
+        dialect_name = conn.dialect.name
+        if dialect_name == "postgresql":
+            op.execute("ALTER INDEX IF EXISTS idx_deadlines_subject_id RENAME TO idx_tasks_subject_id")
+            op.execute("ALTER INDEX IF EXISTS idx_deadlines_soft_ts RENAME TO idx_tasks_soft_ts")
+            op.execute("ALTER INDEX IF EXISTS idx_deadlines_hard_ts RENAME TO idx_tasks_hard_ts")
 
     # 2) users column renames and drop deprecated settings_version
-    with op.batch_alter_table("users", schema=None) as batch_op:
-        # subscribed_at -> created_at
-        batch_op.alter_column(
-            "subscribed_at",
-            new_column_name="created_at",
-            existing_type=sa.DateTime(timezone=True),
-        )
-        # last_activity_ts -> last_activity
-        batch_op.alter_column(
-            "last_activity_ts",
-            new_column_name="last_activity",
-            existing_type=sa.DateTime(timezone=True),
-        )
-        # drop settings_version
-        batch_op.drop_column("settings_version")
+    if "users" in tables:
+        users_columns = [col["name"] for col in inspector.get_columns("users")]
+        
+        with op.batch_alter_table("users", schema=None) as batch_op:
+            # subscribed_at -> created_at
+            if "subscribed_at" in users_columns and "created_at" not in users_columns:
+                batch_op.alter_column(
+                    "subscribed_at",
+                    new_column_name="created_at",
+                    existing_type=sa.DateTime(timezone=True),
+                )
+            # last_activity_ts -> last_activity
+            if "last_activity_ts" in users_columns and "last_activity" not in users_columns:
+                batch_op.alter_column(
+                    "last_activity_ts",
+                    new_column_name="last_activity",
+                    existing_type=sa.DateTime(timezone=True),
+                )
+            # drop settings_version
+            if "settings_version" in users_columns:
+                batch_op.drop_column("settings_version")
 
     # 3) subjects add updated_at
-    with op.batch_alter_table("subjects", schema=None) as batch_op:
-        batch_op.add_column(
-            sa.Column(
-                "updated_at",
-                sa.DateTime(timezone=True),
-                server_default=sa.text("now()"),
-                nullable=True,
-            )
-        )
+    if "subjects" in tables:
+        subjects_columns = [col["name"] for col in inspector.get_columns("subjects")]
+        if "updated_at" not in subjects_columns:
+            with op.batch_alter_table("subjects", schema=None) as batch_op:
+                batch_op.add_column(
+                    sa.Column(
+                        "updated_at",
+                        sa.DateTime(timezone=True),
+                        server_default=sa.text("now()"),
+                        nullable=True,
+                    )
+                )
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    tables = inspector.get_table_names()
+    
     # 3) subjects drop updated_at
-    with op.batch_alter_table("subjects", schema=None) as batch_op:
-        batch_op.drop_column("updated_at")
+    if "subjects" in tables:
+        subjects_columns = [col["name"] for col in inspector.get_columns("subjects")]
+        if "updated_at" in subjects_columns:
+            with op.batch_alter_table("subjects", schema=None) as batch_op:
+                batch_op.drop_column("updated_at")
 
     # 2) users column renames back and restore settings_version
-    with op.batch_alter_table("users", schema=None) as batch_op:
-        batch_op.alter_column(
-            "created_at",
-            new_column_name="subscribed_at",
-            existing_type=sa.DateTime(timezone=True),
-        )
-        batch_op.alter_column(
-            "last_activity",
-            new_column_name="last_activity_ts",
-            existing_type=sa.DateTime(timezone=True),
-        )
-        batch_op.add_column(
-            sa.Column("settings_version", sa.Integer(), nullable=True, server_default="1")
-        )
+    if "users" in tables:
+        users_columns = [col["name"] for col in inspector.get_columns("users")]
+        
+        with op.batch_alter_table("users", schema=None) as batch_op:
+            # created_at -> subscribed_at
+            if "created_at" in users_columns and "subscribed_at" not in users_columns:
+                batch_op.alter_column(
+                    "created_at",
+                    new_column_name="subscribed_at",
+                    existing_type=sa.DateTime(timezone=True),
+                )
+            # last_activity -> last_activity_ts
+            if "last_activity" in users_columns and "last_activity_ts" not in users_columns:
+                batch_op.alter_column(
+                    "last_activity",
+                    new_column_name="last_activity_ts",
+                    existing_type=sa.DateTime(timezone=True),
+                )
+            # restore settings_version
+            if "settings_version" not in users_columns:
+                batch_op.add_column(
+                    sa.Column("settings_version", sa.Integer(), nullable=True, server_default="1")
+                )
 
     # Rename indexes back (PostgreSQL only)
-    conn = op.get_bind()
     dialect_name = conn.dialect.name
     if dialect_name == "postgresql":
         op.execute("ALTER INDEX IF EXISTS idx_tasks_subject_id RENAME TO idx_deadlines_subject_id")
@@ -102,13 +135,17 @@ def downgrade() -> None:
         op.execute("ALTER INDEX IF EXISTS idx_tasks_hard_ts RENAME TO idx_deadlines_hard_ts")
 
     # 1) tasks -> deadlines, and updated_at -> last_updated
-    with op.batch_alter_table("tasks", schema=None) as batch_op:
-        batch_op.alter_column(
-            "updated_at",
-            new_column_name="last_updated",
-            existing_type=sa.DateTime(timezone=True),
-        )
+    if "tasks" in tables:
+        tasks_columns = [col["name"] for col in inspector.get_columns("tasks")]
+        if "updated_at" in tasks_columns and "last_updated" not in tasks_columns:
+            with op.batch_alter_table("tasks", schema=None) as batch_op:
+                batch_op.alter_column(
+                    "updated_at",
+                    new_column_name="last_updated",
+                    existing_type=sa.DateTime(timezone=True),
+                )
 
-    op.rename_table("tasks", "deadlines")
+        if "deadlines" not in tables:
+            op.rename_table("tasks", "deadlines")
 
 

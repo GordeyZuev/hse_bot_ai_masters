@@ -302,6 +302,7 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
         builder.button(text="1️⃣ Первый курс", callback_data="subjects_year_1")
         builder.button(text="2️⃣ Второй курс", callback_data="subjects_year_2")
         builder.row()
+        builder.button(text="🗑 Отписаться от всего", callback_data="confirm_unsuball")
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(2, 1)
     except Exception as e:

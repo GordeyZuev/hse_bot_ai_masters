@@ -300,7 +300,10 @@ data_syncer = DataSyncer()
 async def main():
     """Функция для тестирования синхронизации"""
     success = await data_syncer.sync_data()
-    print("Синхронизация выполнена успешно!" if success else "Ошибка синхронизации")
+    if success:
+        logger.info("Синхронизация выполнена успешно!")
+    else:
+        logger.error("Ошибка синхронизации")
 
 
 if __name__ == "__main__":

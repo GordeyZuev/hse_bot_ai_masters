@@ -178,8 +178,8 @@ async def main():
 if __name__ == "__main__":
     try:
         deadlines = asyncio.run(main())
-        print(f"Получено записей: {len(deadlines)}")
+        logger.info(f"Получено записей: {len(deadlines)}")
         if deadlines:
-            print(f"Первая запись: {deadlines[0]}")
+            logger.info(f"Первая запись: {deadlines[0]}")
     except Exception as e:
         logger.critical(f"Критическая ошибка: {e}")

@@ -22,17 +22,25 @@ FEATURE_ENABLE_TASK_COMPLETION = False
 
 
 def _format_deadlines_with_divider(
-    all_deadlines: list[dict], days: int, user_tz_name: str, hide_done: bool = True
+    all_deadlines: list[dict], days: int, user_tz_name: str, hide_done: bool = True, deadline_numbers: dict[int, int] | None = None
 ) -> str:
     """Форматирование списка дедлайнов с разделителем между выполненными и невыполненными"""
     if not all_deadlines:
         return deadline_service.format_deadlines_list([], days, user_tz_name=user_tz_name)
 
-    # Разделяем на выполненные и невыполненные
+    if deadline_numbers is None:
+        all_sorted = sorted(
+            all_deadlines,
+            key=lambda x: (
+                x.get("nearest_deadline") or datetime.max.replace(tzinfo=UTC),
+                x["deadline"].id,
+            )
+        )
+        deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(all_sorted)}
+
     not_done_deadlines = [d for d in all_deadlines if not d.get("is_done", False)]
     done_deadlines = [d for d in all_deadlines if d.get("is_done", False)]
 
-    # Сортируем каждую группу по ближайшему дедлайну (для стабильности при одинаковых датах используем ID)
     not_done_deadlines.sort(
         key=lambda x: (
             x.get("nearest_deadline") or datetime.max.replace(tzinfo=UTC),
@@ -46,18 +54,11 @@ def _format_deadlines_with_divider(
         )
     )
 
-    # Создаем нумерацию на основе отсортированных групп: сначала невыполненные, потом выполненные
-    ordered_deadlines = not_done_deadlines + done_deadlines
-    deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(ordered_deadlines)}
-
-    # Специальный случай: все выполнено и скрыты выполненные
     if not not_done_deadlines and done_deadlines and hide_done:
         return f"📅 <b>Дедлайны на {days} дней</b>\n\nВы все выполнили! Поздравляем!"
 
-    # Форматируем текст с маркерами статуса
     text = f"📅 <b>Дедлайны на {days} дней</b>\n\n"
 
-    # Невыполненные задания с маркером 🟡/🔴 перед датой дедлайна
     if not_done_deadlines:
         for data in not_done_deadlines:
             deadline = data["deadline"]
@@ -79,11 +80,9 @@ def _format_deadlines_with_divider(
 
             text += "\n\n"
 
-    # Разделитель (дополнительная пустая строка) между секциями
     if not_done_deadlines and done_deadlines and not hide_done:
         text += "\n"
 
-    # Выполненные задания с маркером ✅ перед датой дедлайна (показываем только если hide_done=False)
     if done_deadlines and not hide_done:
         for data in done_deadlines:
             deadline = data["deadline"]
@@ -238,6 +237,18 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         )
         all_deadlines = deadlines_data
 
+        # Создаем стабильную нумерацию на основе сортировки всех дедлайнов (независимо от статуса)
+        # Сортируем все дедлайны по ближайшему дедлайну и ID для стабильности
+        all_sorted = sorted(
+            deadlines_data,
+            key=lambda x: (
+                x.get("nearest_deadline") or datetime.max.replace(tzinfo=UTC),
+                x["deadline"].id,
+            )
+        )
+        # Создаем стабильную нумерацию на основе отсортированного списка
+        deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(all_sorted)}
+
         # В режиме отметки всегда показываем все задания (и выполненные, и невыполненные)
         # Разделяем на выполненные и невыполненные для форматирования текста
         not_done_deadlines = [d for d in deadlines_data if not d.get("is_done", False)]
@@ -260,14 +271,12 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         # Переупорядочиваем deadlines_data для форматирования текста: сначала невыполненные, потом выполненные
         deadlines_data_for_text = not_done_deadlines + done_deadlines
 
-        # Создаем нумерацию на основе отсортированных групп: сначала невыполненные, потом выполненные
-        deadline_numbers = {x["deadline"].id: idx + 1 for idx, x in enumerate(deadlines_data_for_text)}
-
-        # Для кнопок используем тот же отсортированный порядок
-        sorted_all = deadlines_data_for_text
+        # Для кнопок используем стабильный порядок (all_sorted), чтобы кнопки не перемещались
+        sorted_all = all_sorted
 
         # Форматируем текст с разделителем (всегда показываем выполненные)
-        text = _format_deadlines_with_divider(deadlines_data_for_text, days, db_user.timezone, hide_done=False)
+        # Передаем стабильную нумерацию, чтобы номера в тексте совпадали с номерами на кнопках
+        text = _format_deadlines_with_divider(deadlines_data_for_text, days, db_user.timezone, hide_done=False, deadline_numbers=deadline_numbers)
 
         # Периоды (3 кнопки в один ряд)
         periods_builder = InlineKeyboardBuilder()
@@ -481,6 +490,12 @@ async def callback_toggle_task(callback: CallbackQuery, db_user):
         await task_status_service.set_not_done(db_user.tg_user_id, deadline_id)
     else:
         await task_status_service.set_done(db_user.tg_user_id, deadline_id)
+        if current:
+            deadline = current["deadline"]
+            subject = current["subject"]
+            logger.info(
+                f"(U) {db_user.tg_user_id} - Отметил ДЗ выполненным: {subject.name} - {deadline.hw_name} (deadline_id={deadline_id})"
+            )
 
     # Перерисовать экран предмета
     await callback_mark_done_subject(callback, db_user)
@@ -501,6 +516,12 @@ async def callback_quick_toggle(callback: CallbackQuery, db_user):
         await task_status_service.set_not_done(db_user.tg_user_id, deadline_id)
     else:
         await task_status_service.set_done(db_user.tg_user_id, deadline_id)
+        if current:
+            deadline = current["deadline"]
+            subject = current["subject"]
+            logger.info(
+                f"(U) {db_user.tg_user_id} - Отметил ДЗ выполненным: {subject.name} - {deadline.hw_name} (deadline_id={deadline_id})"
+            )
 
     # quick_toggle вызывается только из режима отметки, всегда возвращаемся туда
     await send_deadlines_list_for_checking(callback.message, db_user, days, hide_done=hide_done, edit=True)

@@ -72,13 +72,16 @@ class SubscriptionService:
                 subject = result.scalar_one_or_none()
                 subject_name = subject.name if subject else f"ID:{subject_id}"
 
+                # Логируем факт подписки (сначала)
+                logger.info(f"(U) {user_id} - Подписка: {subject_name}")
+
                 # Планируем уведомления для новой подписки
                 scheduled_count = await notification_scheduler_service.schedule_notifications_for_user_subscription(
                     user_id, subject_id
                 )
 
                 logger.info(
-                    f"(U) {user_id} - Подписка: {subject_name} ({scheduled_count} увед.)"
+                    f"Запланировано {scheduled_count} уведомлений для пользователя {user_id} по предмету {subject_id}"
                 )
                 return True, "Подписка успешно оформлена!"
 

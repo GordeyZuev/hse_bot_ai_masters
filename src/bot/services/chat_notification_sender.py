@@ -36,7 +36,9 @@ class ChatNotificationSender:
 
             # Группируем уведомления по чатам
             chat_notifications = self._group_notifications_by_chat(notifications)
-            logger.debug(f"Уведомления разбиты по {len(chat_notifications)} чатам: {[(cid, len(notifs)) for cid, notifs in chat_notifications.items()]}")
+            logger.debug(
+                f"Группировка уведомлений по чатам: chats={len(chat_notifications)}"
+            )
 
             # Обрабатываем чаты батчами
             batch_size = 5

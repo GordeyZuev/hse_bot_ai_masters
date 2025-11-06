@@ -23,11 +23,11 @@ def upgrade() -> None:
     conn = op.get_bind()
     inspector = inspect(conn)
     tables = inspector.get_table_names()
-    
+
     # Определяем правильное имя таблицы для внешнего ключа
     # Если tasks уже существует, используем tasks, иначе deadlines
     task_table_name = "tasks" if "tasks" in tables else "deadlines"
-    
+
     if "task_user_status" not in tables:
         op.create_table(
             "task_user_status",
@@ -53,7 +53,7 @@ def upgrade() -> None:
         indexes = [idx["name"] for idx in inspector.get_indexes("task_user_status")]
         if "ix_tus_deadline_id" not in indexes:
             op.create_index("ix_tus_deadline_id", "task_user_status", ["deadline_id"])
-        
+
         # Если таблица уже существует, проверяем внешний ключ
         # Если tasks уже существует, но FK ссылается на deadlines, обновляем FK
         # (На случай, если миграция f1a2b3c4d5e6 уже выполнилась, но FK не обновился автоматически)
@@ -82,7 +82,7 @@ def downgrade() -> None:
     conn = op.get_bind()
     inspector = inspect(conn)
     tables = inspector.get_table_names()
-    
+
     if "task_user_status" in tables:
         # Проверяем существование индекса перед удалением
         indexes = [idx["name"] for idx in inspector.get_indexes("task_user_status")]

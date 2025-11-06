@@ -105,7 +105,9 @@ class HSEScheduler:
             total_processed = user_processed + chat_processed
 
             if total_processed > 0:
-                logger.info(f"Уведомления отправлены за {duration:.2f}с (пользователи: {user_processed}, чаты: {chat_processed})")
+                logger.info(
+                    f"Отправлено за {duration:.2f}с: users={user_processed}, chats={chat_processed}"
+                )
             else:
                 logger.debug(f"Проверка за {duration:.2f}с")
 

@@ -22,12 +22,10 @@ def upgrade() -> None:
     conn = op.get_bind()
     inspector = inspect(conn)
     tables = inspector.get_table_names()
-    
+
     # 1) deadlines -> tasks, and last_updated -> updated_at
-    table_was_renamed = False
     if "deadlines" in tables and "tasks" not in tables:
         op.rename_table("deadlines", "tasks")
-        table_was_renamed = True
         # Обновляем список таблиц после переименования
         tables = inspector.get_table_names()
     elif "tasks" in tables:
@@ -53,14 +51,14 @@ def upgrade() -> None:
                 "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"
             ))
             all_indexes = {row[0] for row in result}
-            
+
             # Переименовываем индексы только если исходный существует, а целевой - нет
             index_mappings = [
                 ("idx_deadlines_subject_id", "idx_tasks_subject_id"),
                 ("idx_deadlines_soft_ts", "idx_tasks_soft_ts"),
                 ("idx_deadlines_hard_ts", "idx_tasks_hard_ts"),
             ]
-            
+
             for old_name, new_name in index_mappings:
                 if old_name in all_indexes and new_name not in all_indexes:
                     op.execute(f"ALTER INDEX {old_name} RENAME TO {new_name}")
@@ -68,7 +66,7 @@ def upgrade() -> None:
     # 2) users column renames and drop deprecated settings_version
     if "users" in tables:
         users_columns = [col["name"] for col in inspector.get_columns("users")]
-        
+
         with op.batch_alter_table("users", schema=None) as batch_op:
             # subscribed_at -> created_at
             if "subscribed_at" in users_columns and "created_at" not in users_columns:
@@ -107,7 +105,7 @@ def downgrade() -> None:
     conn = op.get_bind()
     inspector = inspect(conn)
     tables = inspector.get_table_names()
-    
+
     # 3) subjects drop updated_at
     if "subjects" in tables:
         subjects_columns = [col["name"] for col in inspector.get_columns("subjects")]
@@ -118,7 +116,7 @@ def downgrade() -> None:
     # 2) users column renames back and restore settings_version
     if "users" in tables:
         users_columns = [col["name"] for col in inspector.get_columns("users")]
-        
+
         with op.batch_alter_table("users", schema=None) as batch_op:
             # created_at -> subscribed_at
             if "created_at" in users_columns and "subscribed_at" not in users_columns:
@@ -148,14 +146,14 @@ def downgrade() -> None:
             "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"
         ))
         all_indexes = {row[0] for row in result}
-        
+
         # Переименовываем индексы обратно только если исходный существует, а целевой - нет
         index_mappings = [
             ("idx_tasks_subject_id", "idx_deadlines_subject_id"),
             ("idx_tasks_soft_ts", "idx_deadlines_soft_ts"),
             ("idx_tasks_hard_ts", "idx_deadlines_hard_ts"),
         ]
-        
+
         for old_name, new_name in index_mappings:
             if old_name in all_indexes and new_name not in all_indexes:
                 op.execute(f"ALTER INDEX {old_name} RENAME TO {new_name}")

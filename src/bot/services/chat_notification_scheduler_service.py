@@ -332,7 +332,9 @@ class ChatNotificationSchedulerService:
                     chat_id, new_subject_id
                 )
 
-                logger.info(f"Перепланировано уведомлений для чата {chat_id}: удалено {deleted_count}, добавлено {scheduled_count}")
+                logger.info(
+                    f"Перепланировано для чата {chat_id}: -{deleted_count}, +{scheduled_count}"
+                )
                 return scheduled_count
 
         except Exception as e:

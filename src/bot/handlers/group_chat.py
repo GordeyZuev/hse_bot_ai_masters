@@ -365,10 +365,9 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
     try:
         chat_id = message.chat.id
         user_id = message.from_user.id
-        chat_title = message.chat.title or f"Чат {chat_id}"
         username = message.from_user.username
 
-        logger.info(f"[CHAT] /start в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] /start chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Проверяем, настроен ли уже чат
         chat_group = await chat_service.get_chat_group(chat_id)
@@ -412,10 +411,9 @@ async def cmd_chat_help(message: Message, db_user):
     """Команда справки для групповых чатов"""
     chat_id = message.chat.id
     user_id = message.from_user.id
-    chat_title = message.chat.title or f"Чат {chat_id}"
     username = message.from_user.username
 
-    logger.info(f"[CHAT] /help в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+    logger.info(f"[CHAT] /help chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
     # Разрешаем только администраторам чата
     if not await chat_service.is_chat_admin(message.bot, chat_id, user_id):
@@ -438,7 +436,6 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
 
     chat_id = message.chat.id
     user_id = message.from_user.id
-    chat_title = message.chat.title or f"Чат {chat_id}"
     username = message.from_user.username
 
     # Извлекаем аргументы команды (название предмета)
@@ -446,9 +443,8 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
     subject_name_search = command_args[0].strip() if command_args else None
 
     logger.info(
-        f"[CHAT] /setup_discipline в чате '{chat_title}' (ID: {chat_id}) "
-        f"пользователем @{username or f'ID{user_id}'}"
-        + (f" с аргументом: '{subject_name_search}'" if subject_name_search else "")
+        f"[CHAT] /setup_discipline chat_id={chat_id} user=@{username or f'ID{user_id}'}"
+        + (f" arg='{subject_name_search}'" if subject_name_search else "")
     )
 
     try:
@@ -589,10 +585,9 @@ async def cmd_chat_settings(message: Message, db_user):
 
     chat_id = message.chat.id
     user_id = message.from_user.id
-    chat_title = message.chat.title or f"Чат {chat_id}"
     username = message.from_user.username
 
-    logger.info(f"[CHAT] /chat_settings в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+    logger.info(f"[CHAT] /chat_settings chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
     try:
         # Проверяем права доступа
@@ -623,10 +618,9 @@ async def cmd_disable_chat(message: Message, db_user):
 
     chat_id = message.chat.id
     user_id = message.from_user.id
-    chat_title = message.chat.title or f"Чат {chat_id}"
     username = message.from_user.username
 
-    logger.info(f"[CHAT] /disable_chat в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+    logger.info(f"[CHAT] /disable_chat chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
     try:
         success, message_text = await chat_service.toggle_chat_active(chat_id, user_id, message.bot)
@@ -648,10 +642,9 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
         subject_id = int(callback.data.split("_")[-1])
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] setup_chat_subject_{subject_id} в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] setup_chat_subject_{subject_id} chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -716,10 +709,9 @@ async def callback_setup_chat_cancel(callback: CallbackQuery, db_user, state: FS
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] setup_cancel в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] setup_cancel chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -834,10 +826,9 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] setup_finish в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] setup_finish chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -1031,10 +1022,9 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] setup_from_start в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] setup_from_start chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Проверяем права админа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -1081,10 +1071,9 @@ async def callback_settings_from_start(callback: CallbackQuery, db_user):
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] settings_from_start в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] settings_from_start chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -1112,10 +1101,9 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] back_to_start в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] back_to_start chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
             await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
@@ -1159,10 +1147,9 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] change_subject в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] change_subject chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -1226,10 +1213,9 @@ async def callback_change_subject_selected(callback: CallbackQuery, db_user, sta
             return
 
         await callback.answer()
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] change_subject_{subject_id} в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] change_subject_{subject_id} chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Получаем новую дисциплину
         await db_manager.get_subject_by_id(subject_id)
@@ -1495,10 +1481,9 @@ async def callback_toggle_chat_active(callback: CallbackQuery, db_user):
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
-        chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] toggle_active в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(f"[CHAT] toggle_active chat_id={chat_id} user=@{username or f'ID{user_id}'}")
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):

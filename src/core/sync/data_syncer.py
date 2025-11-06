@@ -235,15 +235,18 @@ class DataSyncer:
                         )
                         result = await session.execute(stmt)
                         subject = result.scalar_one_or_none()
-                        
+
                         # Защита: если нашли по названию, но ID отличается - обновляем ID
-                        if subject and sheet_subject_id is not None:
-                            if subject.sheet_subject_id != sheet_subject_id:
-                                logger.warning(
-                                    f"Обнаружена рассинхронизация ID для предмета '{name}' (год {year}): "
-                                    f"в БД ID={subject.sheet_subject_id}, в таблице ID={sheet_subject_id}. "
-                                    f"Обновляю ID на значение из таблицы."
-                                )
+                        if (
+                            subject
+                            and sheet_subject_id is not None
+                            and subject.sheet_subject_id != sheet_subject_id
+                        ):
+                            logger.warning(
+                                f"Обнаружена рассинхронизация ID для предмета '{name}' (год {year}): "
+                                f"в БД ID={subject.sheet_subject_id}, в таблице ID={sheet_subject_id}. "
+                                f"Обновляю ID на значение из таблицы."
+                            )
 
                     if subject:
                         incoming = {

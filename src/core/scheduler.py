@@ -35,20 +35,20 @@ class HSEScheduler:
         self.scheduler.add_listener(self._job_executed, EVENT_JOB_EXECUTED)
         self.scheduler.add_listener(self._job_error, EVENT_JOB_ERROR)
 
-        logger.info("HSE планировщик инициализирован")
+        logger.info("[SYSTEM] HSE планировщик инициализирован")
 
     def set_bot(self, bot: Bot):
         """Установить экземпляр бота"""
         self.bot = bot
-        logger.info("Бот установлен в планировщик")
+        logger.info("[SYSTEM] Бот установлен в планировщик")
 
     def _job_executed(self, event):
         """Обработчик успешного выполнения задачи"""
-        logger.info(f"Задача {event.job_id} выполнена")
+        logger.info(f"[SYSTEM] Задача {event.job_id} выполнена")
 
     def _job_error(self, event):
         """Обработчик ошибки выполнения задачи"""
-        logger.error(f"Ошибка в задаче '{event.job_id}': {event.exception}")
+        logger.error(f"[SYSTEM] Ошибка в задаче '{event.job_id}': {event.exception}")
 
     async def sync_job(self):
         """Задача синхронизации данных с Google Sheets"""
@@ -58,7 +58,7 @@ class HSEScheduler:
             duration = (datetime.now(UTC) - start_time).total_seconds()
 
             if sync_result.get("success"):
-                logger.success(f"Синхронизация за {duration:.2f}с")
+                logger.success(f"[SYSTEM] Синхронизация за {duration:.2f}с")
                 if self.bot:
                     changes = sync_result.get("changes", [])
                     try:
@@ -68,18 +68,18 @@ class HSEScheduler:
                                 self.bot, changes
                             )
                     except Exception as e:
-                        logger.warning(f"Ошибка групповой мгновенной отправки: {e}")
+                        logger.warning(f"[SYSTEM] Ошибка групповой мгновенной отправки: {e}")
             else:
-                logger.error(f"Синхронизация завершилась с ошибкой за {duration:.2f}с")
+                logger.error(f"[SYSTEM] Синхронизация завершилась с ошибкой за {duration:.2f}с")
 
         except Exception as e:
-            logger.error(f"Ошибка синхронизации: {e}")
+            logger.error(f"[SYSTEM] Ошибка синхронизации: {e}")
             raise
 
     async def notification_job(self):
         """Задача отправки запланированных уведомлений о дедлайнах"""
         if not self.bot:
-            logger.warning("Бот не установлен, пропускаю отправку уведомлений")
+            logger.warning("[SYSTEM] Бот не установлен, пропускаю отправку уведомлений")
             return
 
         try:
@@ -106,29 +106,29 @@ class HSEScheduler:
 
             if total_processed > 0:
                 logger.info(
-                    f"Отправлено за {duration:.2f}с: users={user_processed}, chats={chat_processed}"
+                    f"[SYSTEM] Отправлено за {duration:.2f}с: users={user_processed}, chats={chat_processed}"
                 )
             else:
                 logger.debug(f"Проверка за {duration:.2f}с")
 
         except Exception as e:
-            logger.error(f"Ошибка отправки уведомлений: {e}")
+            logger.error(f"[SYSTEM] Ошибка отправки уведомлений: {e}")
             raise
 
     async def cleanup_job(self):
         """Задача очистки старых данных"""
         try:
-            logger.info("Начало очистки")
+            logger.info("[SYSTEM] Начало очистки")
 
             # Очистка старых уведомлений (старше 30 дней)
             deleted_count = await db_manager.cleanup_old_notifications(days_old=30)
             if deleted_count > 0:
-                logger.info(f"Удалено {deleted_count} уведомлений")
+                logger.info(f"[SYSTEM] Удалено {deleted_count} уведомлений")
 
-            logger.info("Очистка завершена")
+            logger.info("[SYSTEM] Очистка завершена")
 
         except Exception as e:
-            logger.error(f"Ошибка очистки: {e}")
+            logger.error(f"[SYSTEM] Ошибка очистки: {e}")
 
     def add_sync_job(self, interval_hours: int = 1):
         """Добавить задачу синхронизации по cron: каждые N часов на :00 (UTC)."""
@@ -144,13 +144,13 @@ class HSEScheduler:
             max_instances=1,
         )
         logger.info(
-            f"Добавлена задача синхронизации каждые {interval_hours} ч. на :00 (UTC)"
+            f"[SYSTEM] Добавлена задача синхронизации каждые {interval_hours} ч. на :00 (UTC)"
         )
 
     def add_notification_job(self, interval_minutes: int = 15):
         """Добавить задачу отправки уведомлений каждые N минут на минуте кратной N (UTC)."""
         if not self.bot:
-            logger.warning("Бот не установлен, задача уведомлений не добавлена")
+            logger.warning("[SYSTEM] Бот не установлен, задача уведомлений не добавлена")
             return
         self.scheduler.add_job(
             self.notification_job,
@@ -161,7 +161,7 @@ class HSEScheduler:
             max_instances=1,
         )
         logger.info(
-            f"Добавлена задача уведомлений каждые {interval_minutes} мин. (UTC)"
+            f"[SYSTEM] Добавлена задача уведомлений каждые {interval_minutes} мин. (UTC)"
         )
 
     def add_daily_cleanup_job(self, hour: int = 5, minute: int = 0):
@@ -174,7 +174,7 @@ class HSEScheduler:
             replace_existing=True,
             max_instances=1,
         )
-        logger.info(f"Добавлена задача очистки в {hour:02d}:{minute:02d}")
+        logger.info(f"[SYSTEM] Добавлена задача очистки в {hour:02d}:{minute:02d}")
 
     def add_immediate_sync(self):
         """Добавить задачу немедленной синхронизации"""
@@ -184,27 +184,27 @@ class HSEScheduler:
             name="Немедленная синхронизация",
             replace_existing=True,
         )
-        logger.info("Добавлена задача немедленной синхронизации")
+        logger.info("[SYSTEM] Добавлена задача немедленной синхронизации")
 
     def start(self):
         """Запуск планировщика"""
         if self.is_running:
-            logger.warning("Планировщик уже запущен")
+            logger.warning("[SYSTEM] Планировщик уже запущен")
             return
 
         self.scheduler.start()
         self.is_running = True
         atexit.register(self.stop)
-        logger.info("HSE планировщик запущен")
+        logger.info("[SYSTEM] HSE планировщик запущен")
         # Листинг задач для валидации конфигурации
         try:
             jobs = self.scheduler.get_jobs()
             for job in jobs:
                 logger.info(
-                    f"Задача запланирована: id={job.id}, name={job.name}, trigger={job.trigger}, next_run_time={job.next_run_time}"
+                    f"[SYSTEM] Задача запланирована: id={job.id}, name={job.name}, trigger={job.trigger}, next_run_time={job.next_run_time}"
                 )
         except Exception as e:
-            logger.warning(f"Не удалось получить список задач планировщика: {e}")
+            logger.warning(f"[SYSTEM] Не удалось получить список задач планировщика: {e}")
 
     def stop(self):
         """Остановка планировщика"""
@@ -213,7 +213,7 @@ class HSEScheduler:
 
         self.scheduler.shutdown(wait=True)
         self.is_running = False
-        logger.info("HSE планировщик остановлен")
+        logger.info("[SYSTEM] HSE планировщик остановлен")
 
 
 hse_scheduler = HSEScheduler()
@@ -227,13 +227,13 @@ async def main():
         hse_scheduler.add_daily_cleanup_job(5, 0)  # В 5:00 утра
         hse_scheduler.start()
 
-        logger.info("Планировщик работает. Для остановки нажмите Ctrl+C")
+        logger.info("[SYSTEM] Планировщик работает. Для остановки нажмите Ctrl+C")
 
         while hse_scheduler.is_running:
             await asyncio.sleep(1)
 
     except KeyboardInterrupt:
-        logger.info("Получен сигнал прерывания")
+        logger.info("[SYSTEM] Получен сигнал прерывания")
     finally:
         hse_scheduler.stop()
 

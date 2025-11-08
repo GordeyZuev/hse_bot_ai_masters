@@ -49,7 +49,8 @@ async def process_year_choice(callback: CallbackQuery, db_user, state: FSMContex
         await show_subjects_for_year(callback.message, db_user, year, state)
 
     except Exception as e:
-        logger.error(f"Ошибка выбора курса: {e}")
+        user_id = callback.from_user.id if callback.from_user else 0
+        logger.error(f"(U) {user_id} - выбор курса: {e}")
         await callback.answer("Произошла ошибка. Попробуйте позже.", show_alert=True)
 
 
@@ -98,7 +99,8 @@ async def show_subjects_for_year(
         await safe_edit_message(message, text, reply_markup=builder.as_markup())
 
     except Exception as e:
-        logger.error(f"Ошибка показа предметов: {e}")
+        user_id = message.from_user.id if message.from_user else 0
+        logger.error(f"(U) {user_id} - показ предметов: {e}")
         await safe_edit_message(message, "Произошла ошибка при загрузке предметов.")
 
 
@@ -139,7 +141,8 @@ async def process_toggle_subscription(
             await callback.answer(f"❌ {message_text}", show_alert=True)
 
     except Exception as e:
-        logger.error(f"Ошибка переключения подписки: {e}")
+        user_id = callback.from_user.id if callback.from_user else 0
+        logger.error(f"(U) {user_id} - переключение подписки: {e}")
         await callback.answer("Произошла ошибка", show_alert=True)
 
 
@@ -188,7 +191,8 @@ async def cmd_unsubscribe_all(event: Message | CallbackQuery, db_user):
             await message.answer(text, reply_markup=builder.as_markup())
 
     except Exception as e:
-        logger.error(f"Ошибка в обработчике /unsuball: {e}")
+        user_id = message.from_user.id if message.from_user else 0
+        logger.error(f"(U) {user_id} - команда /unsuball: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
 
 
@@ -212,7 +216,8 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
         await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
 
     except Exception as e:
-        logger.error(f"Ошибка выполнения отписки от всего: {e}")
+        user_id = callback.from_user.id if callback.from_user else 0
+        logger.error(f"(U) {user_id} - отписка от всех предметов: {e}")
         await callback.answer("Произошла ошибка", show_alert=True)
 
 
@@ -306,7 +311,8 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(2, 1)
     except Exception as e:
-        logger.error(f"Ошибка подготовки раздела дисциплин: {e}")
+        user_id = event.from_user.id if isinstance(event, CallbackQuery) else (event.from_user.id if event.from_user else 0)
+        logger.error(f"(U) {user_id} - подготовка раздела дисциплин: {e}")
         text = "Произошла ошибка при загрузке дисциплин."
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
@@ -327,7 +333,8 @@ async def subjects_year_to_subscribe(callback: CallbackQuery, db_user, state: FS
         year = int(callback.data.split("_")[-1])
         await show_subjects_for_year(callback.message, db_user, year, state)
     except Exception as e:
-        logger.error(f"Ошибка перехода к управлению подписками: {e}")
+        user_id = callback.from_user.id if callback.from_user else 0
+        logger.error(f"(U) {user_id} - переход к управлению подписками: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при загрузке дисциплин.")
 
 
@@ -372,5 +379,6 @@ async def show_subject_info(callback: CallbackQuery, db_user):
 
         await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
-        logger.error(f"Ошибка показа карточки дисциплины: {e}")
+        user_id = callback.from_user.id if callback.from_user else 0
+        logger.error(f"(U) {user_id} - показ карточки дисциплины: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при показе дисциплины.")

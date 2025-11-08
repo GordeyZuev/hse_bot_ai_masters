@@ -25,7 +25,13 @@ from src.bot.services.chat_notification_scheduler_service import (
 )
 from src.bot.services.chat_service import chat_service
 from src.bot.texts import (
+    CHAT_CHANGE_SUBJECT_TEXT,
+    CHAT_EDIT_REMINDER_TEXT,
+    CHAT_EDIT_SETTINGS_TEXT,
+    CHAT_NOT_CONFIGURED,
     CHAT_SETUP_PROMPT_TEXT,
+    ERROR_NO_PERMISSION,
+    ERROR_NOT_ADMIN,
     GROUP_CHAT_HELP_TEXT,
     GROUP_START_CONFIGURED_TEXT,
     GROUP_START_UNCONFIGURED_TEXT,
@@ -98,7 +104,7 @@ async def callback_chat_set_topic_here(callback: CallbackQuery, db_user):
 
         # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -162,7 +168,7 @@ async def callback_chat_set_topic_here(callback: CallbackQuery, db_user):
             await callback.message.answer(f"❌ {msg}")
 
     except Exception as e:
-        logger.error(f"Ошибка привязки топика: {e}")
+        logger.error(f"(C) {chat_id} - привязка топика: {e}")
         await callback.message.answer("Произошла ошибка при привязке топика")
 
 
@@ -238,7 +244,8 @@ async def show_chat_setup_interface(message: Message, edit_mode: bool = False):
             await message.answer(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка показа интерфейса настройки бота: {e}")
+        chat_id = message.chat.id
+        logger.error(f"(C) {chat_id} - показ интерфейса настройки бота: {e}")
         if not edit_mode:
             await message.answer("Произошла ошибка при настройке бота")
 
@@ -314,7 +321,7 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
                 text += f"• Запланировано: {scheduled_notifications}\n"
 
         except Exception as e:
-            logger.error(f"Ошибка получения статистики уведомлений для чата {chat_id}: {e}")
+            logger.error(f"(C) {chat_id} - получение статистики уведомлений: {e}")
 
         # Убираем вывод даты создания по ТЗ
 
@@ -355,7 +362,7 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
             await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка показа интерфейса настроек бота: {e}")
+        logger.error(f"(C) {chat_id} - показ интерфейса настроек бота: {e}")
         if not edit_mode:
             await message.answer("Произошла ошибка при получении настроек бота")
 
@@ -367,7 +374,7 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
         user_id = message.from_user.id
         username = message.from_user.username
 
-        logger.info(f"[CHAT] /start chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - /start user=@{username or f'ID{user_id}'}")
 
         # Проверяем, настроен ли уже чат
         chat_group = await chat_service.get_chat_group(chat_id)
@@ -413,14 +420,11 @@ async def cmd_chat_help(message: Message, db_user):
     user_id = message.from_user.id
     username = message.from_user.username
 
-    logger.info(f"[CHAT] /help chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+    logger.info(f"(C) {chat_id} - /help user=@{username or f'ID{user_id}'}")
 
     # Разрешаем только администраторам чата
     if not await chat_service.is_chat_admin(message.bot, chat_id, user_id):
-        await message.answer(
-            "<b>У вас нет прав для изменения настроек.</b>\n\nПопросите администратора чата.",
-            parse_mode="HTML",
-        )
+        await message.answer(f"<b>{ERROR_NO_PERMISSION}</b>", parse_mode="HTML")
         return
 
     await send_chat_help_message(message)
@@ -443,14 +447,14 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
     subject_name_search = command_args[0].strip() if command_args else None
 
     logger.info(
-        f"[CHAT] /setup_discipline chat_id={chat_id} user=@{username or f'ID{user_id}'}"
+        f"(C) {chat_id} - /setup_discipline user=@{username or f'ID{user_id}'}"
         + (f" arg='{subject_name_search}'" if subject_name_search else "")
     )
 
     try:
         if not await chat_service.is_chat_admin(message.bot, chat_id, user_id):
             await message.answer(
-                "<b>У вас нет прав для изменения настроек.</b>\n\nПопросите администратора чата.",
+                f"<b>{ERROR_NO_PERMISSION}</b>",
                 parse_mode="HTML",
             )
             return
@@ -487,7 +491,7 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                     # Найдено одно совпадение - настраиваем сразу
                     subject = matched_subjects[0]
                     logger.info(
-                        f"[CHAT] Найдено точное совпадение: '{subject.name}' (ID: {subject.id}), "
+                        f"(C) {chat_id} - Найдено точное совпадение: '{subject.name}' (ID: {subject.id}), "
                         f"настраиваем чат автоматически"
                     )
 
@@ -575,7 +579,7 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
             await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в команде setup_discipline: {e}")
+        logger.error(f"(C) {chat_id} - настройка дисциплины: {e}")
         await message.answer("Произошла ошибка при настройке бота")
 
 
@@ -587,13 +591,13 @@ async def cmd_chat_settings(message: Message, db_user):
     user_id = message.from_user.id
     username = message.from_user.username
 
-    logger.info(f"[CHAT] /chat_settings chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+    logger.info(f"(C) {chat_id} - /chat_settings user=@{username or f'ID{user_id}'}")
 
     try:
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(message.bot, chat_id, user_id):
             await message.answer(
-                "<b>У вас нет прав для изменения настроек.</b>\n\nПопросите администратора чата.",
+                f"<b>{ERROR_NO_PERMISSION}</b>",
                 parse_mode="HTML",
             )
             return
@@ -608,7 +612,7 @@ async def cmd_chat_settings(message: Message, db_user):
             await show_chat_settings_interface(message, chat_group)
 
     except Exception as e:
-        logger.error(f"Ошибка в команде chat_settings: {e}")
+        logger.error(f"(C) {chat_id} - настройки чата: {e}")
         await message.answer("Произошла ошибка при получении настроек бота")
 
 
@@ -620,14 +624,14 @@ async def cmd_disable_chat(message: Message, db_user):
     user_id = message.from_user.id
     username = message.from_user.username
 
-    logger.info(f"[CHAT] /disable_chat chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+    logger.info(f"(C) {chat_id} - /disable_chat user=@{username or f'ID{user_id}'}")
 
     try:
         success, message_text = await chat_service.toggle_chat_active(chat_id, user_id, message.bot)
         await message.answer(message_text)
 
     except Exception as e:
-        logger.error(f"Ошибка в команде disable_chat: {e}")
+        logger.error(f"(C) {chat_id} - отключение чата: {e}")
         await message.answer("Произошла ошибка при отключении бота")
 
 
@@ -644,11 +648,11 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] setup_chat_subject_{subject_id} chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - setup_chat_subject_{subject_id} user=@{username or f'ID{user_id}'}")
 
         # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -699,7 +703,7 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_setup_chat_subject: {e}")
+        logger.error(f"(C) {chat_id} - выбор предмета: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при настройке бота")
 
 
@@ -711,11 +715,11 @@ async def callback_setup_chat_cancel(callback: CallbackQuery, db_user, state: FS
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] setup_cancel chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - setup_cancel user=@{username or f'ID{user_id}'}")
 
         # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -724,7 +728,7 @@ async def callback_setup_chat_cancel(callback: CallbackQuery, db_user, state: FS
         await callback_back_to_start(callback, db_user)
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_setup_chat_cancel: {e}")
+        logger.error(f"(C) {chat_id} - отмена настройки: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при отмене настройки")
 
 
@@ -736,7 +740,7 @@ async def callback_setup_reminder1(callback: CallbackQuery, db_user, state: FSMC
         user_id = callback.from_user.id
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -770,7 +774,8 @@ async def callback_setup_reminder1(callback: CallbackQuery, db_user, state: FSMC
         await state.set_state(ChatSetupStates.waiting_reminder1_selection)
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_setup_reminder1: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - настройка первого напоминания: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
 
 
@@ -782,7 +787,7 @@ async def callback_setup_reminder2(callback: CallbackQuery, db_user, state: FSMC
         user_id = callback.from_user.id
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -816,7 +821,8 @@ async def callback_setup_reminder2(callback: CallbackQuery, db_user, state: FSMC
         await state.set_state(ChatSetupStates.waiting_reminder2_selection)
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_setup_reminder2: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - настройка второго напоминания: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
 
 
@@ -828,11 +834,11 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] setup_finish chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - setup_finish user=@{username or f'ID{user_id}'}")
 
         # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -903,7 +909,7 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
         await state.clear()
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_setup_finish: {e}")
+        logger.error(f"(C) {chat_id} - завершение настройки: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при завершении настройки")
 
 
@@ -920,7 +926,7 @@ async def callback_set_reminder1_value(callback: CallbackQuery, db_user, state: 
         user_id = callback.from_user.id
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -949,7 +955,8 @@ async def callback_set_reminder1_value(callback: CallbackQuery, db_user, state: 
         await state.set_state(ChatSetupStates.waiting_time_settings)
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_set_reminder1_value: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - установка первого напоминания: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
 
 
@@ -966,7 +973,7 @@ async def callback_set_reminder2_value(callback: CallbackQuery, db_user, state: 
         user_id = callback.from_user.id
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -995,7 +1002,8 @@ async def callback_set_reminder2_value(callback: CallbackQuery, db_user, state: 
         await state.set_state(ChatSetupStates.waiting_time_settings)
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_set_reminder2_value: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - установка второго напоминания: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
 
 
@@ -1007,13 +1015,14 @@ async def callback_delete_message(callback: CallbackQuery, db_user):
         user_id = callback.from_user.id
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         await callback.answer()
         await callback.message.delete()
     except Exception as e:
-        logger.error(f"Ошибка при удалении сообщения: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - удаление сообщения: {e}")
         await safe_edit_message(callback.message, "❌ Не удалось удалить сообщение")
 
 @router.callback_query(F.data == "chat_setup_from_start")
@@ -1024,12 +1033,12 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] setup_from_start chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - setup_from_start user=@{username or f'ID{user_id}'}")
 
         # Проверяем права админа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
             # Не изменяем сообщение, показываем плашку
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -1061,7 +1070,7 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
         await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_setup_from_start: {e}")
+        logger.error(f"(C) {chat_id} - настройка из стартового меню: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при настройке бота")
 
 
@@ -1073,11 +1082,11 @@ async def callback_settings_from_start(callback: CallbackQuery, db_user):
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] settings_from_start chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - settings_from_start user=@{username or f'ID{user_id}'}")
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -1091,7 +1100,7 @@ async def callback_settings_from_start(callback: CallbackQuery, db_user):
             await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_settings_from_start: {e}")
+        logger.error(f"(C) {chat_id} - настройки из стартового меню: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при получении настроек бота")
 
 
@@ -1103,10 +1112,10 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] back_to_start chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - back_to_start user=@{username or f'ID{user_id}'}")
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         await callback.answer()
@@ -1137,7 +1146,7 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
         await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_back_to_start: {e}")
+        logger.error(f"(C) {chat_id} - возврат к стартовому меню: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при возврате к главному меню")
 
 
@@ -1149,11 +1158,11 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] change_subject chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - change_subject user=@{username or f'ID{user_id}'}")
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         await callback.answer()
@@ -1175,11 +1184,7 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
             result = await session.execute(stmt)
             subjects = list(result.scalars().all())
 
-        text = """
-📚 <b>Выбор дисциплины</b>
-
-Выберите новую дисциплину для отслеживания дедлайнов:
-        """
+        text = CHAT_CHANGE_SUBJECT_TEXT
 
         builder = InlineKeyboardBuilder()
 
@@ -1196,7 +1201,7 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
         await state.set_state(ChatSetupStates.waiting_subject_selection)
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_change_subject: {e}")
+        logger.error(f"(C) {chat_id} - смена предмета: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при смене дисциплины")
 
 
@@ -1209,13 +1214,13 @@ async def callback_change_subject_selected(callback: CallbackQuery, db_user, sta
         user_id = callback.from_user.id
         # Админ-проверка на всякий случай
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         await callback.answer()
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] change_subject_{subject_id} chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - change_subject_{subject_id} user=@{username or f'ID{user_id}'}")
 
         # Получаем новую дисциплину
         await db_manager.get_subject_by_id(subject_id)
@@ -1242,7 +1247,7 @@ async def callback_change_subject_selected(callback: CallbackQuery, db_user, sta
         await state.clear()
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_change_subject_selected: {e}")
+        logger.error(f"(C) {chat_id} - выбор нового предмета: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при смене дисциплины")
 
 @router.callback_query(F.data == "chat_edit_settings")
@@ -1253,7 +1258,7 @@ async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
         user_id = callback.from_user.id
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         await callback.answer()
@@ -1262,12 +1267,13 @@ async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
             await safe_edit_message(callback.message, "❌ Чат не настроен")
             return
 
-        text = "⚙️ <b>Настройка бота</b>\n\n"
-        text += f"📚 <b>Предмет:</b> «{chat_group.subject.name}»\n\n"
-        text += "🔔 <b>Текущие настройки:</b>\n"
-        text += f"• Первое напоминание: за {chat_group.reminder1_offset} {chat_group.reminder1_unit}\n"
-        text += f"• Второе напоминание: за {chat_group.reminder2_offset} {chat_group.reminder2_unit}\n\n"
-        text += "Выберите, что хотите изменить:"
+        text = CHAT_EDIT_SETTINGS_TEXT.format(
+            subject_name=chat_group.subject.name,
+            reminder1_offset=chat_group.reminder1_offset,
+            reminder1_unit=chat_group.reminder1_unit,
+            reminder2_offset=chat_group.reminder2_offset,
+            reminder2_unit=chat_group.reminder2_unit,
+        )
 
         builder = InlineKeyboardBuilder()
         builder.button(text="1️⃣ Первое напоминание", callback_data="chat_edit_reminder1")
@@ -1279,7 +1285,8 @@ async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
         await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_edit_chat_settings: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - редактирование настроек: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
 
 
@@ -1294,7 +1301,7 @@ async def callback_edit_reminder1(callback: CallbackQuery, db_user):
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         chat_group = await chat_service.get_chat_group(chat_id)
@@ -1302,9 +1309,12 @@ async def callback_edit_reminder1(callback: CallbackQuery, db_user):
             await safe_edit_message(callback.message, "❌ Чат не настроен")
             return
 
-        text = "1️⃣ <b>Первое напоминание</b>\n\n"
-        text += f"Текущие настройки: за {chat_group.reminder1_offset} {chat_group.reminder1_unit}\n\n"
-        text += "Выберите новое значение:"
+        text = CHAT_EDIT_REMINDER_TEXT.format(
+            reminder_number="1️⃣",
+            reminder_name="Первое напоминание",
+            offset=chat_group.reminder1_offset,
+            unit=chat_group.reminder1_unit,
+        )
 
         builder = InlineKeyboardBuilder()
 
@@ -1332,7 +1342,8 @@ async def callback_edit_reminder1(callback: CallbackQuery, db_user):
         await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_edit_reminder1: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - редактирование первого напоминания: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
 
 
@@ -1352,7 +1363,7 @@ async def callback_set_reminder1(callback: CallbackQuery, db_user):
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         # Обновляем настройки
@@ -1375,7 +1386,8 @@ async def callback_set_reminder1(callback: CallbackQuery, db_user):
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_set_reminder1: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - изменение первого напоминания: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
 
 
@@ -1390,7 +1402,7 @@ async def callback_edit_reminder2(callback: CallbackQuery, db_user):
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         chat_group = await chat_service.get_chat_group(chat_id)
@@ -1398,9 +1410,12 @@ async def callback_edit_reminder2(callback: CallbackQuery, db_user):
             await safe_edit_message(callback.message, "❌ Чат не настроен")
             return
 
-        text = "2️⃣ <b>Второе напоминание</b>\n\n"
-        text += f"Текущие настройки: за {chat_group.reminder2_offset} {chat_group.reminder2_unit}\n\n"
-        text += "Выберите новое значение:"
+        text = CHAT_EDIT_REMINDER_TEXT.format(
+            reminder_number="2️⃣",
+            reminder_name="Второе напоминание",
+            offset=chat_group.reminder2_offset,
+            unit=chat_group.reminder2_unit,
+        )
 
         builder = InlineKeyboardBuilder()
 
@@ -1428,7 +1443,8 @@ async def callback_edit_reminder2(callback: CallbackQuery, db_user):
         await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_edit_reminder2: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - редактирование второго напоминания: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
 
 
@@ -1448,7 +1464,7 @@ async def callback_set_reminder2(callback: CallbackQuery, db_user):
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         # Обновляем настройки
@@ -1471,7 +1487,8 @@ async def callback_set_reminder2(callback: CallbackQuery, db_user):
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_set_reminder2: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - изменение второго напоминания: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
 
 
@@ -1483,11 +1500,11 @@ async def callback_toggle_chat_active(callback: CallbackQuery, db_user):
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] toggle_active chat_id={chat_id} user=@{username or f'ID{user_id}'}")
+        logger.info(f"(C) {chat_id} - toggle_active user=@{username or f'ID{user_id}'}")
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         await callback.answer()
@@ -1512,7 +1529,7 @@ async def callback_toggle_chat_active(callback: CallbackQuery, db_user):
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка в callback_toggle_chat_active: {e}")
+        logger.error(f"(C) {chat_id} - переключение активности: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
 
 
@@ -1526,7 +1543,7 @@ async def callback_custom_reminder_setup(callback: CallbackQuery, db_user, state
         user_id = callback.from_user.id
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         reminder_number = int(callback.data.split("_")[-1])
@@ -1542,7 +1559,8 @@ async def callback_custom_reminder_setup(callback: CallbackQuery, db_user, state
         await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except (ValueError, IndexError) as e:
-        logger.error(f"Ошибка в callback_custom_reminder_setup: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - настройка кастомного напоминания: {e}")
         await callback.answer("Ошибка настройки", show_alert=True)
 
 
@@ -1556,7 +1574,7 @@ async def callback_custom_reminder_edit(callback: CallbackQuery, db_user, state:
         user_id = callback.from_user.id
 
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("❌ Вы не являетесь администратором этого чата", show_alert=True)
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
         reminder_number = int(callback.data.split("_")[-1])
@@ -1572,7 +1590,8 @@ async def callback_custom_reminder_edit(callback: CallbackQuery, db_user, state:
         await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     except (ValueError, IndexError) as e:
-        logger.error(f"Ошибка в callback_custom_reminder_edit: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - редактирование кастомного напоминания: {e}")
         await callback.answer("Ошибка настройки", show_alert=True)
 
 
@@ -1595,7 +1614,7 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(message.bot, chat_id, user_id):
-            await message.answer("❌ Вы не являетесь администратором этого чата")
+            await message.answer(ERROR_NOT_ADMIN)
             await state.clear()
             return
 
@@ -1690,7 +1709,8 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
             await state.clear()
 
     except Exception as e:
-        logger.error(f"Ошибка обработки кастомного времени для чата: {e}")
+        chat_id = message.chat.id
+        logger.error(f"(C) {chat_id} - обработка кастомного времени: {e}")
         await message.answer("Произошла ошибка. Попробуйте еще раз.")
         await state.clear()
 
@@ -1798,10 +1818,16 @@ async def _compose_info_text(chat_id: int) -> str | None:
 async def cmd_chat_start_info(message: Message, db_user):
     """Показать только ссылки по предмету (без дедлайнов)"""
     try:
-        text = await _compose_start_info_text(message.chat.id)
+        chat_id = message.chat.id
+        user_id = message.from_user.id
+        username = message.from_user.username
+
+        logger.info(f"(C) {chat_id} - /start_info user=@{username or f'ID{user_id}'}")
+
+        text = await _compose_start_info_text(chat_id)
         if text is None:
             await message.answer(
-                "Этот чат еще не настроен на дисциплину.\n\nПопросите администратора нажать «Настроить бота»."
+                CHAT_NOT_CONFIGURED
             )
             return
         await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
@@ -1813,10 +1839,16 @@ async def cmd_chat_start_info(message: Message, db_user):
 async def cmd_chat_info(message: Message, db_user):
     """Показать текущую дисциплину и актуальные дедлайны чата"""
     try:
-        text = await _compose_info_text(message.chat.id)
+        chat_id = message.chat.id
+        user_id = message.from_user.id
+        username = message.from_user.username
+
+        logger.info(f"(C) {chat_id} - /info user=@{username or f'ID{user_id}'}")
+
+        text = await _compose_info_text(chat_id)
         if text is None:
             await message.answer(
-                "Этот чат еще не настроен на дисциплину.\n\nПопросите администратора нажать «Настроить бота»."
+                CHAT_NOT_CONFIGURED
             )
             return
         await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
@@ -1833,10 +1865,11 @@ async def callback_chat_info(callback: CallbackQuery, db_user):
         if text is None:
             await safe_edit_message(
                 callback.message,
-                "Этот чат еще не настроен на дисциплину.\n\nПопросите администратора нажать «Настроить бота»."
+                CHAT_NOT_CONFIGURED
             )
             return
         await safe_edit_message(callback.message, text, parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
-        logger.error(f"Ошибка в callback_chat_info: {e}")
+        chat_id = callback.message.chat.id
+        logger.error(f"(C) {chat_id} - информация о чате: {e}")
         await callback.answer("Ошибка при получении информации", show_alert=True)

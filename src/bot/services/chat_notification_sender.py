@@ -25,13 +25,13 @@ class ChatNotificationSender:
         stats = {"sent": 0, "failed": 0, "skipped": 0, "total_processed": 0}
 
         try:
-            logger.info("Проверка уведомлений для чатов")
+            logger.info("[SYSTEM] Проверка уведомлений для чатов")
 
             # Получаем уведомления для отправки (в течение ближайших 5 минут)
             notifications = await self._get_scheduled_notifications_for_delivery()
 
             if not notifications:
-                logger.info("Нет уведомлений для чатов")
+                logger.info("[SYSTEM] Нет уведомлений для чатов")
                 return stats
 
             # Группируем уведомления по чатам

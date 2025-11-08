@@ -8,6 +8,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.services.deadline_service import deadline_service
 from src.bot.services.task_status_service import task_status_service
+from src.bot.texts import DEADLINES_ALL_DONE, DEADLINES_ERROR, DEADLINES_TITLE, DEADLINES_TOTAL
 from src.utils import get_logger, safe_edit_message
 from src.utils.notification_formatting import (
     format_deadline_datetime,
@@ -55,9 +56,9 @@ def _format_deadlines_with_divider(
     )
 
     if not not_done_deadlines and done_deadlines and hide_done:
-        return f"📅 <b>Дедлайны на {days} дней</b>\n\nВы все выполнили! Поздравляем!"
+        return DEADLINES_ALL_DONE.format(days=days)
 
-    text = f"📅 <b>Дедлайны на {days} дней</b>\n\n"
+    text = DEADLINES_TITLE.format(days=days)
 
     if not_done_deadlines:
         for data in not_done_deadlines:
@@ -103,7 +104,7 @@ def _format_deadlines_with_divider(
 
             text += "\n\n"
 
-    text += f"<i>Всего дедлайнов: {len(all_deadlines)}</i>"
+    text += DEADLINES_TOTAL.format(count=len(all_deadlines))
     return text
 
 
@@ -128,7 +129,8 @@ async def cmd_deadlines(message: Message, db_user):
         await send_deadlines_list(message, db_user, days, hide_done=True)
 
     except Exception as e:
-        logger.error(f"Ошибка в обработчике /deadlines: {e}")
+        user_id = message.from_user.id if message.from_user else 0
+        logger.error(f"(U) {user_id} - команда /deadlines: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
 
 
@@ -220,7 +222,7 @@ async def send_deadlines_list(message: Message, db_user, days: int, hide_done: b
             return
         else:
             logger.error(f"Ошибка отправки списка дедлайнов: {e}")
-            error_text = "Произошла ошибка при получении дедлайнов. Попробуйте позже."
+            error_text = DEADLINES_ERROR
 
             if edit:
                 await safe_edit_message(message, error_text)
@@ -341,7 +343,7 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
             return
         else:
             logger.error(f"Ошибка отправки списка дедлайнов в режиме отметки: {e}")
-            error_text = "Произошла ошибка при получении дедлайнов. Попробуйте позже."
+            error_text = DEADLINES_ERROR
 
             if edit:
                 await safe_edit_message(message, error_text)

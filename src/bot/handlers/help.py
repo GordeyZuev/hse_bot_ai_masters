@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.handlers.admin import is_admin
-from src.bot.texts import ADMIN_HELP_TEXT, HELP_TEXT
+from src.bot.texts import ADMIN_HELP_TEXT, ERROR_NO_PERMISSION, HELP_TEXT
 from src.utils import get_logger, safe_edit_message
 
 
@@ -36,7 +36,7 @@ async def callback_help(callback: CallbackQuery, db_user):
         # Только админам показываем справку в чате
         from src.bot.services.chat_service import chat_service
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            await callback.answer("У вас нет прав для изменения настроек.\nПопросите администратора чата.", show_alert=True)
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
@@ -83,8 +83,10 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
         logger.info(f"(U) {db_user.tg_user_id} - Помощь")
 
     except Exception as e:
-        logger.error(f"Ошибка в обработчике /help: {e}")
-        await message.answer("Произошла ошибка. Попробуйте позже.")
+        user_id = message.from_user.id if message.from_user else 0
+        logger.error(f"(U) {user_id} - команда /help: {e}")
+        from src.bot.texts import ERROR_COMMAND_HELP
+        await message.answer(ERROR_COMMAND_HELP)
 
 
 def register_help_handlers(dp):

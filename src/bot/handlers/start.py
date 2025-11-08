@@ -3,7 +3,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from src.bot.texts import START_PRIVATE_TEXT
+from src.bot.texts import ERROR_COMMAND_START, START_PRIVATE_TEXT
 from src.utils import get_logger
 
 
@@ -25,8 +25,9 @@ async def cmd_start(message: Message, db_user):
             logger.info(f"(U) {db_user.tg_user_id} - /start")
 
     except Exception as e:
-        logger.error(f"Ошибка в обработчике /start: {e}")
-        await message.answer("Произошла ошибка. Попробуйте позже.")
+        user_id = message.from_user.id if message.from_user else 0
+        logger.error(f"(U) {user_id} - команда /start: {e}")
+        await message.answer(ERROR_COMMAND_START)
 
 
 async def handle_start_in_private(message: Message, db_user, user_name: str):
@@ -52,8 +53,9 @@ async def handle_start_in_private(message: Message, db_user, user_name: str):
         await message.answer(text.strip(), reply_markup=builder.as_markup())
 
     except Exception as e:
-        logger.error(f"Ошибка обработки /start в личных сообщениях: {e}")
-        await message.answer("Произошла ошибка. Попробуйте позже.")
+        user_id = message.from_user.id if message.from_user else 0
+        logger.error(f"(U) {user_id} - обработка /start: {e}")
+        await message.answer(ERROR_COMMAND_START)
 
 
 def register_start_handlers(dp):

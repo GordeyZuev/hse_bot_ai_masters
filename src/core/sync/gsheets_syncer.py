@@ -34,7 +34,7 @@ class AsyncGoogleSheetsManager:
             creds = Credentials.from_service_account_file(self.creds_file)
             return creds.with_scopes(self.SCOPES)
         except Exception as e:
-            logger.error(f"Ошибка загрузки учетных данных из {self.creds_file}: {e}")
+            logger.error(f"[SYSTEM] Ошибка загрузки учетных данных: {e}")
             raise
 
     async def get_sheet_data(self, sheet_name: str) -> list[dict[str, Any]]:
@@ -45,7 +45,7 @@ class AsyncGoogleSheetsManager:
             worksheet = await spreadsheet.worksheet(sheet_name)
             return await worksheet.get_all_records()
         except Exception as e:
-            logger.error(f"Ошибка получения данных из '{sheet_name}': {e}")
+            logger.error(f"[SYSTEM] Ошибка получения данных из '{sheet_name}': {e}")
             return []
 
     async def get_deadlines_data(self) -> list[dict[str, Any]]:
@@ -61,7 +61,7 @@ class AsyncGoogleSheetsManager:
             all_data = []
             for i, data in enumerate(results):
                 if isinstance(data, Exception):
-                    logger.error(f"Ошибка листа {self.SHEET_NAMES[i]}: {data}")
+                    logger.error(f"[SYSTEM] Ошибка листа {self.SHEET_NAMES[i]}: {data}")
                 else:
                     filtered = [
                         item
@@ -70,11 +70,11 @@ class AsyncGoogleSheetsManager:
                     ]
                     all_data.extend(filtered)
 
-            logger.info(f"Получено {len(all_data)} дедлайнов")
+            logger.info(f"[SYSTEM] Получено {len(all_data)} дедлайнов")
             return all_data
 
         except Exception as e:
-            logger.exception(f"Ошибка получения дедлайнов: {e}")
+            logger.exception(f"[SYSTEM] Ошибка получения дедлайнов: {e}")
             return []
 
     async def get_subjects_data(self) -> list[dict[str, Any]]:
@@ -158,10 +158,10 @@ class AsyncGoogleSheetsManager:
                     }
                 )
 
-            logger.info(f"Получено {len(subjects)} дисциплин")
+            logger.info(f"[SYSTEM] Получено {len(subjects)} дисциплин")
             return subjects
         except Exception as e:
-            logger.exception(f"Ошибка получения дисциплин: {e}")
+            logger.exception(f"[SYSTEM] Ошибка получения дисциплин: {e}")
             return []
 
 
@@ -178,8 +178,8 @@ async def main():
 if __name__ == "__main__":
     try:
         deadlines = asyncio.run(main())
-        logger.info(f"Получено записей: {len(deadlines)}")
+        logger.info(f"[SYSTEM] Получено записей: {len(deadlines)}")
         if deadlines:
             logger.info(f"Первая запись: {deadlines[0]}")
     except Exception as e:
-        logger.critical(f"Критическая ошибка: {e}")
+        logger.critical(f"[SYSTEM] Критическая ошибка: {e}")

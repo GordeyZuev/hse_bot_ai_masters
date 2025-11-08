@@ -26,7 +26,7 @@ class ScheduledNotificationSender:
         stats = {"sent": 0, "failed": 0, "skipped": 0, "total_processed": 0}
 
         try:
-            logger.info("Проверка уведомлений")
+            logger.info("[SYSTEM] Проверка уведомлений")
 
             # Получаем уведомления для отправки (в течение ближайших 5 минут)
             notifications = await db_manager.get_scheduled_notifications_for_delivery(
@@ -34,10 +34,10 @@ class ScheduledNotificationSender:
             )
 
             if not notifications:
-                logger.info("Нет уведомлений")
+                logger.info("[SYSTEM] Нет уведомлений")
                 return stats
 
-            logger.info(f"Найдено {len(notifications)} уведомлений")
+            logger.info(f"[SYSTEM] Найдено {len(notifications)} уведомлений")
 
             # Группируем уведомления по пользователям
             user_notifications = self._group_notifications_by_user(notifications)

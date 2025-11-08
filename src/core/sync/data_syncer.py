@@ -90,7 +90,7 @@ class DataSyncer:
                     subject = result.scalar_one_or_none()
                 if not subject:
                     logger.warning(
-                        f"Пропускаю дедлайн '{hw_name}' — предмет '{subject_name}' не найден. Сначала синхронизируйте 'Дисциплины'."
+                        f"[SYSTEM] Пропускаю дедлайн '{hw_name}' — предмет '{subject_name}' не найден. Сначала синхронизируйте 'Дисциплины'."
                     )
                     continue
 
@@ -111,22 +111,22 @@ class DataSyncer:
                 transformed_data.append(task_data)
 
             except Exception as e:
-                logger.error(f"Ошибка преобразования строки {row_data}: {e}")
+                logger.error(f"[SYSTEM] Ошибка преобразования строки: {e}")
                 continue
 
-        logger.info(f"Преобразовано: {len(transformed_data)}/{len(sheets_data)}")
+        logger.info(f"[SYSTEM] Преобразовано: {len(transformed_data)}/{len(sheets_data)}")
         return transformed_data
 
     async def sync_data(self) -> dict[str, Any]:
         """Основная функция синхронизации данных."""
         try:
-            logger.info("Начало синхронизации")
+            logger.info("[SYSTEM] Начало синхронизации")
             await db_manager.ensure_initialized()
 
             # Получение и преобразование данных
             sheets_data = await sheets_manager.get_deadlines_data()
             if not sheets_data:
-                logger.warning("Нет данных из Google Sheets")
+                logger.warning("[SYSTEM] Нет данных из Google Sheets")
                 return {
                     "success": False,
                     "synced_count": 0,
@@ -136,7 +136,7 @@ class DataSyncer:
 
             db_data = await self.transform_sheets_data_to_db_format(sheets_data)
             if not db_data:
-                logger.warning("Нет данных для синхронизации")
+                logger.warning("[SYSTEM] Нет данных для синхронизации")
                 return {
                     "success": False,
                     "synced_count": 0,
@@ -158,7 +158,7 @@ class DataSyncer:
 
                     # Планируем уведомления и отправляем сообщение только если изменились дедлайны
                     if change_info.get("deadline_changed", False):
-                        logger.info(f"sync_data: обнаружено изменение дедлайна {task.id} (soft={change_info.get('soft_deadline_changed', False)}, hard={change_info.get('hard_deadline_changed', False)})")
+                        logger.info(f"[SYSTEM] Обнаружено изменение дедлайна {task.id} (soft={change_info.get('soft_deadline_changed', False)}, hard={change_info.get('hard_deadline_changed', False)})")
                         try:
                             notifications_count = await notification_scheduler_service.reschedule_notifications_for_updated_task(
                                 task
@@ -171,12 +171,12 @@ class DataSyncer:
                             })
                         except Exception as e:
                             logger.error(
-                                f"Ошибка планирования уведомлений для дедлайна {task.id}: {e}"
+                                f"[SYSTEM] Ошибка планирования уведомлений для дедлайна {task.id}: {e}"
                             )
 
             await db_manager.delete_outdated_tasks(current_sheet_row_ids)
             logger.info(
-                f"Синхронизация: {synced_count} дедлайнов, {scheduled_notifications_count} увед."
+                f"[SYSTEM] Синхронизация: {synced_count} дедлайнов, {scheduled_notifications_count} увед."
             )
             return {
                 "success": True,
@@ -186,7 +186,7 @@ class DataSyncer:
             }
 
         except Exception as e:
-            logger.error(f"Ошибка синхронизации: {e}")
+            logger.error(f"[SYSTEM] Ошибка синхронизации: {e}")
             return {
                 "success": False,
                 "synced_count": 0,
@@ -243,7 +243,7 @@ class DataSyncer:
                             and subject.sheet_subject_id != sheet_subject_id
                         ):
                             logger.warning(
-                                f"Обнаружена рассинхронизация ID для предмета '{name}' (год {year}): "
+                                f"[SYSTEM] Обнаружена рассинхронизация ID для предмета '{name}' (год {year}): "
                                 f"в БД ID={subject.sheet_subject_id}, в таблице ID={sheet_subject_id}. "
                                 f"Обновляю ID на значение из таблицы."
                             )
@@ -287,10 +287,10 @@ class DataSyncer:
 
                 await session.commit()
 
-            logger.info(f"Синхронизация дисциплин: обновлено={updated}, создано={created}")
+            logger.info(f"[SYSTEM] Синхронизация дисциплин: обновлено={updated}, создано={created}")
             return {"updated": updated, "created": created}
         except Exception as e:
-            logger.error(f"Ошибка синхронизации дисциплин: {e}")
+            logger.error(f"[SYSTEM] Ошибка синхронизации дисциплин: {e}")
             return {"updated": 0, "created": 0}
 
 
@@ -301,9 +301,9 @@ async def main():
     """Функция для тестирования синхронизации"""
     success = await data_syncer.sync_data()
     if success:
-        logger.info("Синхронизация выполнена успешно!")
+        logger.info("[SYSTEM] Синхронизация выполнена успешно!")
     else:
-        logger.error("Ошибка синхронизации")
+        logger.error("[SYSTEM] Ошибка синхронизации")
 
 
 if __name__ == "__main__":

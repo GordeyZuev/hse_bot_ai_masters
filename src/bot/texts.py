@@ -337,48 +337,58 @@ ADMIN_STATS_USERS = """👥 <b>Пользователи:</b>
 ADMIN_STATS_USERS_ACTIVE = """👥 <b>Пользователи:</b>
 • Всего: {total_users}
 • Активных (неделя): {active_week} ({week_pct:.0f}%)
-• Активных (месяц): {active_month} ({month_pct:.0f}%)"""
+• Активных (месяц): {active_month} ({month_pct:.0f}%)
+"""
 
 ADMIN_STATS_USERS_NO_TOTAL = """👥 <b>Пользователи:</b>
 • Всего: {total_users}
 • Активных (неделя): {active_week}
-• Активных (месяц): {active_month}"""
+• Активных (месяц): {active_month}
+"""
 
 ADMIN_STATS_SUBSCRIPTIONS = """
 📚 <b>Подписки:</b>
 • Всего: {total_subscriptions}
-• Пользователей с подписками: {users_with_subs}"""
+• Пользователей с подписками: {users_with_subs}
+"""
 
 ADMIN_STATS_CHATS = """
 💬 <b>Групповые чаты:</b>
-• Подключено активных: {total_chats}"""
+• Подключено активных: {total_chats}
+"""
 
 ADMIN_STATS_POPULAR_SUBJECTS = """
 🏆 <b>Популярные предметы:</b>
-{popular_list}"""
+{popular_list}
+"""
 
 ADMIN_STATS_DEADLINES = """
 📅 <b>Дедлайны:</b>
-• Всего: {total_deadlines}"""
+• Всего: {total_deadlines}
+"""
 
 ADMIN_STATS_DEADLINES_ACTIVE = """
 📅 <b>Дедлайны:</b>
 • Всего: {total_deadlines}
-• Активных: {active_deadlines} ({active_pct:.0f}%)"""
+• Активных: {active_deadlines} ({active_pct:.0f}%)
+"""
 
 ADMIN_STATS_DEADLINES_NO_TOTAL = """
 📅 <b>Дедлайны:</b>
 • Всего: {total_deadlines}
-• Активных: {active_deadlines}"""
+• Активных: {active_deadlines}
+"""
 
 ADMIN_STATS_NOTIFICATIONS = """
 🔔 <b>Уведомления:</b>
 • Всего запланировано: {total_notifs}
-• Личных: {personal_notifs} | Групповых: {chat_notifs}"""
+• Личных: {personal_notifs} | Групповых: {chat_notifs}
+"""
 
 ADMIN_STATS_SYSTEM = """
 ⚙️ <b>Система:</b>
-• Последняя синхронизация: {last_sync}"""
+• Последняя синхронизация: {last_sync}
+"""
 
 ADMIN_SYNC_SUCCESS = """✅ <b>Синхронизация завершена успешно!</b>
 

@@ -21,7 +21,6 @@ from src.bot.texts import (
     ADMIN_CHAT_TOGGLE_CONFIRM,
     ADMIN_PANEL_TITLE,
     ADMIN_STATS_CHATS,
-    ADMIN_STATS_DEADLINES,
     ADMIN_STATS_DEADLINES_ACTIVE,
     ADMIN_STATS_DEADLINES_NO_TOTAL,
     ADMIN_STATS_NOTIFICATIONS,
@@ -29,7 +28,6 @@ from src.bot.texts import (
     ADMIN_STATS_SUBSCRIPTIONS,
     ADMIN_STATS_SYSTEM,
     ADMIN_STATS_TITLE,
-    ADMIN_STATS_USERS,
     ADMIN_STATS_USERS_ACTIVE,
     ADMIN_STATS_USERS_NO_TOTAL,
     ADMIN_SYNC_ERROR,
@@ -285,8 +283,8 @@ async def cmd_logs(message: Message, db_user):
         return
 
     try:
-        await admin_service.send_logs_to_admin(message.bot, db_user.tg_user_id)
         logger.info(f"(A) {db_user.tg_user_id} - Логи")
+        await admin_service.send_logs_to_admin(message.bot, db_user.tg_user_id)
 
     except Exception as e:
         logger.error(f"(A) {db_user.tg_user_id} - команда /logs: {e}")

@@ -190,8 +190,34 @@ class AdminService:
 
             # Для логов с недельной ротацией используем дату понедельника текущей недели
             week_date_str = get_week_monday()
-
             app_log_path = log_dir / f"app_week_{week_date_str}.log"
+
+            # Если файл с текущей датой не найден, ищем активный файл логов
+            # (на случай, если произошла ротация, перезапуск или смена года)
+            if not app_log_path.exists():
+                week_log_files = list(log_dir.glob("app_week_*.log"))
+                if week_log_files:
+                    # Исключаем заархивированные файлы (.zip)
+                    week_log_files = [f for f in week_log_files if not str(f).endswith(".zip")]
+                    if week_log_files:
+                        now = datetime.now(UTC)
+                        # Ищем файлы, которые были изменены в последние 7 дней (активные логи)
+                        recent_files = []
+                        for log_file in week_log_files:
+                            try:
+                                mtime = datetime.fromtimestamp(log_file.stat().st_mtime, tz=UTC)
+                                if (now - mtime).days < 7:
+                                    recent_files.append((log_file, mtime))
+                            except (OSError, ValueError):
+                                continue
+
+                        if recent_files:
+                            # Берем самый новый активный файл
+                            app_log_path = max(recent_files, key=lambda x: x[1])[0]
+                        else:
+                            # Если активных файлов нет, берем самый новый по времени модификации
+                            app_log_path = max(week_log_files, key=lambda p: p.stat().st_mtime)
+
             if app_log_path.exists():
                 log_files.append(("app", str(app_log_path)))
 
@@ -245,7 +271,6 @@ class AdminService:
                     document = FSInputFile(file_path, filename=filename)
 
                     await bot.send_document(admin_id, document, caption=caption)
-
                     logger.info(f"Отправлен файл логов {log_type}: {file_path}")
 
                 except Exception as e:

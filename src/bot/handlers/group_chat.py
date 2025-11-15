@@ -323,7 +323,6 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
         except Exception as e:
             logger.error(f"(C) {chat_id} - получение статистики уведомлений: {e}")
 
-        # Убираем вывод даты создания по ТЗ
 
         builder = InlineKeyboardBuilder()
         builder.button(text="📚 Изменить дисциплину", callback_data="chat_change_subject")

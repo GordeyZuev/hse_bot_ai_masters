@@ -8,7 +8,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.services.deadline_service import deadline_service
 from src.bot.services.task_status_service import task_status_service
-from src.bot.texts import DEADLINES_ALL_DONE, DEADLINES_ERROR, DEADLINES_TITLE, DEADLINES_TOTAL
+from src.bot.texts import (
+    DEADLINES_ALL_DONE,
+    DEADLINES_ERROR,
+    DEADLINES_TITLE,
+    DEADLINES_TOTAL,
+)
 from src.utils import get_logger, safe_edit_message
 from src.utils.notification_formatting import (
     format_deadline_datetime,

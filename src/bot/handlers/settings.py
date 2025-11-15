@@ -10,7 +10,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from src.bot.services.notification_service import notification_service
 from src.bot.texts import (
     ERROR_COMMAND_SETTINGS,
-    ERROR_TRY_AGAIN,
     NOTIFICATION_MAX_DAYS,
     NOTIFICATION_MAX_HOURS,
     NOTIFICATION_MIN_TIME,
@@ -22,7 +21,6 @@ from src.bot.texts import (
     SLEEP_SAME_TIMES,
     SLEEP_SETTINGS_CONFIGURED,
     SLEEP_SETTINGS_NOT_CONFIGURED,
-    SLEEP_SETTINGS_TITLE,
     SLEEP_SETUP_INSTRUCTIONS,
     TIMEZONE_REQUEST_LOCATION_TEXT,
     TIMEZONE_SETUP_TEXT,

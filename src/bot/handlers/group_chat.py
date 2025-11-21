@@ -1810,6 +1810,10 @@ async def _compose_info_text(chat_id: int) -> str | None:
             if d.hard_deadline_ts and d.hard_deadline_ts >= now:
                 add_dt(d.hard_deadline_ts, "🔴")
 
+    # Добавляем надпись в конце сообщения
+    from src.bot.texts import CHAT_DEADLINE_FOOTER
+    lines.append(CHAT_DEADLINE_FOOTER)
+
     return "".join(lines).strip()
 
 

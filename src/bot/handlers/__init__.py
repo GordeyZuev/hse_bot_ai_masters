@@ -7,6 +7,7 @@ from .help import register_help_handlers
 from .settings import register_settings_handlers
 from .start import register_start_handlers
 from .subscriptions import register_subscription_handlers
+from .workshop import register_workshop_handlers
 
 
 def register_handlers(dp: Dispatcher):
@@ -18,3 +19,4 @@ def register_handlers(dp: Dispatcher):
     register_settings_handlers(dp)
     register_group_chat_handlers(dp)
     register_admin_handlers(dp)
+    register_workshop_handlers(dp)

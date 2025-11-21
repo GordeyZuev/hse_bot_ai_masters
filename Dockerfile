@@ -7,7 +7,6 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libpq-dev \
-    curl \
     && rm -rf /var/lib/apt/lists/* \
     && unset DEBIAN_FRONTEND
 
@@ -20,8 +19,8 @@ RUN useradd --create-home --shell /bin/bash app
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Создаем директорию и даем права пользователю app
-RUN mkdir -p /app && chown -R app:app /app
+# Устанавливаем права пользователю app на рабочую директорию
+RUN chown -R app:app /app
 
 # Копируем файлы, необходимые для установки зависимостей и сборки пакета
 # README.md нужен для сборки пакета (указан в pyproject.toml как readme)
@@ -43,9 +42,6 @@ COPY --chown=app:app . .
 RUN mkdir -p logs && chown -R app:app logs
 
 USER app
-
-# Открываем порт (если понадобится для webhook)
-EXPOSE 8000
 
 # Команда по умолчанию - uv run автоматически активирует .venv
 CMD ["uv", "run", "python", "main.py", "full"]

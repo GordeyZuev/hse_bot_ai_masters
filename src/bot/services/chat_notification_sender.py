@@ -230,6 +230,10 @@ class ChatNotificationSender:
 
             lines.append("\n")
 
+        # Добавляем надпись в конце сообщения
+        from src.bot.texts import CHAT_DEADLINE_FOOTER
+        lines.append(CHAT_DEADLINE_FOOTER)
+
         return "".join(lines).strip()
 
     async def _send_chat_notification(
@@ -299,6 +303,10 @@ class ChatNotificationSender:
 
         if deadline.source_link:
             text += f"🔗 <b>Ссылка:</b> {deadline.source_link}\n"
+
+        # Добавляем надпись в конце сообщения
+        from src.bot.texts import CHAT_DEADLINE_FOOTER
+        text += CHAT_DEADLINE_FOOTER
 
         return text
 

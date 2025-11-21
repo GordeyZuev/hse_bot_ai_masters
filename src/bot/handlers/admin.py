@@ -13,7 +13,6 @@ from src.bot.texts import (
     ADMIN_BROADCAST_CONFIRM,
     ADMIN_BROADCAST_PREVIEW,
     ADMIN_BROADCAST_RESULT,
-    ADMIN_BROADCAST_RESULT_WITH_ERRORS,
     ADMIN_CHAT_LIST_EMPTY,
     ADMIN_CHAT_LIST_HEADER,
     ADMIN_CHAT_LIST_SUMMARY,
@@ -46,6 +45,7 @@ from src.bot.texts import (
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
 from src.utils import get_logger, safe_edit_message
+from src.utils.notification_formatting import format_duration
 
 
 logger = get_logger()
@@ -406,31 +406,34 @@ async def callback_confirm_broadcast(
         result = await admin_service.send_broadcast(
             broadcast_text,
             callback.bot,
-            progress_callback=lambda sent, total: None,  # Можно добавить прогресс-бар
         )
 
         success_count = result.get("success", 0)
         error_count = result.get("errors", 0)
+        duration = result.get("duration", 0.0)
         total_count = success_count + error_count
+        duration_str = format_duration(duration)
 
-        if error_count > 0:
-            result_text = ADMIN_BROADCAST_RESULT_WITH_ERRORS.format(
-                success_count=success_count,
-                error_count=error_count,
-                total_count=total_count,
-            )
-        else:
-            result_text = ADMIN_BROADCAST_RESULT.format(
-                success_count=success_count,
-                error_count=error_count,
-                total_count=total_count,
-            )
+        error_note = (
+            "\n\n<i>Ошибки могут возникать из-за заблокированных ботов или удаленных аккаунтов.</i>"
+            if error_count > 0
+            else ""
+        )
+
+        result_text = ADMIN_BROADCAST_RESULT.format(
+            success_count=success_count,
+            error_count=error_count,
+            total_count=total_count,
+            duration=duration_str,
+            error_note=error_note,
+        )
 
         await safe_edit_message(callback.message, result_text)
         await state.clear()
 
         logger.info(
-            f"Админ {db_user.tg_user_id} выполнил рассылку: {success_count}/{total_count}"
+            f"Админ {db_user.tg_user_id} выполнил рассылку: {success_count}/{total_count}, "
+            f"за {duration_str}"
         )
 
     except Exception as e:

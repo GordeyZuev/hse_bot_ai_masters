@@ -143,17 +143,23 @@ class NotificationSchedulerService:
     async def schedule_notifications_for_task(self, deadline: Task) -> int:
         """Создать запланированные уведомления для дедлайна"""
         try:
-            # Существующая логика для пользователей
             subscribed_users = await self._get_subscribed_users(deadline.subject_id)
 
             user_notifications_scheduled = 0
             if subscribed_users:
-                for user in subscribed_users:
-                    settings = await db_manager.get_user_notification_settings(
-                        user.tg_user_id
+                user_ids = [user.tg_user_id for user in subscribed_users]
+                async with db_manager.async_session() as session:
+                    settings_stmt = select(UserNotificationSettings).where(
+                        UserNotificationSettings.user_id.in_(user_ids)
                     )
+                    settings_res = await session.execute(settings_stmt)
+                    settings_dict = {
+                        s.user_id: s for s in settings_res.scalars().all()
+                    }
 
-                    if not settings.is_active:
+                for user in subscribed_users:
+                    settings = settings_dict.get(user.tg_user_id)
+                    if not settings or not settings.is_active:
                         continue
 
                     if deadline.soft_deadline_ts:

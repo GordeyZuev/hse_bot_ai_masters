@@ -1,6 +1,7 @@
 import asyncio
 import os
-from collections.abc import Callable
+import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -38,8 +39,9 @@ class AdminService:
 
                 week_ago = datetime.now(UTC) - timedelta(days=7)
                 month_ago = datetime.now(UTC) - timedelta(days=30)
+                now = datetime.now(UTC)
 
-                stmt = select(
+                user_stats_stmt = select(
                     func.count(User.tg_user_id).label("total_users"),
                     func.count(
                         case((User.last_activity >= week_ago, 1), else_=None)
@@ -48,55 +50,65 @@ class AdminService:
                         case((User.last_activity >= month_ago, 1), else_=None)
                     ).label("active_month"),
                 )
-                result = await session.execute(stmt)
-                row = result.first()
+                user_result = await session.execute(user_stats_stmt)
+                user_row = user_result.first()
 
-                stats["total_users"] = row.total_users or 0
-                stats["active_users_week"] = row.active_week or 0
-                stats["active_users_month"] = row.active_month or 0
+                stats["total_users"] = user_row.total_users or 0
+                stats["active_users_week"] = user_row.active_week or 0
+                stats["active_users_month"] = user_row.active_month or 0
 
                 subscription_stats = await subscription_service.get_subscription_stats()
                 stats.update(subscription_stats)
 
-                stmt = select(func.count(Task.id))
-                result = await session.execute(stmt)
-                stats["total_deadlines"] = result.scalar() or 0
-
-                now = datetime.now(UTC)
-                stmt = select(func.count(Task.id)).where(
-                    (Task.soft_deadline_ts >= now)
-                    | (Task.hard_deadline_ts >= now)
+                deadline_stats_stmt = select(
+                    func.count(Task.id).label("total_deadlines"),
+                    func.count(
+                        case(
+                            (
+                                (Task.soft_deadline_ts >= now)
+                                | (Task.hard_deadline_ts >= now),
+                                1,
+                            ),
+                            else_=None,
+                        )
+                    ).label("active_deadlines"),
+                    func.max(Task.updated_at).label("last_sync"),
                 )
-                result = await session.execute(stmt)
-                stats["active_deadlines"] = result.scalar() or 0
+                deadline_result = await session.execute(deadline_stats_stmt)
+                deadline_row = deadline_result.first()
 
-                stmt = select(func.count(ScheduledNotification.id)).where(
-                    ScheduledNotification.status == "scheduled"
-                )
-                result = await session.execute(stmt)
-                stats["scheduled_notifications"] = result.scalar() or 0
+                stats["total_deadlines"] = deadline_row.total_deadlines or 0
+                stats["active_deadlines"] = deadline_row.active_deadlines or 0
 
-                # Запланированные уведомления для чатов
-                stmt = select(func.count(ChatScheduledNotification.id)).where(
-                    ChatScheduledNotification.status == "scheduled"
-                )
-                result = await session.execute(stmt)
-                stats["scheduled_chat_notifications"] = result.scalar() or 0
-
-                # Статистика по групповым чатам (только активные)
-                stmt = select(func.count(ChatGroup.chat_id)).where(ChatGroup.is_active)
-                result = await session.execute(stmt)
-                stats["total_chats"] = result.scalar() or 0
-
-                stmt = select(func.max(Task.updated_at))
-                result = await session.execute(stmt)
-                last_sync_dt = result.scalar()
+                last_sync_dt = deadline_row.last_sync
                 if last_sync_dt:
                     stats["last_sync"] = last_sync_dt.astimezone(UTC).strftime(
                         "%H:%M:%S %d.%m.%y UTC"
                     )
                 else:
                     stats["last_sync"] = "Нет данных"
+
+                scheduled_result = await session.execute(
+                    select(func.count(ScheduledNotification.id)).where(
+                        ScheduledNotification.status == "scheduled"
+                    )
+                )
+                stats["scheduled_notifications"] = scheduled_result.scalar() or 0
+
+                chat_scheduled_result = await session.execute(
+                    select(func.count(ChatScheduledNotification.id)).where(
+                        ChatScheduledNotification.status == "scheduled"
+                    )
+                )
+                stats["scheduled_chat_notifications"] = (
+                    chat_scheduled_result.scalar() or 0
+                )
+
+                # Статистика по групповым чатам (только активные)
+                chat_result = await session.execute(
+                    select(func.count(ChatGroup.chat_id)).where(ChatGroup.is_active)
+                )
+                stats["total_chats"] = chat_result.scalar() or 0
 
                 return stats
 
@@ -133,15 +145,16 @@ class AdminService:
         self,
         message_text: str,
         bot: Bot,
-        progress_callback: Callable[[int, int], None] | None = None,
-    ) -> dict[str, int]:
+        progress_callback: Callable[[int, int], None | Awaitable[None]] | None = None,
+    ) -> dict[str, int | float]:
         """Отправить массовую рассылку"""
+        start_time = time.time()
         try:
             users = await self.get_users_for_broadcast()
             total_users = len(users)
 
             if total_users == 0:
-                return {"success": 0, "errors": 0}
+                return {"success": 0, "errors": 0, "duration": 0.0}
 
             success_count = 0
             error_count = 0
@@ -167,17 +180,27 @@ class AdminService:
                     await asyncio.sleep(1)
 
                 if progress_callback and i % 10 == 0:
-                    progress_callback(i, total_users)
+                    result = progress_callback(i, total_users)
+                    if asyncio.iscoroutine(result):
+                        await result
+
+            end_time = time.time()
+            duration = end_time - start_time
 
             logger.info(
-                f"Рассылка завершена: {success_count} успешно, {error_count} ошибок"
+                f"Рассылка завершена: {success_count} успешно, {error_count} ошибок, "
+                f"за {duration:.1f} сек."
             )
 
-            return {"success": success_count, "errors": error_count}
+            return {"success": success_count, "errors": error_count, "duration": duration}
 
         except Exception as e:
-            logger.error(f"Ошибка выполнения рассылки: {e}")
-            return {"success": 0, "errors": 0}
+            end_time = time.time()
+            duration = end_time - start_time
+            logger.error(
+                f"Ошибка выполнения рассылки: {e}, за {duration:.1f} сек."
+            )
+            return {"success": 0, "errors": 0, "duration": duration}
 
     async def get_current_log_files(self) -> list[tuple]:
         """Получить пути к текущим файлам логов (недельные и месячные)"""

@@ -419,15 +419,8 @@ ADMIN_BROADCAST_RESULT = """📢 <b>Результат рассылки</b>
 
 ✅ Успешно отправлено: {success_count}
 ❌ Ошибок: {error_count}
-📊 Всего: {total_count}"""
-
-ADMIN_BROADCAST_RESULT_WITH_ERRORS = """📢 <b>Результат рассылки</b>
-
-✅ Успешно отправлено: {success_count}
-❌ Ошибок: {error_count}
 📊 Всего: {total_count}
-
-<i>Ошибки могут возникать из-за заблокированных ботов или удаленных аккаунтов.</i>"""
+⏳ Время выполнения: {duration}{error_note}"""
 
 ADMIN_CHAT_MANAGEMENT = """💬 <b>Управление чатами</b>
 
@@ -474,7 +467,7 @@ DEADLINES_ERROR = "Произошла ошибка при получении д�
 WORKSHOP_TEXT = """🎓 <b>Воркшоп программы «Искусственный Интеллект»</b>
 
 📍 <b>Адрес:</b> ВШЭ, Покровский бульвар, 11
-🔗 <a href="https://t.me/abiturient_MOVS">Ссылка на трансляцию</a>
+🔗 <a href="https://us06web.zoom.us/j/86826425840?pwd=mMMTd4x2I6Ja0biMjXWCgs2kp5PV8i.1">Ссылка на трансляцию</a>
 
 📋 <b>Программа:</b>
 

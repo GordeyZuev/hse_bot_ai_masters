@@ -24,8 +24,6 @@ from src.utils.notification_formatting import (
 logger = get_logger()
 router = Router()
 
-FEATURE_ENABLE_TASK_COMPLETION = False
-
 
 def _format_deadlines_with_divider(
     all_deadlines: list[dict], days: int, user_tz_name: str, hide_done: bool = True, deadline_numbers: dict[int, int] | None = None
@@ -191,22 +189,18 @@ async def send_deadlines_list(message: Message, db_user, days: int, hide_done: b
             builder.button(text="🔙 Назад", callback_data="back_to_menu")
             builder.adjust(3, 1, 1)
         else:
-            if FEATURE_ENABLE_TASK_COMPLETION:
-                builder.button(
-                    text=(
-                        "🙈 Скрыть выполненные" if not hide_done else "🐵 Показать выполненные"
-                    ),
-                    callback_data=f"toggle_hide_done_{days}_h{1 if hide_done else 0}",
-                )
-                builder.button(
-                    text="📝 Отметить выполненные",
-                    callback_data=f"mark_done_all_{days}_h{1 if hide_done else 0}",
-                )
+            builder.button(
+                text=(
+                    "🙈 Скрыть выполненные" if not hide_done else "🐵 Показать выполненные"
+                ),
+                callback_data=f"toggle_hide_done_{days}_h{1 if hide_done else 0}",
+            )
+            builder.button(
+                text="📝 Отметить выполненные",
+                callback_data=f"mark_done_all_{days}_h{1 if hide_done else 0}",
+            )
             builder.button(text="🔙 Назад", callback_data="back_to_menu")
-            if FEATURE_ENABLE_TASK_COMPLETION:
-                builder.adjust(3, 1, 1, 1)
-            else:
-                builder.adjust(3, 1)
+            builder.adjust(3, 1, 1, 1)
 
         if edit:
             await message.edit_text(
@@ -301,7 +295,7 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         # Дедлайны (по 4 кнопки в ряд)
         # Используем исходный отсортированный список для кнопок, чтобы они не перемещались
         deadlines_builder = InlineKeyboardBuilder()
-        if FEATURE_ENABLE_TASK_COMPLETION and all_deadlines:
+        if all_deadlines:
             for d in sorted_all:
                 deadline = d["deadline"]
                 is_done = d.get("is_done", False)
@@ -325,7 +319,7 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         # Объединяем все построители
         builder = InlineKeyboardBuilder()
         builder.attach(periods_builder)
-        if FEATURE_ENABLE_TASK_COMPLETION and all_deadlines and deadlines_builder.buttons:
+        if all_deadlines and deadlines_builder.buttons:
             builder.attach(deadlines_builder)
         builder.attach(bottom_builder)
 
@@ -337,10 +331,6 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
             await message.answer(
                 text, reply_markup=builder.as_markup(), disable_web_page_preview=True
             )
-
-        logger.info(
-            f"(U) {db_user.tg_user_id} - Режим отметки выполненных на {days} дней"
-        )
 
     except Exception as e:
         if "message is not modified" in str(e):
@@ -403,6 +393,9 @@ async def callback_mark_done_all(callback: CallbackQuery, db_user):
     days = int(parts[3])
     hide_done = parts[4] == "h1"
 
+    logger.info(
+        f"(U) {db_user.tg_user_id} - Режим отметки выполненных на {days} дней"
+    )
     await send_deadlines_list_for_checking(callback.message, db_user, days, hide_done=hide_done, edit=True)
 
 
@@ -495,6 +488,11 @@ async def callback_toggle_task(callback: CallbackQuery, db_user):
     current = next((x for x in data if x["deadline"].id == deadline_id), None)
     if current and current.get("is_done"):
         await task_status_service.set_not_done(db_user.tg_user_id, deadline_id)
+        deadline = current["deadline"]
+        subject = current["subject"]
+        logger.info(
+            f"(U) {db_user.tg_user_id} - Откатил выполнение ДЗ: {subject.name} - {deadline.hw_name} (deadline_id={deadline_id})"
+        )
     else:
         await task_status_service.set_done(db_user.tg_user_id, deadline_id)
         if current:
@@ -521,6 +519,11 @@ async def callback_quick_toggle(callback: CallbackQuery, db_user):
     current = next((x for x in data if x["deadline"].id == deadline_id), None)
     if current and current.get("is_done"):
         await task_status_service.set_not_done(db_user.tg_user_id, deadline_id)
+        deadline = current["deadline"]
+        subject = current["subject"]
+        logger.info(
+            f"(U) {db_user.tg_user_id} - Откатил выполнение ДЗ: {subject.name} - {deadline.hw_name} (deadline_id={deadline_id})"
+        )
     else:
         await task_status_service.set_done(db_user.tg_user_id, deadline_id)
         if current:

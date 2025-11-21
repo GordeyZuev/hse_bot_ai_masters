@@ -128,29 +128,24 @@ class NotificationSender:
         """Получить пользователей с активными настройками уведомлений"""
         async with db_manager.async_session() as session:
             try:
-                # Получаем пользователей с активными настройками уведомлений и подписками
                 stmt = (
-                    select(User)
-                    .join(UserNotificationSettings)
+                    select(User, UserNotificationSettings)
+                    .join(UserNotificationSettings, User.tg_user_id == UserNotificationSettings.user_id)
                     .join(Subscription)
                     .where(
                         and_(
                             UserNotificationSettings.is_active,
-                            User.is_active  # Добавляем проверку активности пользователя
+                            User.is_active
                         )
                     )
                     .distinct()
                 )
 
                 result = await session.execute(stmt)
-                users = result.scalars().all()
+                rows = result.all()
 
                 users_data = []
-                for user in users:
-                    # Получаем настройки уведомлений для каждого пользователя
-                    settings = await db_manager.get_user_notification_settings(
-                        user.tg_user_id
-                    )
+                for user, settings in rows:
                     if settings and settings.is_active:
                         users_data.append({"user": user, "settings": settings})
 
@@ -343,8 +338,24 @@ class NotificationSender:
                 res_subject = await session.execute(stmt_subject)
                 subject = res_subject.scalar_one_or_none()
 
-            if not users:
-                return 0
+                if not users:
+                    return 0
+
+                user_ids = [user.tg_user_id for user in users]
+                done_stmt = select(TaskUserStatus.user_id, TaskUserStatus.deadline_id).where(
+                    and_(
+                        TaskUserStatus.user_id.in_(user_ids),
+                        TaskUserStatus.deadline_id == deadline.id
+                    )
+                )
+                done_res = await session.execute(done_stmt)
+                done_tasks = {(uid, did) for uid, did in done_res.fetchall()}
+
+                settings_stmt = select(UserNotificationSettings).where(
+                    UserNotificationSettings.user_id.in_(user_ids)
+                )
+                settings_res = await session.execute(settings_stmt)
+                settings_dict = {s.user_id: s for s in settings_res.scalars().all()}
 
             action_text = "Дедлайн обновлён"
             subject_name = subject.name if subject else "Предмет"
@@ -353,14 +364,14 @@ class NotificationSender:
 
             sent = 0
             for user in users:
-                settings = await db_manager.get_user_notification_settings(
-                    user.tg_user_id
-                )
+                settings = settings_dict.get(user.tg_user_id)
                 if not settings or not settings.is_active:
                     continue
 
-                # Проверяем, включены ли уведомления об обновлениях
                 if not settings.enable_deadline_update_notifications:
+                    continue
+
+                if (user.tg_user_id, deadline.id) in done_tasks:
                     continue
 
                 (
@@ -455,7 +466,20 @@ class NotificationSender:
             if not user_to_subjects:
                 return stats
 
+            # Загружаем информацию о выполненных заданиях для всех пользователей одним запросом
+            deadline_ids = [d.id for d in deadlines]
+            async with db_manager.async_session() as session:
+                done_stmt = select(TaskUserStatus.user_id, TaskUserStatus.deadline_id).where(
+                    and_(
+                        TaskUserStatus.user_id.in_(list(user_to_subjects.keys())),
+                        TaskUserStatus.deadline_id.in_(deadline_ids)
+                    )
+                )
+                done_res = await session.execute(done_stmt)
+                done_tasks = {(uid, did) for uid, did in done_res.fetchall()}
+
             # Готовим данные по пользователям: какие дедлайны им релевантны с информацией об изменениях
+            # Исключаем выполненные задания для каждого пользователя
             user_entries: dict[int, list[dict[str, Any]]] = {}
             for change_item in changes:
                 d = change_item["deadline"]
@@ -463,6 +487,9 @@ class NotificationSender:
                 sid = d.subject_id
                 for uid, sids in user_to_subjects.items():
                     if sid in sids:
+                        # Пропускаем выполненные задания
+                        if (uid, d.id) in done_tasks:
+                            continue
                         user_entries.setdefault(uid, []).append({
                             "deadline": d,
                             "subject": subjects.get(sid),

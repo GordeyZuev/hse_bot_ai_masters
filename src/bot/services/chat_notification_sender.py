@@ -180,7 +180,7 @@ class ChatNotificationSender:
     def _format_multiple_notifications(
         self, deadline_notifications: dict[int, list[ChatScheduledNotification]]
     ) -> str:
-        """Сформировать единое сообщение для нескольких дедлайнов (DRY/KISS, как в scheduled)."""
+        """Сформировать единое сообщение для нескольких дедлайнов."""
         if not deadline_notifications:
             return ""
 
@@ -216,17 +216,36 @@ class ChatNotificationSender:
             else:
                 lines.append(f"<b>{idx}. {hw_name}</b>\n")
 
+            has_any_deadline = False
+
             # Мягкий дедлайн (если есть и актуален)
             if deadline.soft_deadline_ts and deadline.soft_deadline_ts >= now:
                 soft_str = format_deadline_datetime(deadline.soft_deadline_ts)
                 remain = format_time_remaining(deadline.soft_deadline_ts, now)
                 lines.append(f"🟡 {soft_str} {remain}\n")
+                has_any_deadline = True
 
             # Жёсткий дедлайн (если есть и актуален)
             if deadline.hard_deadline_ts and deadline.hard_deadline_ts >= now:
                 hard_str = format_deadline_datetime(deadline.hard_deadline_ts)
                 remain = format_time_remaining(deadline.hard_deadline_ts, now)
                 lines.append(f"🔴 {hard_str} {remain}\n")
+                has_any_deadline = True
+
+            # Если нет актуальных дедлайнов, но есть прошедшие - показываем их
+            if not has_any_deadline:
+                if deadline.soft_deadline_ts:
+                    soft_str = format_deadline_datetime(deadline.soft_deadline_ts)
+                    lines.append(f"🟡 {soft_str} <i>(прошёл)</i>\n")
+                    has_any_deadline = True
+                if deadline.hard_deadline_ts:
+                    hard_str = format_deadline_datetime(deadline.hard_deadline_ts)
+                    lines.append(f"🔴 {hard_str} <i>(прошёл)</i>\n")
+                    has_any_deadline = True
+
+            # Если вообще нет дедлайнов - показываем сообщение
+            if not has_any_deadline:
+                lines.append("<i>Дедлайны не указаны</i>\n")
 
             lines.append("\n")
 

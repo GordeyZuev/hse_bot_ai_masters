@@ -40,6 +40,6 @@ def apply_sleep_mode(
         )
 
         if is_sleep:
-            message_text = message_text + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
+            message_text = message_text + "\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
 
     return message_text, is_sleep

@@ -1,4 +1,4 @@
-"""Утилиты для форматирования уведомлений (DRY/KISS)."""
+"""Утилиты для форматирования уведомлений."""
 
 from datetime import UTC, datetime
 
@@ -62,4 +62,24 @@ def format_deadline_datetime_with_time_word(
     user_tz = pytz.timezone(tz_name)
     local_time = deadline_ts.astimezone(user_tz)
     return local_time.strftime("%d.%m.%Y в %H:%M")
+
+
+def format_duration(seconds: float) -> str:
+    """Форматировать длительность в секундах в читаемый формат.
+
+    Args:
+        seconds: Количество секунд
+
+    Returns:
+        Строка вида "X мин. Y сек." или "X сек." для коротких длительностей
+    """
+    if seconds < 60:
+        return f"{int(seconds)} сек."
+
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+
+    if secs == 0:
+        return f"{minutes} мин."
+    return f"{minutes} мин. {secs} сек."
 

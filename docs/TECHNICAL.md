@@ -425,6 +425,8 @@ Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram 
 #### NotificationSender
 - Метод `_get_deadlines_for_notification()` также исключает выполненные задания при отправке уведомлений
 - Использует тот же подход с LEFT JOIN и фильтром
+- Метод `send_immediate_task_change()` проверяет статус выполнения перед отправкой уведомлений об обновлениях
+- Метод `send_immediate_task_changes()` исключает выполненные задания из групповых уведомлений об обновлениях
 
 ### 🎨 Пользовательский интерфейс
 

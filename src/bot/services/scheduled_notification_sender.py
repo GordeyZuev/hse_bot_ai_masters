@@ -306,7 +306,7 @@ class ScheduledNotificationSender:
                 else:
                     message += f"📝 {deadline.hw_name}\n"
 
-            message += f"{deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
+            message += f"{deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})"
 
             message += "\n"
 

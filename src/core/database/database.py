@@ -48,6 +48,7 @@ class DatabaseManager:
         self.async_session = None
         self.auto_init = auto_init
         self.initialized = False
+        self._init_lock = asyncio.Lock()
         logger.info(
             f"Менеджер базы данных инициализирован для БД: {self.db_name} на {self.db_host}:{self.db_port}"
         )
@@ -110,7 +111,13 @@ class DatabaseManager:
     async def create_engine(self):
         """Создает движок SQLAlchemy после того, как база данных существует"""
         self.engine = create_async_engine(
-            self.database_url, echo=False, pool_pre_ping=True, pool_recycle=3600
+            self.database_url,
+            echo=False,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            pool_size=10,
+            max_overflow=20,
+            pool_timeout=30,
         )
 
         self.async_session = async_sessionmaker(
@@ -119,20 +126,30 @@ class DatabaseManager:
 
     async def ensure_initialized(self):
         """Гарантирует, что БД инициализирована"""
-        if not self.engine:
-            await self.ensure_database_exists()
-            await self.create_engine()
+        async with self._init_lock:
+            if self.initialized:
+                return
 
-        if not await self.check_tables_exist():
-            logger.warning("Таблицы отсутствуют, восстанавливаем структуру БД...")
-            await self.initialize(recreate_tables=True)
-        elif not self.initialized:
-            await self.initialize()
+            if not self.engine:
+                await self.ensure_database_exists()
+                await self.create_engine()
+
+            tables_exist = await self.check_tables_exist()
+
+            if not tables_exist:
+                logger.warning("Таблицы отсутствуют, восстанавливаем структуру БД...")
+                await self.initialize(recreate_tables=True)
+            else:
+                await self.initialize()
 
     async def check_tables_exist(self):
         """Проверяет наличие основных таблиц"""
+        if not self.engine:
+            return False
+
+        conn = await self.engine.connect()
         try:
-            async with self.engine.begin() as conn:
+            async with conn.begin():
                 result = await conn.execute(
                     text(
                         "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')"
@@ -151,6 +168,8 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Ошибка проверки таблиц: {e}")
             return False
+        finally:
+            await conn.close()
 
     async def initialize(self, recreate_tables: bool = False):
         """Инициализация базы данных"""

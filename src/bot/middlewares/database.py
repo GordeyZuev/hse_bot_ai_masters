@@ -28,7 +28,8 @@ class DatabaseMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         try:
-            await db_manager.ensure_initialized()
+            if not db_manager.initialized:
+                await db_manager.ensure_initialized()
 
             db_user = await self.get_or_create_user(user)
             data["db_user"] = db_user

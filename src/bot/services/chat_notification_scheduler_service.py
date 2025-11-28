@@ -18,31 +18,32 @@ class ChatNotificationSchedulerService:
     def __init__(self):
         pass
 
-    async def schedule_notifications_for_chat_subscription(self, chat_id: int, subject_id: int) -> int:
+    async def schedule_notifications_for_chat_subscription(
+        self, chat_id: int, subject_id: int, chat_group: ChatGroup | None = None
+    ) -> int:
         """Создать запланированные уведомления для нового чата"""
         try:
-            # Получаем чат
+            if chat_group is None:
+                chat_group = await self._get_chat_group(chat_id)
+
+            if not chat_group or not chat_group.is_active:
+                return 0
+
+            # Получаем все активные задачи по предмету
+            deadlines = await self._get_subject_tasks(subject_id)
+
+            if not deadlines:
+                return 0
+
+            total_scheduled = 0
+
             async with db_manager.async_session() as session:
-                stmt = select(ChatGroup).where(ChatGroup.chat_id == chat_id)
-                result = await session.execute(stmt)
-                chat_group = result.scalar_one_or_none()
-
-                if not chat_group or not chat_group.is_active:
-                    return 0
-
-                # Получаем все активные задачи по предмету
-                deadlines = await self._get_subject_tasks(subject_id)
-
-                if not deadlines:
-                    return 0
-
-                total_scheduled = 0
-
                 for deadline in deadlines:
                     count = await self._schedule_notifications_for_chat_task(
-                        chat_group, deadline
+                        session, chat_group, deadline
                     )
                     total_scheduled += count
+                await session.commit()
 
                 logger.info(f"(C) {chat_id} - Запланировано {total_scheduled} уведомлений")
                 return total_scheduled
@@ -65,16 +66,18 @@ class ChatNotificationSchedulerService:
                 result = await session.execute(stmt)
                 chat_groups = list(result.scalars().all())
 
-                if not chat_groups:
-                    return 0
+            if not chat_groups:
+                return 0
 
-                total_scheduled = 0
+            total_scheduled = 0
 
+            async with db_manager.async_session() as session:
                 for chat_group in chat_groups:
                     count = await self._schedule_notifications_for_chat_task(
-                        chat_group, deadline
+                        session, chat_group, deadline
                     )
                     total_scheduled += count
+                await session.commit()
 
                 logger.info(f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id} в чатах")
                 return total_scheduled
@@ -91,7 +94,10 @@ class ChatNotificationSchedulerService:
             return list(result.scalars().all())
 
     async def _schedule_notifications_for_chat_task(
-        self, chat_group: ChatGroup, deadline: Task
+        self,
+        session,
+        chat_group: ChatGroup,
+        deadline: Task,
     ) -> int:
         """Создать уведомления для чата по задаче"""
         try:
@@ -100,14 +106,14 @@ class ChatNotificationSchedulerService:
             # Планируем уведомления для мягкого дедлайна
             if deadline.soft_deadline_ts:
                 count = await self._create_chat_notifications(
-                    chat_group, deadline, "soft", deadline.soft_deadline_ts
+                    session, chat_group, deadline, "soft", deadline.soft_deadline_ts
                 )
                 total_scheduled += count
 
             # Планируем уведомления для жесткого дедлайна
             if deadline.hard_deadline_ts:
                 count = await self._create_chat_notifications(
-                    chat_group, deadline, "hard", deadline.hard_deadline_ts
+                    session, chat_group, deadline, "hard", deadline.hard_deadline_ts
                 )
                 total_scheduled += count
 
@@ -119,10 +125,11 @@ class ChatNotificationSchedulerService:
 
     async def _create_chat_notifications(
         self,
+        session,
         chat_group: ChatGroup,
         deadline: Task,
         deadline_type: str,
-        deadline_ts: datetime
+        deadline_ts: datetime,
     ) -> int:
         """Создать уведомления для чата"""
         try:
@@ -135,32 +142,30 @@ class ChatNotificationSchedulerService:
                 )
                 # Пропускаем создание, если время уже в прошлом
                 if planned_time > datetime.now(UTC):
-                    async with db_manager.async_session() as session:
-                        stmt = (
-                            insert(ChatScheduledNotification)
-                            .values(
-                                chat_group_id=chat_group.chat_id,
-                                deadline_id=deadline.id,
-                                deadline_type=deadline_type,
-                                notification_number=1,
-                                original_deadline_ts=deadline_ts,
-                                planned_delivery_time=planned_time,
-                                status="scheduled",
-                            )
-                            .on_conflict_do_update(
-                                constraint="unique_chat_deadline_notification",
-                                set_={
-                                    "status": "scheduled",
-                                    "planned_delivery_time": planned_time,
-                                    "original_deadline_ts": deadline_ts,
-                                    "updated_at": utc_now(),
-                                },
-                            )
+                    stmt = (
+                        insert(ChatScheduledNotification)
+                        .values(
+                            chat_group_id=chat_group.chat_id,
+                            deadline_id=deadline.id,
+                            deadline_type=deadline_type,
+                            notification_number=1,
+                            original_deadline_ts=deadline_ts,
+                            planned_delivery_time=planned_time,
+                            status="scheduled",
                         )
-                        result = await session.execute(stmt)
-                        await session.commit()
-                        if result.rowcount and result.rowcount > 0:
-                            notifications_created += 1
+                        .on_conflict_do_update(
+                            constraint="unique_chat_deadline_notification",
+                            set_={
+                                "status": "scheduled",
+                                "planned_delivery_time": planned_time,
+                                "original_deadline_ts": deadline_ts,
+                                "updated_at": utc_now(),
+                            },
+                        )
+                    )
+                    result = await session.execute(stmt)
+                    if result.rowcount and result.rowcount > 0:
+                        notifications_created += 1
 
             # Второе напоминание
             if chat_group.reminder2_offset > 0:
@@ -169,32 +174,30 @@ class ChatNotificationSchedulerService:
                 )
                 # Пропускаем создание, если время уже в прошлом
                 if planned_time > datetime.now(UTC):
-                    async with db_manager.async_session() as session:
-                        stmt = (
-                            insert(ChatScheduledNotification)
-                            .values(
-                                chat_group_id=chat_group.chat_id,
-                                deadline_id=deadline.id,
-                                deadline_type=deadline_type,
-                                notification_number=2,
-                                original_deadline_ts=deadline_ts,
-                                planned_delivery_time=planned_time,
-                                status="scheduled",
-                            )
-                            .on_conflict_do_update(
-                                constraint="unique_chat_deadline_notification",
-                                set_={
-                                    "status": "scheduled",
-                                    "planned_delivery_time": planned_time,
-                                    "original_deadline_ts": deadline_ts,
-                                    "updated_at": utc_now(),
-                                },
-                            )
+                    stmt = (
+                        insert(ChatScheduledNotification)
+                        .values(
+                            chat_group_id=chat_group.chat_id,
+                            deadline_id=deadline.id,
+                            deadline_type=deadline_type,
+                            notification_number=2,
+                            original_deadline_ts=deadline_ts,
+                            planned_delivery_time=planned_time,
+                            status="scheduled",
                         )
-                        result = await session.execute(stmt)
-                        await session.commit()
-                        if result.rowcount and result.rowcount > 0:
-                            notifications_created += 1
+                        .on_conflict_do_update(
+                            constraint="unique_chat_deadline_notification",
+                            set_={
+                                "status": "scheduled",
+                                "planned_delivery_time": planned_time,
+                                "original_deadline_ts": deadline_ts,
+                                "updated_at": utc_now(),
+                            },
+                        )
+                    )
+                    result = await session.execute(stmt)
+                    if result.rowcount and result.rowcount > 0:
+                        notifications_created += 1
 
             return notifications_created
 
@@ -313,29 +316,26 @@ class ChatNotificationSchedulerService:
         """Перепланирование уведомлений при смене дисциплины чата"""
         try:
             async with db_manager.async_session() as session:
-                # Удаляем старые уведомления чата
-                result = await session.execute(
+                await session.execute(
                     delete(ChatScheduledNotification).where(
                         ChatScheduledNotification.chat_group_id == chat_id
                     )
                 )
-                deleted_count = result.rowcount
-
-                # Получаем чат
                 chat_group = await session.get(ChatGroup, chat_id)
-                if not chat_group:
-                    logger.error(f"Чат {chat_id} не найден")
-                    return 0
+                await session.commit()
 
-                # Планируем новые уведомления для новой дисциплины
-                scheduled_count = await self.schedule_notifications_for_chat_subscription(
-                    chat_id, new_subject_id
-                )
+            if not chat_group:
+                logger.error(f"Чат {chat_id} не найден")
+                return 0
 
-                logger.info(
-                    f"Перепланировано для чата {chat_id}: -{deleted_count}, +{scheduled_count}"
-                )
-                return scheduled_count
+            scheduled_count = await self.schedule_notifications_for_chat_subscription(
+                chat_id, new_subject_id, chat_group=chat_group
+            )
+
+            logger.info(
+                f"Перепланировано для чата {chat_id}: обновлено {scheduled_count} уведомлений"
+            )
+            return scheduled_count
 
         except Exception as e:
             logger.error(f"Ошибка перепланирования уведомлений при смене дисциплины чата {chat_id}: {e}")
@@ -367,6 +367,13 @@ class ChatNotificationSchedulerService:
         except Exception as e:
             logger.error(f"Ошибка отмены уведомлений для чата {chat_id}: {e}")
             return 0
+
+
+    async def _get_chat_group(self, chat_id: int) -> ChatGroup | None:
+        async with db_manager.async_session() as session:
+            stmt = select(ChatGroup).where(ChatGroup.chat_id == chat_id)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
 
 
 # Создаем экземпляр сервиса

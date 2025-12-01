@@ -31,9 +31,9 @@ def setup_logging(
     week_monday = get_week_monday()
 
     log_format = (
-        "<green>{time:YY-MM-DD HH:mm:ss}</green> | "
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
         "<level>{level: <5}</level> | "
-        "<cyan>{module}</cyan>:<cyan>{function}</cyan>:{line} | "
+        "<cyan>{module}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
         "<level>{message}</level>"
     )
 

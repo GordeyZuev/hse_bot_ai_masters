@@ -38,15 +38,19 @@ class ChatNotificationSchedulerService:
             total_scheduled = 0
 
             async with db_manager.async_session() as session:
-                for deadline in deadlines:
-                    count = await self._schedule_notifications_for_chat_task(
-                        session, chat_group, deadline
-                    )
-                    total_scheduled += count
-                await session.commit()
-
-                logger.info(f"(C) {chat_id} - Запланировано {total_scheduled} уведомлений")
-                return total_scheduled
+                try:
+                    for deadline in deadlines:
+                        count = await self._schedule_notifications_for_chat_task(
+                            session, chat_group, deadline
+                        )
+                        total_scheduled += count
+                    await session.commit()
+                    logger.info(f"(C) {chat_id} - Запланировано {total_scheduled} уведомлений")
+                    return total_scheduled
+                except Exception as e:
+                    await session.rollback()
+                    logger.error(f"Ошибка планирования уведомлений для чата {chat_id}, откат транзакции: {e}")
+                    raise
 
         except Exception as e:
             logger.error(f"Ошибка планирования уведомлений для чата {chat_id}: {e}")
@@ -72,15 +76,19 @@ class ChatNotificationSchedulerService:
             total_scheduled = 0
 
             async with db_manager.async_session() as session:
-                for chat_group in chat_groups:
-                    count = await self._schedule_notifications_for_chat_task(
-                        session, chat_group, deadline
-                    )
-                    total_scheduled += count
-                await session.commit()
-
-                logger.info(f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id} в чатах")
-                return total_scheduled
+                try:
+                    for chat_group in chat_groups:
+                        count = await self._schedule_notifications_for_chat_task(
+                            session, chat_group, deadline
+                        )
+                        total_scheduled += count
+                    await session.commit()
+                    logger.info(f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id} в чатах")
+                    return total_scheduled
+                except Exception as e:
+                    await session.rollback()
+                    logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}, откат транзакции: {e}")
+                    raise
 
         except Exception as e:
             logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}")

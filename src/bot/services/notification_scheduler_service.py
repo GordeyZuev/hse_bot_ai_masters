@@ -1,7 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
+from sqlalchemy.dialects.postgresql import insert
 
+# Импорт для избежания циклических зависимостей
+from src.bot.services.chat_notification_scheduler_service import (
+    chat_notification_scheduler_service,
+)
 from src.core.database import db_manager
 from src.core.models import (
     ScheduledNotification,
@@ -157,27 +162,34 @@ class NotificationSchedulerService:
                         s.user_id: s for s in settings_res.scalars().all()
                     }
 
+                # Батчинг: собираем все уведомления для создания одним запросом
+                notifications_to_create = []
                 for user in subscribed_users:
                     settings = settings_dict.get(user.tg_user_id)
                     if not settings or not settings.is_active:
                         continue
 
+                    # Собираем уведомления для мягкого дедлайна
                     if deadline.soft_deadline_ts:
-                        soft_count = await self._schedule_notifications_for_user_task(
+                        notifications = self._prepare_notifications_for_user_task(
                             user, deadline, "soft", deadline.soft_deadline_ts, settings
                         )
-                        user_notifications_scheduled += soft_count
+                        notifications_to_create.extend(notifications)
 
+                    # Собираем уведомления для жесткого дедлайна
                     if deadline.hard_deadline_ts:
-                        hard_count = await self._schedule_notifications_for_user_task(
+                        notifications = self._prepare_notifications_for_user_task(
                             user, deadline, "hard", deadline.hard_deadline_ts, settings
                         )
-                        user_notifications_scheduled += hard_count
+                        notifications_to_create.extend(notifications)
 
-            # Новая логика для чатов
-            from src.bot.services.chat_notification_scheduler_service import (
-                chat_notification_scheduler_service,
-            )
+                # Создаем все уведомления одним батчем
+                if notifications_to_create:
+                    user_notifications_scheduled = await self._batch_create_notifications(
+                        notifications_to_create
+                    )
+
+            # Логика для чатов
             chat_notifications_scheduled = await chat_notification_scheduler_service.schedule_notifications_for_task(deadline)
 
             total_scheduled = user_notifications_scheduled + chat_notifications_scheduled
@@ -210,6 +222,48 @@ class NotificationSchedulerService:
                 logger.error(f"Ошибка получения подписчиков предмета {subject_id}: {e}")
                 return []
 
+    def _prepare_notifications_for_user_task(
+        self,
+        user: User,
+        deadline: Task,
+        deadline_type: str,
+        deadline_ts: datetime,
+        settings: UserNotificationSettings,
+    ) -> list[dict]:
+        """Подготовить данные уведомлений для пользователя и конкретного дедлайна (без создания в БД)"""
+        notifications = []
+        now = datetime.now(UTC)
+
+        reminder1_time = self._calculate_notification_time(
+            deadline_ts, settings.reminder1_offset, settings.reminder1_unit
+        )
+
+        if reminder1_time and reminder1_time > now:
+            notifications.append({
+                "user_id": user.tg_user_id,
+                "deadline_id": deadline.id,
+                "deadline_type": deadline_type,
+                "notification_number": 1,
+                "original_deadline_ts": deadline_ts,
+                "planned_delivery_time": reminder1_time,
+            })
+
+        reminder2_time = self._calculate_notification_time(
+            deadline_ts, settings.reminder2_offset, settings.reminder2_unit
+        )
+
+        if reminder2_time and reminder2_time > now:
+            notifications.append({
+                "user_id": user.tg_user_id,
+                "deadline_id": deadline.id,
+                "deadline_type": deadline_type,
+                "notification_number": 2,
+                "original_deadline_ts": deadline_ts,
+                "planned_delivery_time": reminder2_time,
+            })
+
+        return notifications
+
     async def _schedule_notifications_for_user_task(
         self,
         user: User,
@@ -218,47 +272,13 @@ class NotificationSchedulerService:
         deadline_ts: datetime,
         settings: UserNotificationSettings,
     ) -> int:
-        """Создать уведомления для пользователя и конкретного дедлайна"""
-        try:
-            scheduled_count = 0
-
-            reminder1_time = self._calculate_notification_time(
-                deadline_ts, settings.reminder1_offset, settings.reminder1_unit
-            )
-
-            if reminder1_time and reminder1_time > datetime.now(UTC):
-                await self._create_scheduled_notification(
-                    user.tg_user_id,
-                    deadline.id,
-                    deadline_type,
-                    1,
-                    deadline_ts,
-                    reminder1_time,
-                )
-                scheduled_count += 1
-
-            reminder2_time = self._calculate_notification_time(
-                deadline_ts, settings.reminder2_offset, settings.reminder2_unit
-            )
-
-            if reminder2_time and reminder2_time > datetime.now(UTC):
-                await self._create_scheduled_notification(
-                    user.tg_user_id,
-                    deadline.id,
-                    deadline_type,
-                    2,
-                    deadline_ts,
-                    reminder2_time,
-                )
-                scheduled_count += 1
-
-            return scheduled_count
-
-        except Exception as e:
-            logger.error(
-                f"Ошибка планирования уведомлений для пользователя {user.tg_user_id}: {e}"
-            )
-            return 0
+        """Создать уведомления для пользователя и конкретного дедлайна (legacy метод для обратной совместимости)"""
+        notifications = self._prepare_notifications_for_user_task(
+            user, deadline, deadline_type, deadline_ts, settings
+        )
+        if notifications:
+            return await self._batch_create_notifications(notifications)
+        return 0
 
     def _calculate_notification_time(
         self, deadline_ts: datetime, offset: int, unit: str
@@ -284,6 +304,47 @@ class NotificationSchedulerService:
             logger.error(f"Ошибка вычисления времени уведомления: {e}")
             return None
 
+    async def _batch_create_notifications(
+        self, notifications_data: list[dict]
+    ) -> int:
+        """Создать множество уведомлений одним батчем (upsert)"""
+        if not notifications_data:
+            return 0
+
+        try:
+            async with db_manager.async_session() as session:
+                # Используем PostgreSQL INSERT ... ON CONFLICT для upsert
+                # Для множественных вставок используем bulk insert с VALUES
+                values_list = [
+                    {
+                        **notif_data,
+                        "status": "scheduled",
+                    }
+                    for notif_data in notifications_data
+                ]
+
+                stmt = (
+                    insert(ScheduledNotification)
+                    .values(values_list)
+                    .on_conflict_do_update(
+                        constraint="unique_user_deadline_notification",
+                        set_={
+                            "status": "scheduled",
+                            "planned_delivery_time": text("excluded.planned_delivery_time"),
+                            "original_deadline_ts": text("excluded.original_deadline_ts"),
+                            "updated_at": utc_now(),
+                        },
+                    )
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                # rowcount возвращает количество затронутых строк (включая обновленные)
+                return result.rowcount or len(notifications_data)
+
+        except Exception as e:
+            logger.error(f"Ошибка батч-создания уведомлений: {e}")
+            return 0
+
     async def _create_scheduled_notification(
         self,
         user_id: int,
@@ -293,45 +354,17 @@ class NotificationSchedulerService:
         original_deadline_ts: datetime,
         planned_delivery_time: datetime,
     ) -> bool:
-        """Создать запись запланированного уведомления"""
-        try:
-            async with db_manager.async_session() as session:
-                existing_stmt = select(ScheduledNotification).where(
-                    and_(
-                        ScheduledNotification.user_id == user_id,
-                        ScheduledNotification.deadline_id == deadline_id,
-                        ScheduledNotification.deadline_type == deadline_type,
-                        ScheduledNotification.notification_number
-                        == notification_number,
-                    )
-                )
-                result = await session.execute(existing_stmt)
-                existing = result.scalar_one_or_none()
-
-                if existing:
-                    existing.original_deadline_ts = original_deadline_ts
-                    existing.planned_delivery_time = planned_delivery_time
-                    existing.status = "scheduled"
-                    existing.updated_at = utc_now()
-                    await session.commit()
-                    return True
-
-            notification_data = {
-                "user_id": user_id,
-                "deadline_id": deadline_id,
-                "deadline_type": deadline_type,
-                "notification_number": notification_number,
-                "original_deadline_ts": original_deadline_ts,
-                "planned_delivery_time": planned_delivery_time,
-                "status": "scheduled",
-            }
-
-            await db_manager.create_scheduled_notification(notification_data)
-            return True
-
-        except Exception as e:
-            logger.error(f"Ошибка создания запланированного уведомления: {e}")
-            return False
+        """Создать запись запланированного уведомления (legacy метод для обратной совместимости)"""
+        notifications = [{
+            "user_id": user_id,
+            "deadline_id": deadline_id,
+            "deadline_type": deadline_type,
+            "notification_number": notification_number,
+            "original_deadline_ts": original_deadline_ts,
+            "planned_delivery_time": planned_delivery_time,
+        }]
+        count = await self._batch_create_notifications(notifications)
+        return count > 0
 
     async def reschedule_notifications_for_updated_task(
         self, deadline: Task
@@ -348,9 +381,6 @@ class NotificationSchedulerService:
             )
 
             # Также отменяем уведомления в чатах для этого дедлайна
-            from src.bot.services.chat_notification_scheduler_service import (
-                chat_notification_scheduler_service,
-            )
             cancelled_in_chats = await chat_notification_scheduler_service.cancel_notifications_for_task(
                 deadline.id
             )

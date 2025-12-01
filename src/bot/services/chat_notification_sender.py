@@ -172,6 +172,7 @@ class ChatNotificationSender:
             chat_id=chat_id,
             text=text,
             success_message=f"(C) {chat_id} - Уведомление отправлено",
+            is_group_chat=True,
             parse_mode="HTML",
             message_thread_id=message_thread_id,
             disable_web_page_preview=True,
@@ -281,6 +282,7 @@ class ChatNotificationSender:
             chat_id=chat_id,
             text=message_text,
             success_message=f"(C) {chat_id} - Уведомление отправлено",
+            is_group_chat=True,
             reply_markup=keyboard,
             parse_mode="HTML",
             message_thread_id=message_thread_id

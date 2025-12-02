@@ -1126,9 +1126,19 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
                 except Exception:
                     pass
 
+            # Получаем топик с учетом режима для планирования уведомлений
+            chat = await chat_service.get_chat(chat_id)
+            chat_topic = None
+            if chat:
+                if chat.mode == "single":
+                    topics = await chat_service.get_chat_groups_topics(chat_id)
+                    chat_topic = topics[0] if topics else None
+                else:
+                    chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
             # Планируем уведомления для нового чата
             scheduled_count = await chat_notification_scheduler_service.schedule_notifications_for_chat_subscription(
-                chat_id, subject_id
+                chat_id, subject_id, chat_topic=chat_topic
             )
 
             message_text += f"\n\n📅 Запланировано {scheduled_count} уведомлений"

@@ -6,7 +6,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
 from src.core.database import db_manager
-from src.core.models import Chat, ChatTopic, Subject
+from src.core.models import Chat, ChatScheduledNotification, ChatTopic, Subject
 from src.utils import get_logger
 
 
@@ -756,6 +756,70 @@ class ChatService:
         except Exception as e:
             logger.error(f"Ошибка переключения режима чата {chat_id}: {e}")
             return False, "❌ Произошла ошибка при переключении режима"
+
+    async def migrate_chat_id(self, old_chat_id: int, new_chat_id: int, bot: Bot | None = None) -> bool:
+        """Обновить ID чата при миграции группы в супергруппу
+        
+        Args:
+            old_chat_id: Старый ID чата (группа)
+            new_chat_id: Новый ID чата (супергруппа)
+            bot: Опционально, для обновления информации о чате
+            
+        Returns:
+            bool: True если миграция успешна, False если произошла ошибка
+        """
+        try:
+            async with db_manager.async_session() as session:
+                from sqlalchemy import update
+                
+                # Проверяем, существует ли старый чат
+                old_chat = await session.get(Chat, old_chat_id)
+                if not old_chat:
+                    logger.warning(f"Чат {old_chat_id} не найден для миграции")
+                    return False
+                
+                # Проверяем, не существует ли уже новый чат
+                new_chat = await session.get(Chat, new_chat_id)
+                if new_chat:
+                    logger.warning(f"Чат {new_chat_id} уже существует, пропускаем миграцию")
+                    return False
+                
+                # Обновляем информацию о чате, если есть доступ к боту
+                chat_title = old_chat.chat_title
+                if bot:
+                    try:
+                        chat_info = await bot.get_chat(new_chat_id)
+                        chat_title = getattr(chat_info, "title", chat_title)
+                    except Exception as e:
+                        logger.debug(f"Не удалось получить информацию о новом чате {new_chat_id}: {e}")
+                
+                # Обновляем Chat: меняем chat_id и chat_type
+                old_chat.chat_id = new_chat_id
+                old_chat.chat_type = "supergroup"
+                if chat_title:
+                    old_chat.chat_title = chat_title
+                
+                # Обновляем все ChatTopic с старым chat_id
+                await session.execute(
+                    update(ChatTopic)
+                    .where(ChatTopic.chat_id == old_chat_id)
+                    .values(chat_id=new_chat_id)
+                )
+                
+                # Обновляем все ChatScheduledNotification с старым chat_id
+                await session.execute(
+                    update(ChatScheduledNotification)
+                    .where(ChatScheduledNotification.chat_id == old_chat_id)
+                    .values(chat_id=new_chat_id)
+                )
+                
+                await session.commit()
+                logger.info(f"Чат мигрирован: {old_chat_id} → {new_chat_id}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка миграции чата {old_chat_id} → {new_chat_id}: {e}")
+            return False
 
 
 # Создаем экземпляр сервиса

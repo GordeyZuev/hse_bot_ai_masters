@@ -116,6 +116,9 @@ class ChatNotificationSender:
         stats: dict[str, int]
     ):
         """Обработать уведомления для одного чата и топика"""
+        batch_text = None
+        message_thread_id = None
+        
         try:
             # Проверяем, активен ли топик
             chat_topic = notifications[0].chat_topic
@@ -147,6 +150,33 @@ class ChatNotificationSender:
                 await self._mark_notifications_as_failed(list(notifications))
 
         except Exception as e:
+            # Проверяем, является ли это ошибкой миграции чата
+            from aiogram.exceptions import TelegramBadRequest
+            from src.bot.middlewares.private_chat import TelegramErrorHandler
+            
+            if isinstance(e, TelegramBadRequest):
+                # Пытаемся обработать миграцию
+                new_chat_id = await TelegramErrorHandler.handle_chat_migration(e, chat_id, bot)
+                if new_chat_id:
+                    # Повторяем отправку с новым ID чата (если текст уже сформирован)
+                    logger.info(f"(C) {chat_id} → {new_chat_id} - Чат мигрирован, повторная отправка")
+                    try:
+                        if batch_text and message_thread_id is not None:
+                            sent_ok = await self._safe_send_batch(
+                                bot, new_chat_id, batch_text, message_thread_id
+                            )
+                            if sent_ok:
+                                stats["sent"] += len(notifications)
+                                stats["total_processed"] += len(notifications)
+                                await self._mark_notifications_as_sent(list(notifications))
+                            else:
+                                stats["failed"] += len(notifications)
+                                stats["total_processed"] += len(notifications)
+                                await self._mark_notifications_as_failed(list(notifications))
+                            return
+                    except Exception as retry_error:
+                        logger.error(f"(C) {new_chat_id} - Ошибка повторной отправки после миграции: {retry_error}")
+            
             logger.error(f"(C) {chat_id} (topic: {topic_id}) - Ошибка обработки: {e}")
             stats["failed"] += len(notifications)
             stats["total_processed"] += len(notifications)

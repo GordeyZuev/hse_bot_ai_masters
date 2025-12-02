@@ -1,3 +1,4 @@
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -42,6 +43,63 @@ class TelegramErrorHandler:
             if "message is not modified" in error_msg or "message not found" in error_msg:
                 return True
         return False
+
+    @staticmethod
+    def extract_migrate_to_chat_id(error: TelegramBadRequest) -> int | None:
+        """Извлечь новый ID чата из ошибки миграции
+        
+        Args:
+            error: Исключение TelegramBadRequest
+            
+        Returns:
+            int | None: Новый ID чата или None, если это не ошибка миграции
+        """
+        try:
+            # Проверяем, есть ли response_parameters в ошибке
+            if hasattr(error, "response_parameters") and error.response_parameters:
+                migrate_to_chat_id = getattr(error.response_parameters, "migrate_to_chat_id", None)
+                if migrate_to_chat_id:
+                    return int(migrate_to_chat_id)
+            
+            # Альтернативный способ: парсим сообщение об ошибке
+            error_msg = str(error)
+            if "migrated to a supergroup" in error_msg.lower():
+                # Пытаемся извлечь ID из сообщения: "with id -1003397275819"
+                match = re.search(r"with id (-?\d+)", error_msg)
+                if match:
+                    return int(match.group(1))
+        except Exception as e:
+            logger.debug(f"Ошибка извлечения migrate_to_chat_id: {e}")
+        return None
+
+    @staticmethod
+    async def handle_chat_migration(error: TelegramBadRequest, old_chat_id: int, bot: Bot | None = None) -> int | None:
+        """Обработать миграцию чата из группы в супергруппу
+        
+        Args:
+            error: Исключение TelegramBadRequest с информацией о миграции
+            old_chat_id: Старый ID чата
+            bot: Опционально, объект бота для обновления информации
+            
+        Returns:
+            int | None: Новый ID чата если миграция успешна, None если ошибка
+        """
+        new_chat_id = TelegramErrorHandler.extract_migrate_to_chat_id(error)
+        if not new_chat_id:
+            return None
+        
+        try:
+            from src.bot.services.chat_service import chat_service
+            success = await chat_service.migrate_chat_id(old_chat_id, new_chat_id, bot)
+            if success:
+                logger.info(f"Чат успешно мигрирован: {old_chat_id} → {new_chat_id}")
+                return new_chat_id
+            else:
+                logger.warning(f"Не удалось мигрировать чат: {old_chat_id} → {new_chat_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка обработки миграции чата {old_chat_id}: {e}")
+            return None
 
     @staticmethod
     async def handle_telegram_error(error: Exception, user_id: int | None = None, chat_id: int | None = None) -> bool:
@@ -188,6 +246,20 @@ async def safe_send_message(
             logger.info(success_message)
         return True
     except (TelegramForbiddenError, TelegramBadRequest) as e:
+        # Обрабатываем миграцию чата (группа → супергруппа)
+        if isinstance(e, TelegramBadRequest) and is_group_chat and not user_id:
+            new_chat_id = await TelegramErrorHandler.handle_chat_migration(e, chat_id, bot)
+            if new_chat_id:
+                # Повторяем отправку с новым ID чата
+                try:
+                    await bot.send_message(chat_id=new_chat_id, text=text, **kwargs)
+                    if success_message:
+                        logger.info(success_message.replace(str(chat_id), str(new_chat_id)))
+                    return True
+                except Exception as retry_error:
+                    logger.error(f"Ошибка повторной отправки после миграции {chat_id} → {new_chat_id}: {retry_error}")
+                    return False
+        
         # Используем общий обработчик ошибок
         # Передаем chat_id для групповых чатов, user_id для личных
         error_chat_id = chat_id if is_group_chat and not user_id else None

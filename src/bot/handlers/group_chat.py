@@ -29,7 +29,6 @@ from src.bot.texts import (
     CHAT_EDIT_REMINDER_TEXT,
     CHAT_EDIT_SETTINGS_TEXT,
     CHAT_NOT_CONFIGURED,
-    CHAT_SETUP_PROMPT_TEXT,
     ERROR_NO_PERMISSION,
     ERROR_NOT_ADMIN,
     GROUP_CHAT_HELP_TEXT,
@@ -188,6 +187,11 @@ class ChatSetupStates(StatesGroup):
     waiting_custom_reminder = State()  # Для кастомного ввода времени
 
 
+class ChatSwitchModeStates(StatesGroup):
+    """Состояния для подтверждения переключения режима"""
+    confirming_switch = State()
+
+
 class ChatSettingsStates(StatesGroup):
     """Состояния для редактирования настроек бота"""
     waiting_reminder1_offset = State()
@@ -211,11 +215,11 @@ async def send_chat_help_message(message: Message, edit_mode: bool = False):
         # Кнопка настройки бота показывается только если бот уже настроен в этом чате
         try:
             chat_id = message.chat.id
-            chat_group = await chat_service.get_chat_group(chat_id)
+            chat = await chat_service.get_chat(chat_id)
         except Exception:
-            chat_group = None
-        if chat_group:
-            builder.button(text="⚙️ Настройка бота", callback_data="chat_settings_from_start")
+            chat = None
+        if chat:
+            builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
         builder.button(text="🔙 Назад", callback_data="back_to_start")
         builder.adjust(1)
 
@@ -230,11 +234,15 @@ async def send_chat_help_message(message: Message, edit_mode: bool = False):
 async def show_chat_setup_interface(message: Message, edit_mode: bool = False):
     """Показать интерфейс настройки бота (когда еще не настроен)"""
     try:
-
-        text = CHAT_SETUP_PROMPT_TEXT
+        text = "📚 <b>Выберите режим работы бота:</b>\n\n"
+        text += "🔹 <b>Single-mode:</b> Одна дисциплина на весь чат\n"
+        text += "   Все топики будут отслеживать дедлайны одной и той же дисциплины. Настройка применяется ко всему чату сразу.\n\n"
+        text += "🔹 <b>Multi-mode:</b> Каждый топик может иметь свою дисциплину\n"
+        text += "   Можно настроить разные дисциплины для разных топиков. Настройка выполняется отдельно для каждого топика.\n"
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="⚙️ Настроить бота", callback_data="chat_setup_from_start")
+        builder.button(text="1️⃣ Single-mode", callback_data="chat_setup_mode_single")
+        builder.button(text="2️⃣ Multi-mode", callback_data="chat_setup_mode_multi")
         builder.button(text="🔙 Назад", callback_data="back_to_start")
         builder.adjust(1)
 
@@ -250,13 +258,77 @@ async def show_chat_setup_interface(message: Message, edit_mode: bool = False):
             await message.answer("Произошла ошибка при настройке бота")
 
 
-async def show_chat_settings_interface(message: Message, chat_group, edit_mode: bool = False):
+async def show_chat_multi_mode_overview(message: Message, chat, edit_mode: bool = False):
+    """Показать обзор всех топиков в multi-mode из общего чата"""
+    try:
+        chat_id = message.chat.id
+
+        # Получаем все настроенные топики
+        topics = await chat_service.get_chat_groups_topics(chat_id)
+
+        text = "⚙️ <b>Настройки бота</b>\n\n"
+        text += "<b>🧩 Режим:</b> Multi-mode\n\n"
+
+        if not topics:
+            text += "<b>📋 Настроенные топики:</b>\n"
+            text += "❌ Топики ещё не настроены.\n\n"
+            text += "💡 <b>Как настроить:</b>\n"
+            text += "1. Перейдите в нужный топик\n"
+            text += "2. Вызовите /setup_discipline или нажмите «⚙️ Настроить бота»\n"
+            text += "3. Выберите дисциплину и настройте уведомления\n"
+        else:
+            text += f"<b>📋 Настроенные топики ({len(topics)}):</b>\n\n"
+
+            # Приводим единицы времени к человекочитаемым
+            def unit_label(u: str) -> str:
+                return "дн." if u == "days" else ("ч." if u == "hours" else u)
+
+            for idx, topic in enumerate(topics, 1):
+                topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                status = "✅ Активен" if topic.is_active else "❌ Отключен"
+                text += f"<b>{idx}. Топик «{topic_display}»</b>\n"
+                text += f"   📚 {topic.subject.name}\n"
+                text += f"   🔔 Первое: за {topic.reminder1_offset} {unit_label(topic.reminder1_unit)}\n"
+                text += f"   🔔 Второе: за {topic.reminder2_offset} {unit_label(topic.reminder2_unit)}\n"
+                text += f"   {status}\n\n"
+
+            text += "💡 <i>Для настройки конкретного топика перейдите в него и зайдите в настройки (через /start)</i>\n"
+
+        builder = InlineKeyboardBuilder()
+
+        # Кнопки для управления
+        builder.button(text="⚙️ Дополнительные настройки", callback_data="chat_advanced_settings")
+        builder.button(text="🔙 Назад", callback_data="back_to_start")
+        builder.adjust(1)
+
+        if edit_mode:
+            try:
+                await message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e):
+                    raise
+        else:
+            await message.answer(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"(C) {message.chat.id} - показ обзора multi-mode: {e}")
+        if not edit_mode:
+            await message.answer("Произошла ошибка при отображении настроек")
+
+
+async def show_chat_settings_interface(message: Message, chat_topic, edit_mode: bool = False):
     """Показать интерфейс управления настройками бота (когда бот настроен)"""
     try:
         chat_id = message.chat.id
 
+        # Получаем чат для режима
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
+            await message.answer("❌ Чат не найден")
+            return
+
         # Формируем информацию о настройках
-        text = "⚙️ <b>Настройка бота</b>\n\n"
+        text = "⚙️ <b>Настройка</b>\n\n"
 
         # Приводим единицы времени к человекочитаемым
         def unit_label(u: str) -> str:
@@ -264,12 +336,12 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
 
         # Секция: Настройки (самое важное сверху)
         text += "<b>🧩 Настройки</b>:\n"
-        text += f"• <b>Предмет:</b> «{chat_group.subject.name}»\n"
-        if chat_group.topic_id:
+        text += f"• <b>Предмет:</b> «{chat_topic.subject.name}»\n"
+        if chat_topic.topic_id:
             # В настройках сначала выводим сохранённое имя (если есть), затем пытаемся получить по API
-            topic_title_saved = getattr(chat_group, "topic_title", None)
-            topic_title_api = None if topic_title_saved else await chat_service.get_topic_title(message.bot, chat_id, chat_group.topic_id)
-            topic_display = (topic_title_saved or topic_title_api) or f"ID {chat_group.topic_id}"
+            topic_title_saved = getattr(chat_topic, "topic_title", None)
+            topic_title_api = None if topic_title_saved else await chat_service.get_topic_title(message.bot, chat_id, chat_topic.topic_id)
+            topic_display = (topic_title_saved or topic_title_api) or f"ID {chat_topic.topic_id}"
             text += f"• <b>Топик:</b> «{topic_display}»\n"
         else:
             text += "• <b>Топик:</b> Общий чат\n"
@@ -279,15 +351,15 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
             text += f"• <b>Управление темами:</b> {status_topics}\n"
         except Exception:
             text += "• <b>Управление темами:</b> —\n"
-        text += f"• <b>Статус:</b> {'✅ Включен' if chat_group.is_active else '❌ Выключен'}\n"
+        text += f"• <b>Статус:</b> {'✅ Включен' if chat_topic.is_active else '❌ Выключен'}\n"
 
         # Секция: Уведомления
         text += "\n<b>🔔 Уведомления</b>:\n"
         text += (
-            f"• <b>Первое:</b> за {chat_group.reminder1_offset} {unit_label(chat_group.reminder1_unit)}\n"
+            f"• <b>Первое:</b> за {chat_topic.reminder1_offset} {unit_label(chat_topic.reminder1_unit)}\n"
         )
         text += (
-            f"• <b>Второе:</b> за {chat_group.reminder2_offset} {unit_label(chat_group.reminder2_unit)}\n"
+            f"• <b>Второе:</b> за {chat_topic.reminder2_offset} {unit_label(chat_topic.reminder2_unit)}\n"
         )
 
         # Секция: Статистика
@@ -300,10 +372,10 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
 
                 from src.core.models.models import ChatScheduledNotification
 
-                # Подсчитываем общее количество уведомлений
+                # Подсчитываем общее количество уведомлений для этого топика
                 total_result = await session.execute(
                     select(func.count(ChatScheduledNotification.id)).where(
-                        ChatScheduledNotification.chat_group_id == chat_id
+                        ChatScheduledNotification.chat_topic_id == chat_topic.id
                     )
                 )
                 total_notifications = total_result.scalar() or 0
@@ -311,7 +383,7 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
                 # Подсчитываем запланированные уведомления
                 scheduled_result = await session.execute(
                     select(func.count(ChatScheduledNotification.id)).where(
-                        ChatScheduledNotification.chat_group_id == chat_id,
+                        ChatScheduledNotification.chat_topic_id == chat_topic.id,
                         ChatScheduledNotification.status == "scheduled"
                     )
                 )
@@ -328,13 +400,20 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
         builder.button(text="📚 Изменить дисциплину", callback_data="chat_change_subject")
         builder.button(text="⚙️ Настроить уведомления", callback_data="chat_edit_settings")
         # Добавляем переключатель уведомлений в общий раздел
-        if chat_group.is_active:
+        if chat_topic.is_active:
             builder.button(text="🔕 Отключить уведомления", callback_data="chat_toggle_active")
         else:
             builder.button(text="🔔 Включить уведомления", callback_data="chat_toggle_active")
 
-        # Управление топиком
-        builder.button(text="📍 Привязать к этому топику", callback_data="chat_set_topic_here")
+        # Управление топиком (только в single-mode)
+        if chat.mode == "single":
+            builder.button(text="📍 Привязать к этому топику", callback_data="chat_set_topic_here")
+
+        # Кнопка смены режима
+        if chat.mode == "single":
+            builder.button(text="🔄 Переключить чат в Multi-mode", callback_data="chat_switch_mode_multi")
+        else:
+            builder.button(text="🔄 Переключить чат в Single-mode", callback_data="chat_switch_mode_single")
 
         builder.button(text="🔙 Назад", callback_data="back_to_start")
         builder.adjust(1)
@@ -368,36 +447,91 @@ async def show_chat_settings_interface(message: Message, chat_group, edit_mode: 
 
 async def handle_start_in_group(message: Message, db_user, user_name: str):
     """Обработка команды /start в групповом чате"""
-    try:
-        chat_id = message.chat.id
-        user_id = message.from_user.id
-        username = message.from_user.username
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    username = message.from_user.username
 
-        logger.info(f"(C) {chat_id} - /start user=@{username or f'ID{user_id}'}")
+    logger.info(f"(C) {chat_id} - /start user=@{username or f'ID{user_id}'}")
 
-        # Проверяем, настроен ли уже чат
-        chat_group = await chat_service.get_chat_group(chat_id)
+    # Проверяем, настроен ли уже чат
+    chat = await chat_service.get_chat(chat_id)
 
-        if chat_group:
-            text = GROUP_START_CONFIGURED_TEXT.format(
-                subject_name=chat_group.subject.name,
-                status=("✅ Активен" if chat_group.is_active else "❌ Отключен"),
-            )
+    if chat:
+        if chat.mode == "multi":
+            # Multi-mode: проверяем, из какого топика вызвана команда
+            topic_id = await chat_service.get_topic_id_from_message(message)
 
-            builder = InlineKeyboardBuilder()
-            builder.button(text="ℹ️ Информация", callback_data="chat_info")
-            builder.button(text="⚙️ Настройка бота", callback_data="chat_settings_from_start")
-            builder.button(text="❓ Помощь", callback_data="quick_help")
-            builder.adjust(1)
+            if topic_id is not None:
+                # Вызов из конкретного топика - показываем информацию о топике
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+                if chat_topic:
+                    text = GROUP_START_CONFIGURED_TEXT.format(
+                        subject_name=chat_topic.subject.name,
+                        status=("✅ Активен" if chat_topic.is_active else "❌ Отключен"),
+                    )
+                    builder = InlineKeyboardBuilder()
+                    builder.button(text="ℹ️ Информация", callback_data="chat_info")
+                    builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                    builder.button(text="❓ Помощь", callback_data="quick_help")
+                    builder.adjust(1)
+                else:
+                    # Топик не настроен
+                    text = "📚 Этот топик еще не настроен на дисциплину.\n\n"
+                    text += "Попросите администратора нажать «Настроить»."
+                    builder = InlineKeyboardBuilder()
+                    builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                    builder.button(text="❓ Помощь", callback_data="quick_help")
+                    builder.adjust(1)
+            else:
+                # Вызов из общего чата - показываем список всех топиков
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                if topics:
+                    text = "📚 <b>Настроенные топики:</b>\n\n"
+                    for topic in topics:
+                        topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                        status = "✅" if topic.is_active else "❌"
+                        text += f"{status} <b>{topic_display}</b> — {topic.subject.name}\n"
 
+                    builder = InlineKeyboardBuilder()
+                    builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                    builder.button(text="❓ Помощь", callback_data="quick_help")
+                    builder.adjust(1)
+                else:
+                    text = "📚 Чат в multi-mode, но топики не настроены.\n\n"
+                    text += "Настройте топики через /setup_discipline в каждом топике."
+                    builder = InlineKeyboardBuilder()
+                    builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                    builder.button(text="❓ Помощь", callback_data="quick_help")
+                    builder.adjust(1)
         else:
-            # Чат не настроен — краткое приветствие и ссылка на помощь
-            text = GROUP_START_UNCONFIGURED_TEXT
+            # Single-mode: показываем информацию о единственном топике (игнорируем topic_id из сообщения)
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            if topics:
+                chat_topic = topics[0]  # Берем первый (и единственный) топик
+                text = GROUP_START_CONFIGURED_TEXT.format(
+                    subject_name=chat_topic.subject.name,
+                    status=("✅ Активен" if chat_topic.is_active else "❌ Отключен"),
+                )
 
-            builder = InlineKeyboardBuilder()
-            builder.button(text="⚙️ Настроить бота", callback_data="chat_setup_from_start")
-            builder.button(text="❓ Помощь", callback_data="quick_help")
-            builder.adjust(1)
+                builder = InlineKeyboardBuilder()
+                builder.button(text="ℹ️ Информация", callback_data="chat_info")
+                builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                builder.button(text="❓ Помощь", callback_data="quick_help")
+                builder.adjust(1)
+            else:
+                text = GROUP_START_UNCONFIGURED_TEXT
+                builder = InlineKeyboardBuilder()
+                builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                builder.button(text="❓ Помощь", callback_data="quick_help")
+                builder.adjust(1)
+    else:
+        # Чат не настроен — краткое приветствие и ссылка на помощь
+        text = GROUP_START_UNCONFIGURED_TEXT
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+        builder.button(text="❓ Помощь", callback_data="quick_help")
+        builder.adjust(1)
 
         # Для обычных пользователей добавим пояснение, что настраивать может только админ
         try:
@@ -407,9 +541,8 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
         if not is_admin:
             text = text.strip() + "\n\n❗️ Настраивать бота может только администратор этого чата."
 
-        await message.answer(text.strip(), reply_markup=builder.as_markup())
-    except Exception:
-        raise
+    # Используем _safe_send для автоматической обработки TOPIC_CLOSED
+    await _safe_send(message, text.strip(), reply_markup=builder.as_markup())
 
 
 @router.message(and_f(Command("help"), F.chat.type.in_(["group", "supergroup"])))
@@ -458,16 +591,30 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
             )
             return
 
-        # Проверяем, не настроен ли уже чат
-        existing_chat = await chat_service.get_chat_group(chat_id)
-        if existing_chat:
-            subject_name = existing_chat.subject.name
-            topic_info = f" (топик {existing_chat.topic_id})" if existing_chat.topic_id else " (общий чат)"
+        # Получаем topic_id если команда вызвана в топике
+        topic_id = await chat_service.get_topic_id_from_message(message)
+
+        # Проверяем, не настроен ли уже чат/топик
+        existing_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+        if existing_topic:
+            subject_name = existing_topic.subject.name
+            topic_info = f" (топик {existing_topic.topic_id})" if existing_topic.topic_id else " (общий чат)"
             await message.answer(
-                f"ℹ️ Этот чат уже настроен на предмет: <b>«{subject_name}»</b>{topic_info}\n\n"
+                f"ℹ️ Этот топик уже настроен на предмет: <b>«{subject_name}»</b>{topic_info}\n\n"
                 f"Используйте /chat_settings для изменения настроек",
                 parse_mode="HTML"
             )
+            return
+
+        # Проверяем, есть ли уже чат (может быть в другом режиме)
+        existing_chat = await chat_service.get_chat(chat_id)
+        if existing_chat:
+            # Если чат существует, но топик не настроен - показываем выбор режима или настраиваем
+            # Для простоты, если чат существует, используем его режим
+            mode = existing_chat.mode
+        else:
+            # Новый чат - показываем выбор режима
+            await show_chat_setup_interface(message)
             return
 
         # Получаем список доступных предметов
@@ -505,6 +652,24 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                             except Exception:
                                 topic_title = None
 
+                    # Определяем режим
+                    if existing_chat:
+                        mode = existing_chat.mode
+                    else:
+                        await message.answer(
+                            "❌ Сначала выберите режим работы бота командой /setup_discipline без аргументов.",
+                            parse_mode="HTML"
+                        )
+                        return
+
+                    # В multi-mode проверяем topic_id
+                    if mode == "multi" and topic_id is None:
+                        await message.answer(
+                            "❌ В multi-mode нельзя настраивать общий чат. Вызовите команду в топике.",
+                            parse_mode="HTML"
+                        )
+                        return
+
                     # Настраиваем чат с дефолтными настройками
                     success, message_text = await chat_service.setup_chat_group(
                         message.bot,
@@ -512,6 +677,7 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                         subject.id,
                         user_id,
                         topic_id,
+                        mode=mode,
                         reminder1_offset=7,
                         reminder1_unit="days",
                         reminder2_offset=1,
@@ -531,8 +697,18 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                                     topic_title=topic_title,
                                     topic_id_set=True,
                                 )
-                        chat_group = await chat_service.get_chat_group(chat_id)
-                        await show_chat_settings_interface(message, chat_group, edit_mode=False)
+                        # Получаем топик с учетом режима
+                        chat = await chat_service.get_chat(chat_id)
+                        if chat and chat.mode == "single":
+                            topics = await chat_service.get_chat_groups_topics(chat_id)
+                            chat_topic = topics[0] if topics else None
+                        else:
+                            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+                        if chat_topic:
+                            await show_chat_settings_interface(message, chat_topic, edit_mode=False)
+                        else:
+                            await message.answer("✅ Чат настроен!", parse_mode="HTML")
                     else:
                         await message.answer(message_text, parse_mode="HTML")
                     return
@@ -556,7 +732,10 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                 stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
                 result = await session.execute(stmt)
                 subjects = list(result.scalars().all())
-                text = "📚 <b>Выберите предмет для чата:</b>\n\n"
+                if mode == "single":
+                    text = "📚 <b>Выберите предмет для чата. Настройка будет действительна для всех топиков.</b>\n\n"
+                else:
+                    text = "📚 <b>Выберите предмет для топика. Настройка будет действительна только в рамках этого топика.</b>\n\n"
 
         if not subjects:
             await message.answer("❌ Нет доступных предметов для настройки")
@@ -601,14 +780,36 @@ async def cmd_chat_settings(message: Message, db_user):
             )
             return
 
-        chat_group = await chat_service.get_chat_group(chat_id)
+        # Получаем topic_id если команда вызвана в топике
+        topic_id = await chat_service.get_topic_id_from_message(message)
 
-        if not chat_group:
+        # Получаем чат
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
             # Чат не настроен - показываем интерфейс настройки
             await show_chat_setup_interface(message)
+            return
+
+        # В multi-mode из общего чата показываем обзор топиков
+        if chat.mode == "multi" and topic_id is None:
+            await show_chat_multi_mode_overview(message, chat)
+            return
+
+        # Получаем топик
+        if chat.mode == "single":
+            # В single-mode игнорируем topic_id и получаем единственный топик
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            chat_topic = topics[0] if topics else None
         else:
-            # Чат настроен - показываем интерфейс управления настройками
-            await show_chat_settings_interface(message, chat_group)
+            # В multi-mode используем topic_id
+            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+        if not chat_topic:
+            # Топик не настроен - показываем интерфейс настройки
+            await show_chat_setup_interface(message)
+        else:
+            # Топик настроен - показываем интерфейс управления настройками
+            await show_chat_settings_interface(message, chat_topic)
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - настройки чата: {e}")
@@ -656,8 +857,32 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
 
         await callback.answer()
 
-        # Получаем topic_id если команда вызвана в топике
-        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+        # Получаем данные из состояния (режим и topic_id)
+        data = await state.get_data()
+        mode = data.get("mode")
+        topic_id = data.get("topic_id")
+
+        # Если topic_id не в состоянии, получаем из сообщения
+        if topic_id is None:
+            topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # В multi-mode проверяем, что topic_id установлен
+        if mode == "multi" and topic_id is None:
+            await safe_edit_message(
+                callback.message,
+                "❌ В multi-mode нельзя настраивать общий чат. Вызовите команду в топике.",
+                parse_mode="HTML"
+            )
+            return
+
+        if mode is None:
+            chat = await chat_service.get_chat(chat_id)
+            mode = chat.mode if chat else None
+
+        if mode is None:
+            await safe_edit_message(callback.message, "❌ Сначала выберите режим работы бота", parse_mode="HTML")
+            return
+
         # Попробуем сразу определить и сохранить человекочитаемое название топика
         topic_title = None
         if topic_id is not None:
@@ -677,6 +902,7 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
             subject_id,
             user_id,
             topic_id,
+            mode=mode,
             reminder1_offset=7,
             reminder1_unit="days",
             reminder2_offset=1,
@@ -696,13 +922,25 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
                         topic_title=topic_title,
                         topic_id_set=True,
                     )
-            chat_group = await chat_service.get_chat_group(chat_id)
-            await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
+            # Получаем топик с учетом режима
+            chat = await chat_service.get_chat(chat_id)
+            if chat and chat.mode == "single":
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                chat_topic = topics[0] if topics else None
+            else:
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+            if chat_topic:
+                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+            else:
+                await safe_edit_message(callback.message, "✅ Чат настроен!", parse_mode="HTML")
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
+        await state.clear()
+
     except Exception as e:
-        logger.error(f"(C) {chat_id} - выбор предмета: {e}")
+        logger.error(f"(C) {callback.message.chat.id} - выбор предмета: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при настройке бота")
 
 
@@ -1024,6 +1262,38 @@ async def callback_delete_message(callback: CallbackQuery, db_user):
         logger.error(f"(C) {chat_id} - удаление сообщения: {e}")
         await safe_edit_message(callback.message, "❌ Не удалось удалить сообщение")
 
+
+async def _show_subject_selection(
+    callback: CallbackQuery,
+    subjects: list[Subject],
+    state: FSMContext,
+    mode: str,
+    *,
+    edit_mode: bool = True,
+) -> None:
+    """Показать список предметов для выбора"""
+    if mode == "single":
+        text = "📚 <b>Выберите предмет для чата. Настройка будет действительна для всех топиков.</b>\n\n"
+    else:
+        text = "📚 <b>Выберите предмет для топика. Настройка будет действительна только в рамках этого топика.</b>\n\n"
+
+    builder = InlineKeyboardBuilder()
+    for subject in subjects:
+        builder.button(
+            text=f"📖 {subject.name}",
+            callback_data=f"chat_setup_subject_{subject.id}"
+        )
+
+    builder.button(text="❌ Отмена", callback_data="chat_setup_cancel")
+    builder.adjust(1)
+
+    await state.set_state(ChatSetupStates.waiting_subject_selection)
+    if edit_mode:
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    else:
+        await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
 @router.callback_query(F.data == "chat_setup_from_start")
 async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSMContext):
     """Обработчик кнопки настройки бота из /start"""
@@ -1036,11 +1306,116 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
 
         # Проверяем права админа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
-            # Не изменяем сообщение, показываем плашку
             await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
 
         await callback.answer()
+
+        chat = await chat_service.get_chat(chat_id)
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        if chat:
+            mode = chat.mode
+            # В multi-mode из общего чата показываем обзор топиков
+            if mode == "multi" and topic_id is None:
+                await show_chat_multi_mode_overview(callback.message, chat, edit_mode=True)
+                return
+
+            # В multi-mode из топика или single-mode - настраиваем топик
+            await state.update_data(mode=mode, topic_id=topic_id)
+
+            # Получаем список доступных предметов
+            async with db_manager.async_session() as session:
+                from sqlalchemy import select
+                stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
+                result = await session.execute(stmt)
+                subjects = list(result.scalars().all())
+
+            if not subjects:
+                await safe_edit_message(callback.message, "❌ Нет доступных предметов для настройки")
+                return
+
+            await _show_subject_selection(callback, subjects, state, mode, edit_mode=True)
+        else:
+            # Чат не существует - показываем выбор режима
+            await state.clear()
+            await show_chat_setup_interface(callback.message, edit_mode=True)
+
+    except Exception as e:
+        logger.error(f"(C) {callback.message.chat.id} - настройка из стартового меню: {e}")
+        await safe_edit_message(callback.message, "Произошла ошибка при настройке бота")
+
+
+@router.callback_query(F.data.startswith("chat_setup_mode_"))
+async def callback_setup_mode(callback: CallbackQuery, db_user, state: FSMContext):
+    """Обработчик выбора режима чата"""
+    try:
+        mode = callback.data.split("_")[-1]  # 'single' или 'multi'
+        chat_id = callback.message.chat.id
+        user_id = callback.from_user.id
+        username = callback.from_user.username
+
+        logger.info(f"(C) {chat_id} - setup_mode_{mode} user=@{username or f'ID{user_id}'}")
+
+        # Проверяем права админа
+        if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
+            await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
+            return
+
+        await callback.answer()
+
+        # Получаем topic_id если команда вызвана в топике
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # Сохраняем режим и topic_id в состояние
+        await state.update_data(mode=mode, topic_id=topic_id)
+
+        # В multi-mode при первой настройке из общего чата просто сохраняем режим
+        # Пользователь потом перейдет в топик и настроит его
+        if mode == "multi" and topic_id is None:
+            # Создаем чат с выбранным режимом (без топика)
+            # Это позволит пользователю потом настроить топики
+            try:
+                # Получаем информацию о чате для создания записи
+                chat_info = await callback.bot.get_chat(chat_id)
+                chat_type = chat_info.type
+                chat_title = getattr(chat_info, "title", None)
+
+                # Создаем чат с выбранным режимом
+                async with db_manager.async_session() as session:
+                    from src.core.models.models import Chat
+                    chat = Chat(
+                        chat_id=chat_id,
+                        mode=mode,
+                        chat_title=chat_title,
+                        chat_type=chat_type,
+                    )
+                    session.add(chat)
+                    await session.commit()
+
+                text = "✅ <b>Режим Multi-mode установлен!</b>\n\n"
+                text += "💡 <b>Что дальше?</b>\n"
+                text += "1. Перейдите в нужный топик\n"
+                text += "2. Вызовите /setup_discipline или нажмите «⚙️ Настроить бота»\n"
+                text += "3. Выберите дисциплину и настройте уведомления\n\n"
+                text += "Каждый топик настраивается отдельно."
+
+                builder = InlineKeyboardBuilder()
+                builder.button(text="🔙 Назад", callback_data="back_to_start")
+                builder.adjust(1)
+
+                await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+                await state.clear()
+                return
+            except Exception as e:
+                logger.error(f"(C) {chat_id} - создание чата с режимом: {e}")
+                await safe_edit_message(
+                    callback.message,
+                    "❌ Произошла ошибка при установке режима. Попробуйте ещё раз.",
+                    parse_mode="HTML"
+                )
+                return
+
         # Получаем список доступных предметов
         async with db_manager.async_session() as session:
             from sqlalchemy import select
@@ -1052,29 +1427,15 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
             await safe_edit_message(callback.message, "❌ Нет доступных предметов для настройки")
             return
 
-        # Показываем список предметов
-        text = "📚 <b>Выберите предмет для настройки бота:</b>\n\n"
-
-        builder = InlineKeyboardBuilder()
-        for subject in subjects:
-            builder.button(
-                text=f"📖 {subject.name}",
-                callback_data=f"chat_setup_subject_{subject.id}"
-            )
-
-        builder.button(text="❌ Отмена", callback_data="chat_setup_cancel")
-        builder.adjust(1)
-
-        await state.set_state(ChatSetupStates.waiting_subject_selection)
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await _show_subject_selection(callback, subjects, state, mode, edit_mode=True)
 
     except Exception as e:
-        logger.error(f"(C) {chat_id} - настройка из стартового меню: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при настройке бота")
+        logger.error(f"(C) {callback.message.chat.id} - выбор режима: {e}")
+        await safe_edit_message(callback.message, "Произошла ошибка при выборе режима")
 
 
 @router.callback_query(F.data == "chat_settings_from_start")
-async def callback_settings_from_start(callback: CallbackQuery, db_user):
+async def callback_settings_from_start(callback: CallbackQuery, db_user, state: FSMContext):
     """Обработчик кнопки настроек бота из /start"""
     try:
         chat_id = callback.message.chat.id
@@ -1089,14 +1450,50 @@ async def callback_settings_from_start(callback: CallbackQuery, db_user):
             return
 
         await callback.answer()
-        chat_group = await chat_service.get_chat_group(chat_id)
 
-        if not chat_group:
-            # Чат не настроен - показываем интерфейс настройки
+        # Получаем чат и topic_id
+        chat = await chat_service.get_chat(chat_id)
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        if not chat:
+            # Чат ещё не настроен - показываем выбор режима
+            await state.clear()
             await show_chat_setup_interface(callback.message, edit_mode=True)
+            return
+
+        # В multi-mode из общего чата показываем обзор топиков
+        if chat.mode == "multi" and topic_id is None:
+            await show_chat_multi_mode_overview(callback.message, chat, edit_mode=True)
+            return
+
+        # Получаем топик
+        if chat.mode == "single":
+            # В single-mode игнорируем topic_id и получаем единственный топик
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            chat_topic = topics[0] if topics else None
         else:
-            # Чат настроен - показываем интерфейс управления настройками
-            await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
+            # В multi-mode используем topic_id
+            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+        if not chat_topic:
+            # Топик не настроен - показываем выбор дисциплины
+            # В single-mode topic_id не важен, в multi-mode используем topic_id из сообщения
+            await state.update_data(mode=chat.mode, topic_id=topic_id if chat.mode == "multi" else None)
+
+            async with db_manager.async_session() as session:
+                from sqlalchemy import select
+                stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
+                result = await session.execute(stmt)
+                subjects = list(result.scalars().all())
+
+            if not subjects:
+                await safe_edit_message(callback.message, "❌ Нет доступных предметов для настройки")
+                return
+
+            await _show_subject_selection(callback, subjects, state, chat.mode, edit_mode=True)
+        else:
+            # Топик настроен - показываем интерфейс управления настройками
+            await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - настройки из стартового меню: {e}")
@@ -1119,28 +1516,85 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
 
         await callback.answer()
 
-        chat_group = await chat_service.get_chat_group(chat_id)
+        # Получаем чат и топик
+        chat = await chat_service.get_chat(chat_id)
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
 
-        if chat_group:
-            text = GROUP_START_CONFIGURED_TEXT.format(
-                subject_name=chat_group.subject.name,
-                status=("✅ Активен" if chat_group.is_active else "❌ Отключен"),
-            )
-
-            builder = InlineKeyboardBuilder()
-            builder.button(text="ℹ️ Информация", callback_data="chat_info")
-            builder.button(text="⚙️ Настройка бота", callback_data="chat_settings_from_start")
-            builder.button(text="❓ Помощь", callback_data="quick_help")
-            builder.adjust(1)
-
-        else:
+        if not chat:
             # Чат не настроен — единая инструкция
             text = GROUP_START_UNCONFIGURED_TEXT
 
             builder = InlineKeyboardBuilder()
-            builder.button(text="⚙️ Настроить бота", callback_data="chat_setup_from_start")
+            builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
             builder.button(text="❓ Помощь", callback_data="quick_help")
             builder.adjust(1)
+        elif chat.mode == "multi" and topic_id is None:
+            # Multi-mode из общего чата - показываем список топиков
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            if topics:
+                text = "📚 <b>Настроенные топики:</b>\n\n"
+                for topic in topics:
+                    topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                    status = "✅" if topic.is_active else "❌"
+                    text += f"{status} <b>{topic_display}</b> — {topic.subject.name}\n"
+
+                builder = InlineKeyboardBuilder()
+                builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                builder.button(text="❓ Помощь", callback_data="quick_help")
+                builder.adjust(1)
+            else:
+                text = "📚 Чат в multi-mode, но топики не настроены.\n\n"
+                text += "Настройте топики через /setup_discipline в каждом топике."
+                builder = InlineKeyboardBuilder()
+                builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                builder.button(text="❓ Помощь", callback_data="quick_help")
+                builder.adjust(1)
+        elif chat.mode == "single":
+            # Single-mode: показываем информацию о единственном топике (игнорируем topic_id)
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            if topics:
+                chat_topic = topics[0]  # Берем первый (и единственный) топик
+                text = GROUP_START_CONFIGURED_TEXT.format(
+                    subject_name=chat_topic.subject.name,
+                    status=("✅ Активен" if chat_topic.is_active else "❌ Отключен"),
+                )
+
+                builder = InlineKeyboardBuilder()
+                builder.button(text="ℹ️ Информация", callback_data="chat_info")
+                builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                builder.button(text="❓ Помощь", callback_data="quick_help")
+                builder.adjust(1)
+            else:
+                # Топик не настроен
+                text = GROUP_START_UNCONFIGURED_TEXT
+
+                builder = InlineKeyboardBuilder()
+                builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                builder.button(text="❓ Помощь", callback_data="quick_help")
+                builder.adjust(1)
+        else:
+            # Multi-mode из топика
+            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+            if chat_topic:
+                text = GROUP_START_CONFIGURED_TEXT.format(
+                    subject_name=chat_topic.subject.name,
+                    status=("✅ Активен" if chat_topic.is_active else "❌ Отключен"),
+                )
+
+                builder = InlineKeyboardBuilder()
+                builder.button(text="ℹ️ Информация", callback_data="chat_info")
+                builder.button(text="⚙️ Настройка топика", callback_data="chat_settings_from_start")
+                builder.button(text="❓ Помощь", callback_data="quick_help")
+                builder.adjust(1)
+            else:
+                # Топик не настроен
+                text = GROUP_START_UNCONFIGURED_TEXT
+
+                builder = InlineKeyboardBuilder()
+                builder.button(text="⚙️ Настроить топик", callback_data="chat_setup_from_start")
+                builder.button(text="❓ Помощь", callback_data="quick_help")
+                builder.adjust(1)
 
         await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
 
@@ -1151,7 +1605,7 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
 
 @router.callback_query(F.data == "chat_change_subject")
 async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMContext):
-    """Смена дисциплины чата"""
+    """Смена дисциплины чата/топика"""
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
@@ -1165,17 +1619,38 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
             return
 
         await callback.answer()
+
+        # Получаем чат для определения режима
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
+            await safe_edit_message(callback.message, "❌ Чат не найден")
+            return
+
+        # Получаем topic_id
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # Получаем топик с учетом режима
+        if chat.mode == "single":
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            chat_topic = topics[0] if topics else None
+        else:
+            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+        if not chat_topic:
+            await safe_edit_message(callback.message, "❌ Топик не найден")
+            return
+
         async with db_manager.async_session() as session:
             from sqlalchemy import and_, select
 
-            from src.core.models.models import ChatGroup
-            current_subject_subq = select(ChatGroup.subject_id).where(ChatGroup.chat_id == chat_id).scalar_subquery()
+            # Исключаем текущий предмет
+            current_subject_id = chat_topic.subject_id
             stmt = (
                 select(Subject)
                 .where(
                     and_(
                         Subject.is_active,
-                        Subject.id != current_subject_subq
+                        Subject.id != current_subject_id
                     )
                 )
                 .order_by(Subject.name)
@@ -1196,6 +1671,8 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(1)
 
+        # В single-mode topic_id не важен, в multi-mode используем topic_id из сообщения
+        await state.update_data(topic_id=topic_id if chat.mode == "multi" else None)
         await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
         await state.set_state(ChatSetupStates.waiting_subject_selection)
 
@@ -1224,24 +1701,43 @@ async def callback_change_subject_selected(callback: CallbackQuery, db_user, sta
         # Получаем новую дисциплину
         await db_manager.get_subject_by_id(subject_id)
 
-        # Обновляем дисциплину чата
+        # Получаем topic_id из состояния
+        data = await state.get_data()
+        topic_id = data.get("topic_id")
+        if topic_id is None:
+            topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # Обновляем дисциплину топика
         success, message_text = await chat_service.change_chat_subject(
-            callback.bot, chat_id, subject_id, user_id
+            callback.bot, chat_id, subject_id, user_id, topic_id
         )
 
         if success:
             # Перепланируем уведомления для новой дисциплины
             rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_subject_change(
-                chat_id, subject_id
+                chat_id, topic_id, subject_id
             )
 
-            message_text += f"\n\n🔄 Перепланировано {rescheduled_count} уведомлений"
+            # Получаем обновленный топик с новой дисциплиной
+            chat = await chat_service.get_chat(chat_id)
+            if chat and chat.mode == "single":
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                chat_topic = topics[0] if topics else None
+            else:
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
 
-            # Возвращаемся к интерфейсу настроек
-            chat_group = await chat_service.get_chat_group(chat_id)
-            await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
+            if chat_topic:
+                # Показываем обновленный интерфейс настроек
+                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+
+                # Показываем уведомление о перепланировании
+                if rescheduled_count > 0:
+                    await callback.answer(f"✅ Дисциплина изменена. Перепланировано {rescheduled_count} уведомлений", show_alert=False)
+                else:
+                    await callback.answer("✅ Дисциплина изменена", show_alert=False)
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
+            await callback.answer(message_text, show_alert=True)
 
         await state.clear()
 
@@ -1249,7 +1745,7 @@ async def callback_change_subject_selected(callback: CallbackQuery, db_user, sta
         logger.error(f"(C) {chat_id} - выбор нового предмета: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при смене дисциплины")
 
-@router.callback_query(F.data == "chat_edit_settings")
+@router.callback_query(F.data.startswith("chat_edit_settings"))
 async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
     """Редактирование настроек бота"""
     try:
@@ -1261,17 +1757,33 @@ async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
             return
 
         await callback.answer()
-        chat_group = await chat_service.get_chat_group(chat_id)
-        if not chat_group:
-            await safe_edit_message(callback.message, "❌ Чат не настроен")
+
+        # Получаем чат для определения режима
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
+            await safe_edit_message(callback.message, "❌ Чат не найден")
+            return
+
+        # Получаем topic_id из сообщения (в multi-mode используется, в single-mode игнорируется)
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # Получаем топик с учетом режима
+        if chat.mode == "single":
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            chat_topic = topics[0] if topics else None
+        else:
+            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+        if not chat_topic:
+            await safe_edit_message(callback.message, "❌ Топик не настроен")
             return
 
         text = CHAT_EDIT_SETTINGS_TEXT.format(
-            subject_name=chat_group.subject.name,
-            reminder1_offset=chat_group.reminder1_offset,
-            reminder1_unit=chat_group.reminder1_unit,
-            reminder2_offset=chat_group.reminder2_offset,
-            reminder2_unit=chat_group.reminder2_unit,
+            subject_name=chat_topic.subject.name,
+            reminder1_offset=chat_topic.reminder1_offset,
+            reminder1_unit=chat_topic.reminder1_unit,
+            reminder2_offset=chat_topic.reminder2_offset,
+            reminder2_unit=chat_topic.reminder2_unit,
         )
 
         builder = InlineKeyboardBuilder()
@@ -1289,7 +1801,7 @@ async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
         await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
 
 
-@router.callback_query(F.data == "chat_edit_reminder1")
+@router.callback_query(F.data.startswith("chat_edit_reminder1"))
 async def callback_edit_reminder1(callback: CallbackQuery, db_user):
     """Редактирование первого напоминания"""
     await callback.answer()
@@ -1303,16 +1815,31 @@ async def callback_edit_reminder1(callback: CallbackQuery, db_user):
             await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
-        chat_group = await chat_service.get_chat_group(chat_id)
-        if not chat_group:
-            await safe_edit_message(callback.message, "❌ Чат не настроен")
+        # Получаем чат для определения режима
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
+            await safe_edit_message(callback.message, "❌ Чат не найден")
+            return
+
+        # Получаем topic_id из сообщения (в multi-mode используется, в single-mode игнорируется)
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # Получаем топик с учетом режима
+        if chat.mode == "single":
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            chat_topic = topics[0] if topics else None
+        else:
+            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+        if not chat_topic:
+            await safe_edit_message(callback.message, "❌ Топик не настроен")
             return
 
         text = CHAT_EDIT_REMINDER_TEXT.format(
             reminder_number="1️⃣",
             reminder_name="Первое напоминание",
-            offset=chat_group.reminder1_offset,
-            unit=chat_group.reminder1_unit,
+            offset=chat_topic.reminder1_offset,
+            unit=chat_topic.reminder1_unit,
         )
 
         builder = InlineKeyboardBuilder()
@@ -1365,22 +1892,42 @@ async def callback_set_reminder1(callback: CallbackQuery, db_user):
             await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
+        # Получаем topic_id из сообщения (в multi-mode используется, в single-mode игнорируется)
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
         # Обновляем настройки
         success, message_text = await chat_service.update_chat_settings(
             chat_id, user_id, callback.bot,
+            topic_id=topic_id,
             reminder1_offset=offset,
             reminder1_unit=unit
         )
 
         if success:
             # Перепланируем уведомления
-            chat_group = await chat_service.get_chat_group(chat_id)
-            rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_group)
+            chat = await chat_service.get_chat(chat_id)
+            if chat and chat.mode == "single":
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                chat_topic = topics[0] if topics else None
+            else:
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+            if chat_topic:
+                rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_topic)
+            else:
+                rescheduled_count = 0
 
             message_text += f"\n\n🔄 Перепланировано {rescheduled_count} уведомлений"
 
             # Возвращаемся к интерфейсу настроек
-            await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
+            if chat and chat.mode == "single":
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                chat_topic = topics[0] if topics else None
+            else:
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+            if chat_topic:
+                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
@@ -1390,7 +1937,7 @@ async def callback_set_reminder1(callback: CallbackQuery, db_user):
         await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
 
 
-@router.callback_query(F.data == "chat_edit_reminder2")
+@router.callback_query(F.data.startswith("chat_edit_reminder2"))
 async def callback_edit_reminder2(callback: CallbackQuery, db_user):
     """Редактирование второго напоминания"""
     await callback.answer()
@@ -1404,16 +1951,31 @@ async def callback_edit_reminder2(callback: CallbackQuery, db_user):
             await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
-        chat_group = await chat_service.get_chat_group(chat_id)
-        if not chat_group:
-            await safe_edit_message(callback.message, "❌ Чат не настроен")
+        # Получаем чат для определения режима
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
+            await safe_edit_message(callback.message, "❌ Чат не найден")
+            return
+
+        # Получаем topic_id из сообщения (в multi-mode используется, в single-mode игнорируется)
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # Получаем топик с учетом режима
+        if chat.mode == "single":
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            chat_topic = topics[0] if topics else None
+        else:
+            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+        if not chat_topic:
+            await safe_edit_message(callback.message, "❌ Топик не настроен")
             return
 
         text = CHAT_EDIT_REMINDER_TEXT.format(
             reminder_number="2️⃣",
             reminder_name="Второе напоминание",
-            offset=chat_group.reminder2_offset,
-            unit=chat_group.reminder2_unit,
+            offset=chat_topic.reminder2_offset,
+            unit=chat_topic.reminder2_unit,
         )
 
         builder = InlineKeyboardBuilder()
@@ -1466,22 +2028,51 @@ async def callback_set_reminder2(callback: CallbackQuery, db_user):
             await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
             return
 
+        # Получаем чат для определения режима и topic_id
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
+            await safe_edit_message(callback.message, "❌ Чат не найден")
+            return
+
+        # Получаем topic_id с учетом режима
+        if chat.mode == "single":
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            topic_id = topics[0].topic_id if topics else None
+        else:
+            topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
         # Обновляем настройки
         success, message_text = await chat_service.update_chat_settings(
             chat_id, user_id, callback.bot,
+            topic_id=topic_id,
             reminder2_offset=offset,
             reminder2_unit=unit
         )
 
         if success:
             # Перепланируем уведомления
-            chat_group = await chat_service.get_chat_group(chat_id)
-            rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_group)
+            if chat.mode == "single":
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                chat_topic = topics[0] if topics else None
+            else:
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+            if chat_topic:
+                rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_topic)
+            else:
+                rescheduled_count = 0
 
             message_text += f"\n\n🔄 Перепланировано {rescheduled_count} уведомлений"
 
             # Возвращаемся к интерфейсу настроек
-            await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
+            if chat and chat.mode == "single":
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                chat_topic = topics[0] if topics else None
+            else:
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+            if chat_topic:
+                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
@@ -1507,29 +2098,262 @@ async def callback_toggle_chat_active(callback: CallbackQuery, db_user):
             return
 
         await callback.answer()
-        # Переключаем активность
-        success, message_text = await chat_service.toggle_chat_active(chat_id, user_id, callback.bot)
+
+        # Получаем topic_id
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # Переключаем активность топика
+        success, message_text = await chat_service.toggle_chat_active(chat_id, user_id, callback.bot, topic_id)
 
         if success:
-            # Если включили — создадим уведомления для всех существующих дедлайнов дисциплины
-            chat_group = await chat_service.get_chat_group(chat_id)
-            if chat_group and chat_group.is_active:
-                with contextlib.suppress(Exception):
-                    await chat_notification_scheduler_service.schedule_notifications_for_chat_subscription(
-                        chat_id, chat_group.subject_id
-                    )
+            # Получаем обновленный топик с учетом режима
+            chat = await chat_service.get_chat(chat_id)
+            if chat and chat.mode == "single":
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                chat_topic = topics[0] if topics else None
             else:
-                # Если выключили — отменяем все запланированные уведомления этого чата
-                with contextlib.suppress(Exception):
-                    await chat_notification_scheduler_service.cancel_chat_notifications(chat_id)
-            # Возвращаемся к интерфейсу настроек
-            await show_chat_settings_interface(callback.message, chat_group, edit_mode=True)
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+            if chat_topic:
+                if chat_topic.is_active:
+                    # Если включили — создадим уведомления для всех существующих дедлайнов дисциплины
+                    with contextlib.suppress(Exception):
+                        await chat_notification_scheduler_service.schedule_notifications_for_chat_subscription(
+                            chat_id, chat_topic.subject_id, chat_topic=chat_topic
+                        )
+                else:
+                    # Если выключили — отменяем все запланированные уведомления этого топика
+                    with contextlib.suppress(Exception):
+                        from sqlalchemy import update
+
+                        from src.core.models import ChatScheduledNotification
+                        async with db_manager.async_session() as session:
+                            await session.execute(
+                                update(ChatScheduledNotification)
+                                .where(
+                                    ChatScheduledNotification.chat_topic_id == chat_topic.id,
+                                    ChatScheduledNotification.status == "scheduled"
+                                )
+                                .values(status="cancelled")
+                            )
+                            await session.commit()
+
+                # Обновляем интерфейс настроек
+                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+                await callback.answer(message_text, show_alert=False)
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
+            await callback.answer(message_text, show_alert=True)
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - переключение активности: {e}")
         await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
+
+
+@router.callback_query(F.data == "chat_advanced_settings")
+async def callback_advanced_settings(callback: CallbackQuery, db_user):
+    """Дополнительные настройки (переключение режима)"""
+    try:
+        chat_id = callback.message.chat.id
+        user_id = callback.from_user.id
+        username = callback.from_user.username
+
+        logger.info(f"(C) {chat_id} - advanced_settings user=@{username or f'ID{user_id}'}")
+
+        # Проверяем права доступа
+        if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
+            return
+
+        await callback.answer()
+
+        # Получаем чат
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
+            await safe_edit_message(callback.message, "❌ Чат не найден")
+            return
+
+        text = "⚙️ <b>Дополнительные настройки</b>\n\n"
+        text += f"<b>Текущий режим:</b> {'Single-mode' if chat.mode == 'single' else 'Multi-mode'}\n\n"
+
+        if chat.mode == "single":
+            text += "В single-mode одна дисциплина на весь чат.\n\n"
+            text += "При переключении в multi-mode:\n"
+            text += "• Текущие настройки будут удалены\n"
+            text += "• Нужно будет настроить каждый топик отдельно\n"
+            new_mode = "multi"
+            button_text = "🔄 Переключить чат в Multi-mode"
+        else:
+            text += "В multi-mode каждый топик может иметь свою дисциплину.\n\n"
+            text += "При переключении в single-mode:\n"
+            # Получаем список топиков
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            if topics:
+                text += "• Будут удалены настройки для топиков:\n"
+                for topic in topics:
+                    topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                    text += f"  - {topic_display} ({topic.subject.name})\n"
+                text += "• Нужно будет настроить чат заново\n"
+            new_mode = "single"
+            button_text = "🔄 Переключить чат в Single-mode"
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text=button_text, callback_data=f"chat_switch_mode_{new_mode}")
+        builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
+        builder.adjust(1)
+
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"(C) {callback.message.chat.id} - дополнительные настройки: {e}")
+        await safe_edit_message(callback.message, "Произошла ошибка при открытии дополнительных настроек")
+
+
+@router.callback_query(F.data.startswith("chat_switch_mode_"))
+async def callback_switch_mode(callback: CallbackQuery, db_user, state: FSMContext):
+    """Показ подтверждения переключения режима чата"""
+    try:
+        new_mode = callback.data.split("_")[-1]  # 'single' или 'multi'
+        chat_id = callback.message.chat.id
+        user_id = callback.from_user.id
+        username = callback.from_user.username
+
+        logger.info(f"(C) {chat_id} - switch_mode_{new_mode} user=@{username or f'ID{user_id}'}")
+
+        # Проверяем права доступа
+        if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
+            return
+
+        await callback.answer()
+
+        # Получаем текущий чат для определения текущего режима
+        chat = await chat_service.get_chat(chat_id)
+        if not chat:
+            await safe_edit_message(callback.message, "❌ Чат не найден")
+            return
+
+        current_mode = chat.mode
+        # Определяем название режима
+        mode_name = "Single-mode" if new_mode == "single" else "Multi-mode"
+
+        # Формируем текст подтверждения в зависимости от направления переключения
+        text = "🔄 <b>Переключение режима чата</b>\n\n"
+        text += f"Вы хотите переключить чат в режим <b>{mode_name}</b>?\n\n"
+        text += "⚠️ <b>Внимание:</b>\n"
+
+        if current_mode == "single" and new_mode == "multi":
+            # Переключение из Single-mode в Multi-mode
+            text += "• Текущие настройки Single-mode будут удалены\n"
+            text += "• Все уведомления будут отменены\n"
+            text += "• Нужно будет настроить каждый топик отдельно\n"
+        else:
+            # Переключение из Multi-mode в Single-mode
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            topics_count = len(topics) if topics else 0
+            text += "• Все привязки дисциплин к топикам будут удалены\n"
+            text += "• Все уведомления будут отменены\n"
+            text += "• Нужно будет настроить чат заново\n"
+            if topics_count > 0:
+                text += f"\n📊 Будет удалено привязок: {topics_count}"
+
+        # Создаем кнопки подтверждения/отмены
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✅ Подтвердить", callback_data=f"chat_confirm_switch_mode_{new_mode}")
+        builder.button(text="❌ Отмена", callback_data="chat_cancel_switch_mode")
+        builder.adjust(1)
+
+        # Сохраняем режим в FSM
+        await state.set_state(ChatSwitchModeStates.confirming_switch)
+        await state.update_data(new_mode=new_mode, chat_id=chat_id)
+
+        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"(C) {callback.message.chat.id} - показ подтверждения переключения режима: {e}")
+        await callback.answer("Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("chat_confirm_switch_mode_"))
+async def callback_confirm_switch_mode(callback: CallbackQuery, db_user, state: FSMContext):
+    """Подтверждение и выполнение переключения режима"""
+    try:
+        new_mode = callback.data.split("_")[-1]  # 'single' или 'multi'
+        chat_id = callback.message.chat.id
+        user_id = callback.from_user.id
+        username = callback.from_user.username
+
+        logger.info(f"(C) {chat_id} - confirm_switch_mode_{new_mode} user=@{username or f'ID{user_id}'}")
+
+        # Проверяем права доступа
+        if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
+            await callback.answer(ERROR_NOT_ADMIN, show_alert=True)
+            await state.clear()
+            return
+
+        await callback.answer("Переключаю режим...")
+
+        # Переключаем режим
+        success, message_text = await chat_service.switch_chat_mode(chat_id, new_mode, user_id, callback.bot)
+
+        if success:
+            # Определяем название режима
+            mode_name = "Single-mode" if new_mode == "single" else "Multi-mode"
+
+            # Формируем текст успешного переключения
+            from src.bot.texts import CHAT_SWITCH_MODE_SUCCESS
+            text = CHAT_SWITCH_MODE_SUCCESS.format(mode_name=mode_name)
+
+            # Создаем кнопки
+            builder = InlineKeyboardBuilder()
+            builder.button(text="⚙️ Настройки бота", callback_data="chat_settings_from_start")
+            builder.button(text="❓ Помощь", callback_data="quick_help")
+            builder.adjust(1)
+
+            await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        else:
+            await safe_edit_message(callback.message, f"❌ {message_text}")
+
+        await state.clear()
+
+    except Exception as e:
+        logger.error(f"(C) {callback.message.chat.id} - подтверждение переключения режима: {e}")
+        await callback.answer("Произошла ошибка", show_alert=True)
+        await state.clear()
+
+
+@router.callback_query(F.data == "chat_cancel_switch_mode")
+async def callback_cancel_switch_mode(callback: CallbackQuery, db_user, state: FSMContext):
+    """Отмена переключения режима"""
+    await callback.answer()
+    await state.clear()
+
+    # Возвращаемся к настройкам
+    chat_id = callback.message.chat.id
+    chat = await chat_service.get_chat(chat_id)
+    if chat:
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        # В multi-mode из общего чата показываем обзор
+        if chat.mode == "multi" and topic_id is None:
+            await show_chat_multi_mode_overview(callback.message, chat, edit_mode=True)
+        else:
+            # В single-mode или multi-mode из топика - показываем настройки топика
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            if chat.mode == "single":
+                chat_topic = topics[0] if topics else None
+            else:
+                topic_id = await chat_service.get_topic_id_from_message(callback.message)
+                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id) if topic_id else None
+
+            if chat_topic:
+                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+            else:
+                # Топик не настроен - показываем обзор или настройки
+                if chat.mode == "multi" and topic_id is None:
+                    await show_chat_multi_mode_overview(callback.message, chat, edit_mode=True)
+                else:
+                    await show_chat_settings_interface(callback.message, None, edit_mode=True)
 
 
 @router.callback_query(F.data.startswith("chat_custom_reminder_"))
@@ -1676,23 +2500,47 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
             await state.set_state(ChatSetupStates.waiting_time_settings)
         else:
             # Редактирование настроек - обновляем сразу
+            # Получаем чат для определения режима и topic_id
+            chat = await chat_service.get_chat(chat_id)
+            if not chat:
+                await message.answer("❌ Чат не найден")
+                await state.clear()
+                return
+
+            # Получаем topic_id с учетом режима
+            if chat.mode == "single":
+                topics = await chat_service.get_chat_groups_topics(chat_id)
+                topic_id = topics[0].topic_id if topics else None
+            else:
+                topic_id = await chat_service.get_topic_id_from_message(message)
+
             if reminder_number == 1:
                 success, message_text = await chat_service.update_chat_settings(
                     chat_id, user_id, message.bot,
+                    topic_id=topic_id,
                     reminder1_offset=offset_value,
                     reminder1_unit=offset_unit
                 )
             else:
                 success, message_text = await chat_service.update_chat_settings(
                     chat_id, user_id, message.bot,
+                    topic_id=topic_id,
                     reminder2_offset=offset_value,
                     reminder2_unit=offset_unit
                 )
 
             if success:
                 # Перепланируем уведомления
-                chat_group = await chat_service.get_chat_group(chat_id)
-                rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_group)
+                if chat.mode == "single":
+                    topics = await chat_service.get_chat_groups_topics(chat_id)
+                    chat_topic = topics[0] if topics else None
+                else:
+                    chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+                if chat_topic:
+                    rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_topic)
+                else:
+                    rescheduled_count = 0
 
                 unit_text = {"days": "дн.", "hours": "ч."}.get(offset_unit, offset_unit)
                 await message.answer(
@@ -1701,7 +2549,14 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
                 )
 
                 # Возвращаемся к интерфейсу настроек
-                await show_chat_settings_interface(message, chat_group, edit_mode=False)
+                if chat.mode == "single":
+                    topics = await chat_service.get_chat_groups_topics(chat_id)
+                    chat_topic = topics[0] if topics else None
+                else:
+                    chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+
+                if chat_topic:
+                    await show_chat_settings_interface(message, chat_topic, edit_mode=False)
             else:
                 await message.answer(f"❌ {message_text}")
 
@@ -1721,13 +2576,27 @@ def register_group_chat_handlers(dp):
 
 
 
-async def _compose_start_info_text(chat_id: int) -> str | None:
+async def _compose_start_info_text(chat_id: int, topic_id: int | None = None) -> str | None:
     """Собирает HTML-текст со ссылками по предмету (без дедлайнов) для чата."""
-    chat_group = await chat_service.get_chat_group(chat_id)
-    if not chat_group:
+    # Получаем чат для определения режима
+    chat = await chat_service.get_chat(chat_id)
+    if not chat:
         return None
 
-    subject = chat_group.subject
+    # В single-mode игнорируем topic_id и получаем единственный топик
+    if chat.mode == "single":
+        # В single-mode получаем единственный топик (независимо от topic_id)
+        topics = await chat_service.get_chat_groups_topics(chat_id)
+        if not topics:
+            return None
+        chat_topic = topics[0]  # Берем первый (и единственный) топик
+    else:
+        # В multi-mode используем topic_id
+        chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+        if not chat_topic:
+            return None
+
+    subject = chat_topic.subject
     lines: list[str] = []
     lines.append(f"🔹 <b>{subject.name}</b>\n\n")
     if getattr(subject, "wiki_url", None):
@@ -1741,24 +2610,40 @@ async def _compose_start_info_text(chat_id: int) -> str | None:
     return "".join(lines).strip()
 
 
-async def _compose_info_text(chat_id: int) -> str | None:
+async def _compose_info_text(chat_id: int, topic_id: int | None = None) -> str | None:
     """Собирает HTML-текст информации о предмете и дедлайнах для чата."""
-    chat_group = await chat_service.get_chat_group(chat_id)
-    if not chat_group:
+    # Получаем чат для определения режима
+    chat = await chat_service.get_chat(chat_id)
+    if not chat:
         return None
 
-    subject = chat_group.subject
-    lines: list[str] = []
-    lines.append("<b>Информация о предмете: </b>\n\n")
-    lines.append(f"🔹 <b>{subject.name}</b>\n")
-    if getattr(subject, "wiki_url", None):
-        lines.append(f'• <a href="{subject.wiki_url}">ФКН Wiki</a>\n')
-    if getattr(subject, "vk_playlist_url", None):
-        lines.append(f'• <a href="{subject.vk_playlist_url}">VK Video</a>\n')
-    if getattr(subject, "yt_playlist_url", None):
-        lines.append(f'• <a href="{subject.yt_playlist_url}">YouTube</a>\n')
+    # В single-mode игнорируем topic_id и получаем единственный топик
+    if chat.mode == "single":
+        # В single-mode получаем единственный топик (независимо от topic_id)
+        topics = await chat_service.get_chat_groups_topics(chat_id)
+        if not topics:
+            return None
+        chat_topic = topics[0]  # Берем первый (и единственный) топик
+    else:
+        # В multi-mode используем topic_id
+        chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
+        if not chat_topic:
+            return None
 
-    lines.append("\n<b>Актуальные дедлайны:</b>\n")
+    subject = chat_topic.subject
+    lines: list[str] = []
+    lines.append("<b>Информация о предмете:</b>\n\n")
+    lines.append(f"🔹 <b>{subject.name}</b>")
+
+    # Добавляем ссылки, если они есть
+    if getattr(subject, "wiki_url", None):
+        lines.append(f'\n• <a href="{subject.wiki_url}">ФКН Wiki</a>')
+    if getattr(subject, "vk_playlist_url", None):
+        lines.append(f'\n• <a href="{subject.vk_playlist_url}">VK Video</a>')
+    if getattr(subject, "yt_playlist_url", None):
+        lines.append(f'\n• <a href="{subject.yt_playlist_url}">YouTube</a>')
+
+    lines.append("\n\n<b>Актуальные дедлайны:</b>\n")
 
     from datetime import UTC, datetime
 
@@ -1785,7 +2670,7 @@ async def _compose_info_text(chat_id: int) -> str | None:
     pytz.timezone("Europe/Moscow")
 
     if not tasks:
-        lines.append("Актуальных дедлайнов нет.")
+        lines.append("Актуальных дедлайнов нет.\n")
     else:
         now = datetime.now(UTC)
         for idx, d in enumerate(tasks, 1):
@@ -1827,7 +2712,10 @@ async def cmd_chat_start_info(message: Message, db_user):
 
         logger.info(f"(C) {chat_id} - /start_info user=@{username or f'ID{user_id}'}")
 
-        text = await _compose_start_info_text(chat_id)
+        # Получаем topic_id если команда вызвана в топике
+        topic_id = await chat_service.get_topic_id_from_message(message)
+
+        text = await _compose_start_info_text(chat_id, topic_id)
         if text is None:
             await message.answer(
                 CHAT_NOT_CONFIGURED
@@ -1848,7 +2736,10 @@ async def cmd_chat_info(message: Message, db_user):
 
         logger.info(f"(C) {chat_id} - /info user=@{username or f'ID{user_id}'}")
 
-        text = await _compose_info_text(chat_id)
+        # Получаем topic_id если команда вызвана в топике
+        topic_id = await chat_service.get_topic_id_from_message(message)
+
+        text = await _compose_info_text(chat_id, topic_id)
         if text is None:
             await message.answer(
                 CHAT_NOT_CONFIGURED
@@ -1864,7 +2755,11 @@ async def callback_chat_info(callback: CallbackQuery, db_user):
     """Кнопка Информация – обновляет текущее сообщение (edit)"""
     await callback.answer()
     try:
-        text = await _compose_info_text(callback.message.chat.id)
+        chat_id = callback.message.chat.id
+        # Получаем topic_id если команда вызвана в топике
+        topic_id = await chat_service.get_topic_id_from_message(callback.message)
+
+        text = await _compose_info_text(chat_id, topic_id)
         if text is None:
             await safe_edit_message(
                 callback.message,

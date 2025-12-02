@@ -30,7 +30,7 @@ class GroupChatMiddleware(BaseMiddleware):
                 if "topic_closed" in err_str:
                     logger.warning(f"[C] TOPIC_CLOSED в {chat.id}: {e}")
                     await self.handle_topic_closed_error(event, chat)
-                    return  # Не пробрасываем ошибку дальше
+                    raise
                 # Логируем другие ошибки групповых чат
                 logger.error(f"Ошибка в групповом чате {chat.id}: {e}")
             # Пробрасываем ошибки дальше

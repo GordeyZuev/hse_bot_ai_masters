@@ -44,17 +44,25 @@ class TelegramErrorHandler:
         return False
 
     @staticmethod
-    async def handle_telegram_error(error: Exception, user_id: int | None = None) -> bool:
+    async def handle_telegram_error(error: Exception, user_id: int | None = None, chat_id: int | None = None) -> bool:
         """Обработать ошибку Telegram API
+
+        Args:
+            error: Исключение от Telegram API
+            user_id: ID пользователя (для личных чатов)
+            chat_id: ID чата (для групповых чатов)
 
         Returns:
             bool: True если ошибка обработана (не нужно пробрасывать), False если нужно пробросить
         """
         if isinstance(error, TelegramForbiddenError):
-            user_prefix = f"(U) {user_id} - " if user_id else ""
-            logger.warning(f"{user_prefix}Заблокирован")
             if user_id:
+                logger.warning(f"(U) {user_id} - Заблокирован")
                 await TelegramErrorHandler.deactivate_user(user_id)
+            elif chat_id:
+                logger.warning(f"(C) {chat_id} - Заблокирован в чате")
+            else:
+                logger.warning("Заблокирован (неизвестный получатель)")
             return True  # Ошибка обработана, не пробрасываем
 
         if TelegramErrorHandler.is_ignorable_error(error):
@@ -133,6 +141,7 @@ async def safe_send_message(
     text: str,
     user_id: int | None = None,
     success_message: str | None = None,
+    is_group_chat: bool = False,
     **kwargs
 ) -> bool:
     """
@@ -180,11 +189,17 @@ async def safe_send_message(
         return True
     except (TelegramForbiddenError, TelegramBadRequest) as e:
         # Используем общий обработчик ошибок
-        if await TelegramErrorHandler.handle_telegram_error(e, user_id):
+        # Передаем chat_id для групповых чатов, user_id для личных
+        error_chat_id = chat_id if is_group_chat and not user_id else None
+        if await TelegramErrorHandler.handle_telegram_error(e, user_id=user_id, chat_id=error_chat_id):
             # Ошибка обработана (заблокирован или некритичная ошибка)
             if isinstance(e, TelegramBadRequest):
-                user_prefix = f"(U) {user_id} - " if user_id else ""
-                logger.warning(f"{user_prefix}Ошибка отправки: {e}")
+                if user_id:
+                    logger.warning(f"(U) {user_id} - Ошибка отправки: {e}")
+                elif is_group_chat:
+                    logger.warning(f"(C) {chat_id} - Ошибка отправки: {e}")
+                else:
+                    logger.warning(f"Ошибка отправки: {e}")
             return False
         raise  # Другие ошибки пробрасываем
     except Exception:

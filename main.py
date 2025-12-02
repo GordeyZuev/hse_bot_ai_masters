@@ -72,37 +72,59 @@ class HSEBotSyncApp:
 
 
 async def run_migrations():
-    """Запуск миграций базы данных"""
-    import os
-    import subprocess
-
+    """Запуск миграций базы данных через программный API Alembic"""
     try:
         logger.info("Запуск миграций базы данных...")
 
-        # Используем uv run для выполнения alembic, если доступно
-        import shutil
-        alembic_cmd = shutil.which("alembic")
-        if not alembic_cmd:
-            logger.error("Alembic не найден. Используйте 'uv run alembic upgrade head'")
-            return False
+        # Импортируем Alembic API
+        from alembic.command import upgrade
+        from alembic.script import ScriptDirectory
 
-        result = subprocess.run(
-            [alembic_cmd, "upgrade", "head"],
-            cwd=os.path.dirname(__file__),
-            capture_output=True,
-            text=True,
-        )
+        from alembic import config as alembic_config
 
-        if result.returncode == 0:
+        # Получаем URL базы данных из db_manager
+        # Alembic работает с синхронными соединениями, поэтому убираем +asyncpg
+        database_url = db_manager.database_url.replace("+asyncpg", "")
+
+        # Создаем конфигурацию Alembic
+        alembic_cfg = alembic_config.Config("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # Инициализируем скрипт-директорию для проверки версий
+        script_dir = ScriptDirectory.from_config(alembic_cfg)
+        head_rev = script_dir.get_current_head()
+
+        # Создаем синхронный движок для Alembic
+        from sqlalchemy import create_engine
+        sync_engine = create_engine(database_url, pool_pre_ping=True)
+
+        try:
+            # Проверяем текущую версию
+            from alembic.runtime.migration import MigrationContext
+            with sync_engine.connect() as sync_conn:
+                context = MigrationContext.configure(sync_conn)
+                current_rev = context.get_current_revision()
+
+                if current_rev == head_rev:
+                    logger.info(f"База данных уже на актуальной версии: {head_rev}")
+                    return True
+
+                logger.info(f"Текущая версия: {current_rev}, целевая версия: {head_rev}")
+
+            # Выполняем миграции
+            # upgrade принимает только config и revision, connection берется из config
+            upgrade(alembic_cfg, "head")
+
             logger.info("Миграции выполнены успешно")
-            logger.info(result.stdout)
             return True
-        else:
-            logger.error(f"Ошибка выполнения миграций: {result.stderr}")
-            return False
+
+        finally:
+            sync_engine.dispose()
 
     except Exception as e:
         logger.error(f"Ошибка запуска миграций: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 

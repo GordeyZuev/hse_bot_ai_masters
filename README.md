@@ -283,6 +283,7 @@ uv run ruff format .
 
 ## 📚 Дополнительная документация
 
+- **[docs/HOWTO.md](docs/HOWTO.md)** - Практическое руководство пользователя (настройка чатов, работа с таблицей)
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Подробное руководство по развертыванию
 - **[docs/TECHNICAL.md](docs/TECHNICAL.md)** - Техническая документация и архитектура
 - **[docs/UPDATES.md](docs/UPDATES.md)** - История обновлений и версий

@@ -7,7 +7,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
 from src.core.database import db_manager
-from src.core.models import ChatScheduledNotification, Task
+from src.core.models import ChatScheduledNotification, ChatTopic, Task
 from src.utils import get_logger, safe_send_message
 
 
@@ -34,24 +34,24 @@ class ChatNotificationSender:
                 logger.info("[SYSTEM] Нет уведомлений для чатов")
                 return stats
 
-            # Группируем уведомления по чатам
-            chat_notifications = self._group_notifications_by_chat(notifications)
+            # Группируем уведомления по чатам и топикам
+            chat_topic_notifications = self._group_notifications_by_chat_topic(notifications)
             logger.debug(
-                f"Группировка уведомлений по чатам: chats={len(chat_notifications)}"
+                f"Группировка уведомлений по чатам и топикам: chat_topics={len(chat_topic_notifications)}"
             )
 
-            # Обрабатываем чаты батчами
+            # Обрабатываем чаты и топики батчами
             batch_size = 5
-            chat_items = list(chat_notifications.items())
+            chat_topic_items = list(chat_topic_notifications.items())
 
-            for i in range(0, len(chat_items), batch_size):
-                batch = chat_items[i : i + batch_size]
+            for i in range(0, len(chat_topic_items), batch_size):
+                batch = chat_topic_items[i : i + batch_size]
 
                 # Обрабатываем батч параллельно
                 tasks = []
-                for chat_id, chat_notifs in batch:
+                for (chat_id, topic_id), topic_notifs in batch:
                     task = self._process_chat_notifications(
-                        bot, chat_id, chat_notifs, stats
+                        bot, chat_id, topic_id, topic_notifs, stats
                     )
                     tasks.append(task)
 
@@ -66,8 +66,6 @@ class ChatNotificationSender:
     async def _get_scheduled_notifications_for_delivery(self) -> list[ChatScheduledNotification]:
         """Получить уведомления для отправки"""
         async with db_manager.async_session() as session:
-            from src.core.models.models import ChatGroup
-
             now = datetime.now(UTC)
             time_window = now + timedelta(minutes=5)
 
@@ -75,16 +73,16 @@ class ChatNotificationSender:
 
             stmt = (
                 select(ChatScheduledNotification)
-                .join(ChatGroup)
+                .join(ChatTopic)
                 .options(
-                    selectinload(ChatScheduledNotification.chat_group),
+                    selectinload(ChatScheduledNotification.chat_topic),
                     selectinload(ChatScheduledNotification.task)
                 )
                 .where(
                     and_(
                         ChatScheduledNotification.status == "scheduled",
                         ChatScheduledNotification.planned_delivery_time <= time_window,
-                        ChatGroup.is_active,
+                        ChatTopic.is_active,
                     )
                 )
                 .order_by(ChatScheduledNotification.planned_delivery_time)
@@ -95,30 +93,33 @@ class ChatNotificationSender:
             logger.debug(f"Найдено {len(notifications)} активных уведомлений для чатов")
             return notifications
 
-    def _group_notifications_by_chat(
+    def _group_notifications_by_chat_topic(
         self, notifications: list[ChatScheduledNotification]
-    ) -> dict[int, list[ChatScheduledNotification]]:
-        """Группировать уведомления по чатам"""
+    ) -> dict[tuple[int, int | None], list[ChatScheduledNotification]]:
+        """Группировать уведомления по чатам и топикам"""
         grouped = {}
         for notification in notifications:
-            chat_id = notification.chat_group_id
-            if chat_id not in grouped:
-                grouped[chat_id] = []
-            grouped[chat_id].append(notification)
+            chat_id = notification.chat_id
+            topic_id = notification.topic_id
+            key = (chat_id, topic_id)
+            if key not in grouped:
+                grouped[key] = []
+            grouped[key].append(notification)
         return grouped
 
     async def _process_chat_notifications(
         self,
         bot: Bot,
         chat_id: int,
+        topic_id: int | None,
         notifications: list[ChatScheduledNotification],
         stats: dict[str, int]
     ):
-        """Обработать уведомления для одного чата"""
+        """Обработать уведомления для одного чата и топика"""
         try:
-            # Проверяем, активен ли чат
-            chat_group = notifications[0].chat_group
-            if not chat_group.is_active:
+            # Проверяем, активен ли топик
+            chat_topic = notifications[0].chat_topic
+            if not chat_topic.is_active:
                 stats["skipped"] += len(notifications)
                 return
 
@@ -129,7 +130,7 @@ class ChatNotificationSender:
             batch_text = self._format_multiple_notifications(deadline_notifications)
 
             # Получаем topic_id для отправки в топик
-            message_thread_id = chat_group.topic_id
+            message_thread_id = chat_topic.topic_id
 
             # Отправляем единое сообщение для всех дедлайнов этого окна
             sent_ok = await self._safe_send_batch(
@@ -146,7 +147,7 @@ class ChatNotificationSender:
                 await self._mark_notifications_as_failed(list(notifications))
 
         except Exception as e:
-            logger.error(f"(C) {chat_id} - Ошибка обработки: {e}")
+            logger.error(f"(C) {chat_id} (topic: {topic_id}) - Ошибка обработки: {e}")
             stats["failed"] += len(notifications)
             stats["total_processed"] += len(notifications)
 
@@ -273,8 +274,8 @@ class ChatNotificationSender:
         keyboard = self._create_chat_notification_keyboard(notifications[0].task)
 
         # Получаем topic_id для отправки в топик
-        chat_group = notifications[0].chat_group
-        message_thread_id = chat_group.topic_id
+        chat_topic = notifications[0].chat_topic
+        message_thread_id = chat_topic.topic_id
 
         # Отправляем сообщение
         return await safe_send_message(

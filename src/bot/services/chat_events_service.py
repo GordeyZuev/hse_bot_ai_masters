@@ -56,10 +56,10 @@ async def handle_bot_removed_from_chat(chat_id: int):
     """Обработка удаления бота из чата"""
     try:
         # Получаем чат из базы данных
-        chat_group = await chat_service.get_chat_group(chat_id)
+        chat = await chat_service.get_chat(chat_id)
 
-        if chat_group:
-            # Деактивируем чат
+        if chat:
+            # Деактивируем все топики чата
             await chat_service.deactivate_chat(chat_id)
 
             # Отменяем все запланированные уведомления
@@ -83,24 +83,40 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
         logger.info(f"(C) {chat_id} - Добавлен в чат '{chat_title}'")
 
         # Получаем чат из базы данных
-        chat_group = await chat_service.get_chat_group(chat_id)
+        chat = await chat_service.get_chat(chat_id)
 
-        if chat_group:
+        if chat:
+            # Получаем первый активный топик для проверки
+            topics = await chat_service.get_chat_groups_topics(chat_id)
+            active_topics = [t for t in topics if t.is_active]
+
             # Если чат был деактивирован при удалении, активируем его обратно
-            if not chat_group.is_active:
+            if not active_topics:
                 await chat_service.activate_chat(chat_id, bot)
                 logger.info(f"(C) {chat_id} - Активирован обратно")
 
             # Обновляем название чата, если оно изменилось
-            if chat_title and chat_title != chat_group.chat_title:
+            if chat_title and chat_title != chat.chat_title:
                 await chat_service.update_chat_title(chat_id, chat_title)
 
             # Отправляем приветственное сообщение для уже настроенного чата
             try:
-                text = GROUP_START_CONFIGURED_TEXT.format(
-                    subject_name=chat_group.subject.name,
-                    status=("✅ Активен" if chat_group.is_active else "❌ Отключен"),
-                )
+                if chat.mode == "multi" and topics:
+                    # Multi-mode: показываем список топиков
+                    text = "📚 <b>Настроенные топики:</b>\n\n"
+                    for topic in topics:
+                        topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                        status = "✅" if topic.is_active else "❌"
+                        text += f"{status} <b>{topic_display}</b> — {topic.subject.name}\n"
+                elif topics:
+                    # Single-mode: показываем информацию о топике
+                    topic = topics[0]
+                    text = GROUP_START_CONFIGURED_TEXT.format(
+                        subject_name=topic.subject.name,
+                        status=("✅ Активен" if topic.is_active else "❌ Отключен"),
+                    )
+                else:
+                    text = GROUP_START_UNCONFIGURED_TEXT
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="ℹ️ Информация", callback_data="chat_info")

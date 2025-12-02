@@ -13,7 +13,6 @@ from sqlalchemy import case, func, select
 from src.bot.services.subscription_service import subscription_service
 from src.core.database import db_manager
 from src.core.models import (
-    ChatGroup,
     ChatScheduledNotification,
     ScheduledNotification,
     Task,
@@ -104,9 +103,10 @@ class AdminService:
                     chat_scheduled_result.scalar() or 0
                 )
 
-                # Статистика по групповым чатам (только активные)
+                # Статистика по групповым чатам (только активные топики)
+                from src.core.models.models import ChatTopic
                 chat_result = await session.execute(
-                    select(func.count(ChatGroup.chat_id)).where(ChatGroup.is_active)
+                    select(func.count(ChatTopic.id)).where(ChatTopic.is_active)
                 )
                 stats["total_chats"] = chat_result.scalar() or 0
 

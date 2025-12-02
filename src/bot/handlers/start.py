@@ -26,8 +26,10 @@ async def cmd_start(message: Message, db_user):
 
     except Exception as e:
         user_id = message.from_user.id if message.from_user else 0
-        logger.error(f"(U) {user_id} - команда /start: {e}")
-        await message.answer(ERROR_COMMAND_START)
+        err_str = str(e).lower()
+        if "topic_closed" not in err_str:
+            logger.error(f"(U) {user_id} - команда /start: {e}")
+            await message.answer(ERROR_COMMAND_START)
 
 
 async def handle_start_in_private(message: Message, db_user, user_name: str):
@@ -54,8 +56,10 @@ async def handle_start_in_private(message: Message, db_user, user_name: str):
 
     except Exception as e:
         user_id = message.from_user.id if message.from_user else 0
-        logger.error(f"(U) {user_id} - обработка /start: {e}")
-        await message.answer(ERROR_COMMAND_START)
+        err_str = str(e).lower()
+        if "topic_closed" not in err_str:
+            logger.error(f"(U) {user_id} - обработка /start: {e}")
+            await message.answer(ERROR_COMMAND_START)
 
 
 def register_start_handlers(dp):

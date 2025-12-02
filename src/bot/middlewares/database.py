@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
 from src.core.database import db_manager
-from src.core.models import ChatGroup, User
+from src.core.models import User
 from src.utils import get_logger
 from src.utils.time import utc_now
 
@@ -100,13 +100,14 @@ class DatabaseMiddleware(BaseMiddleware):
         """Обновить название чата в БД, если оно изменилось"""
         try:
             async with db_manager.async_session() as session:
-                stmt = select(ChatGroup).where(ChatGroup.chat_id == chat.id)
+                from src.core.models.models import Chat
+                stmt = select(Chat).where(Chat.chat_id == chat.id)
                 result = await session.execute(stmt)
-                chat_group = result.scalar_one_or_none()
+                chat_obj = result.scalar_one_or_none()
 
-                if chat_group and chat.title and chat_group.chat_title != chat.title:
+                if chat_obj and chat.title and chat_obj.chat_title != chat.title:
                     # Обновляем только если название изменилось
-                    chat_group.chat_title = chat.title
+                    chat_obj.chat_title = chat.title
                     await session.commit()
                     logger.debug(f"Обновлено название чата {chat.id}: {chat.title}")
         except Exception as e:

@@ -44,8 +44,8 @@ class Subject(Base):
     subscriptions = relationship(
         "Subscription", back_populates="subject", cascade="all, delete-orphan"
     )
-    chat_groups = relationship(
-        "ChatGroup", back_populates="subject", cascade="all, delete-orphan"
+    chat_topics = relationship(
+        "ChatTopic", back_populates="subject", cascade="all, delete-orphan"
     )
 
     __table_args__ = (
@@ -224,14 +224,43 @@ class ScheduledNotification(Base):
     )
 
 
-class ChatGroup(Base):
-    __tablename__ = "chat_groups"
+class Chat(Base):
+    """Основная таблица чатов (метаданные)"""
+    __tablename__ = "chat_groups"  # Оставляем старое имя таблицы для совместимости
 
     chat_id = Column(BigInteger, primary_key=True)
-    topic_id = Column(BigInteger, nullable=True)  # None = общий чат, число = топик
-    topic_title = Column(Text, nullable=True)  # Отображаемое имя топика (кеш)
+    mode = Column(Text, nullable=False)  # 'single' или 'multi'
     chat_title = Column(Text, nullable=True)  # Название чата (кеш)
     chat_type = Column(Text, nullable=False)  # 'group' или 'supergroup'
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    topics = relationship(
+        "ChatTopic", back_populates="chat", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "chat_type IN ('group', 'supergroup')",
+            name="check_chat_type_valid"
+        ),
+        CheckConstraint(
+            "mode IN ('single', 'multi')",
+            name="check_chat_mode_valid"
+        ),
+    )
+
+
+class ChatTopic(Base):
+    """Таблица топиков чатов (настройки для каждого топика)"""
+    __tablename__ = "chat_group_topics"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(
+        BigInteger, ForeignKey("chat_groups.chat_id", ondelete="CASCADE"), nullable=False
+    )
+    topic_id = Column(BigInteger, nullable=True)  # None = общий чат (только в single-mode), число = топик
+    topic_title = Column(Text, nullable=True)  # Отображаемое имя топика (кеш)
     subject_id = Column(
         Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
     )
@@ -245,26 +274,25 @@ class ChatGroup(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    subject = relationship("Subject", back_populates="chat_groups")
+    # Relationships
+    chat = relationship("Chat", back_populates="topics")
+    subject = relationship("Subject", back_populates="chat_topics")
     notifications = relationship(
-        "ChatScheduledNotification", back_populates="chat_group", cascade="all, delete-orphan"
+        "ChatScheduledNotification", back_populates="chat_topic", cascade="all, delete-orphan"
     )
 
     __table_args__ = (
-        CheckConstraint(
-            "chat_type IN ('group', 'supergroup')",
-            name="check_chat_type_valid"
-        ),
+        UniqueConstraint("chat_id", "topic_id", name="unique_chat_topic"),
         CheckConstraint(
             "reminder1_unit IN ('days', 'hours')",
-            name="check_chat_reminder1_unit_valid"
+            name="check_topic_reminder1_unit_valid"
         ),
         CheckConstraint(
             "reminder2_unit IN ('days', 'hours')",
-            name="check_chat_reminder2_unit_valid"
+            name="check_topic_reminder2_unit_valid"
         ),
-        CheckConstraint("reminder1_offset >= 0", name="check_chat_reminder1_positive"),
-        CheckConstraint("reminder2_offset >= 0", name="check_chat_reminder2_positive"),
+        CheckConstraint("reminder1_offset >= 0", name="check_topic_reminder1_positive"),
+        CheckConstraint("reminder2_offset >= 0", name="check_topic_reminder2_positive"),
     )
 
 
@@ -272,8 +300,14 @@ class ChatScheduledNotification(Base):
     __tablename__ = "chat_scheduled_notifications"
 
     id = Column(Integer, primary_key=True)
-    chat_group_id = Column(
-        BigInteger, ForeignKey("chat_groups.chat_id", ondelete="CASCADE"), nullable=False
+    chat_topic_id = Column(
+        Integer, ForeignKey("chat_group_topics.id", ondelete="CASCADE"), nullable=False
+    )
+    chat_id = Column(
+        BigInteger, nullable=False  # Для удобства группировки, не FK
+    )
+    topic_id = Column(
+        BigInteger, nullable=True  # Для удобства, не FK
     )
     deadline_id = Column(
         Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
@@ -292,19 +326,19 @@ class ChatScheduledNotification(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    chat_group = relationship("ChatGroup", back_populates="notifications")
+    chat_topic = relationship("ChatTopic", back_populates="notifications")
     task = relationship("Task", back_populates="chat_notifications")
 
     __table_args__ = (
         UniqueConstraint(
-            "chat_group_id",
+            "chat_topic_id",
             "deadline_id",
             "deadline_type",
             "notification_number",
-            name="unique_chat_deadline_notification",
+            name="unique_chat_topic_deadline_notification",
         ),
         Index("idx_chat_sched_notif_status_time", "status", "planned_delivery_time"),
-        Index("idx_chat_sched_notif_chat_status", "chat_group_id", "status"),
+        Index("idx_chat_sched_notif_topic_status", "chat_topic_id", "status"),
         Index("idx_chat_sched_notif_deadline", "deadline_id"),
         Index("idx_chat_sched_notif_delivery_time", "planned_delivery_time"),
         CheckConstraint(

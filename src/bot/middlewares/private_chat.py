@@ -47,10 +47,10 @@ class TelegramErrorHandler:
     @staticmethod
     def extract_migrate_to_chat_id(error: TelegramBadRequest) -> int | None:
         """Извлечь новый ID чата из ошибки миграции
-        
+
         Args:
             error: Исключение TelegramBadRequest
-            
+
         Returns:
             int | None: Новый ID чата или None, если это не ошибка миграции
         """
@@ -60,7 +60,7 @@ class TelegramErrorHandler:
                 migrate_to_chat_id = getattr(error.response_parameters, "migrate_to_chat_id", None)
                 if migrate_to_chat_id:
                     return int(migrate_to_chat_id)
-            
+
             # Альтернативный способ: парсим сообщение об ошибке
             error_msg = str(error)
             if "migrated to a supergroup" in error_msg.lower():
@@ -75,19 +75,19 @@ class TelegramErrorHandler:
     @staticmethod
     async def handle_chat_migration(error: TelegramBadRequest, old_chat_id: int, bot: Bot | None = None) -> int | None:
         """Обработать миграцию чата из группы в супергруппу
-        
+
         Args:
             error: Исключение TelegramBadRequest с информацией о миграции
             old_chat_id: Старый ID чата
             bot: Опционально, объект бота для обновления информации
-            
+
         Returns:
             int | None: Новый ID чата если миграция успешна, None если ошибка
         """
         new_chat_id = TelegramErrorHandler.extract_migrate_to_chat_id(error)
         if not new_chat_id:
             return None
-        
+
         try:
             from src.bot.services.chat_service import chat_service
             success = await chat_service.migrate_chat_id(old_chat_id, new_chat_id, bot)
@@ -259,7 +259,7 @@ async def safe_send_message(
                 except Exception as retry_error:
                     logger.error(f"Ошибка повторной отправки после миграции {chat_id} → {new_chat_id}: {retry_error}")
                     return False
-        
+
         # Используем общий обработчик ошибок
         # Передаем chat_id для групповых чатов, user_id для личных
         error_chat_id = chat_id if is_group_chat and not user_id else None

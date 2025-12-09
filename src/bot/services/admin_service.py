@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from aiogram import Bot
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, MessageEntity
 from sqlalchemy import case, func, select
 
 from src.bot.services.subscription_service import subscription_service
@@ -36,12 +36,16 @@ class AdminService:
             try:
                 stats = {}
 
-                week_ago = datetime.now(UTC) - timedelta(days=7)
-                month_ago = datetime.now(UTC) - timedelta(days=30)
                 now = datetime.now(UTC)
+                day_ago = now - timedelta(days=1)
+                week_ago = now - timedelta(days=7)
+                month_ago = datetime.now(UTC) - timedelta(days=30)
 
                 user_stats_stmt = select(
                     func.count(User.tg_user_id).label("total_users"),
+                    func.count(
+                        case((User.last_activity >= day_ago, 1), else_=None)
+                    ).label("active_day"),
                     func.count(
                         case((User.last_activity >= week_ago, 1), else_=None)
                     ).label("active_week"),
@@ -53,6 +57,7 @@ class AdminService:
                 user_row = user_result.first()
 
                 stats["total_users"] = user_row.total_users or 0
+                stats["active_users_day"] = user_row.active_day or 0
                 stats["active_users_week"] = user_row.active_week or 0
                 stats["active_users_month"] = user_row.active_month or 0
 
@@ -145,6 +150,7 @@ class AdminService:
         self,
         message_text: str,
         bot: Bot,
+        broadcast_entities: list[MessageEntity] | None = None,
         progress_callback: Callable[[int, int], None | Awaitable[None]] | None = None,
     ) -> dict[str, int | float]:
         """Отправить массовую рассылку"""
@@ -162,12 +168,19 @@ class AdminService:
             logger.info(f"Рассылка для {total_users} пользователей")
 
             for i, user in enumerate(users, 1):
+                send_kwargs = {}
+                if broadcast_entities:
+                    # Передаем заранее разобранные entities, чтобы не парсить HTML
+                    send_kwargs["entities"] = broadcast_entities
+                else:
+                    send_kwargs["parse_mode"] = "HTML"
+
                 success = await safe_send_message(
                     bot,
                     chat_id=user.tg_user_id,
                     text=message_text,
                     user_id=user.tg_user_id,
-                    parse_mode="HTML"
+                    **send_kwargs,
                 )
 
                 if success:

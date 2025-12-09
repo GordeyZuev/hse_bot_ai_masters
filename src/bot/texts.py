@@ -336,12 +336,14 @@ ADMIN_STATS_USERS = """👥 <b>Пользователи:</b>
 
 ADMIN_STATS_USERS_ACTIVE = """👥 <b>Пользователи:</b>
 • Всего: {total_users}
+• Активных (день): {active_day} ({day_pct:.0f}%)
 • Активных (неделя): {active_week} ({week_pct:.0f}%)
 • Активных (месяц): {active_month} ({month_pct:.0f}%)
 """
 
 ADMIN_STATS_USERS_NO_TOTAL = """👥 <b>Пользователи:</b>
 • Всего: {total_users}
+• Активных (день): {active_day}
 • Активных (неделя): {active_week}
 • Активных (месяц): {active_month}
 """

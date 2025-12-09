@@ -3,7 +3,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, select, text
 from sqlalchemy.dialects.postgresql import insert
 
-# Импорт для избежания циклических зависимостей
 from src.bot.services.chat_notification_scheduler_service import (
     chat_notification_scheduler_service,
 )
@@ -162,34 +161,29 @@ class NotificationSchedulerService:
                         s.user_id: s for s in settings_res.scalars().all()
                     }
 
-                # Батчинг: собираем все уведомления для создания одним запросом
                 notifications_to_create = []
                 for user in subscribed_users:
                     settings = settings_dict.get(user.tg_user_id)
                     if not settings or not settings.is_active:
                         continue
 
-                    # Собираем уведомления для мягкого дедлайна
                     if deadline.soft_deadline_ts:
                         notifications = self._prepare_notifications_for_user_task(
                             user, deadline, "soft", deadline.soft_deadline_ts, settings
                         )
                         notifications_to_create.extend(notifications)
 
-                    # Собираем уведомления для жесткого дедлайна
                     if deadline.hard_deadline_ts:
                         notifications = self._prepare_notifications_for_user_task(
                             user, deadline, "hard", deadline.hard_deadline_ts, settings
                         )
                         notifications_to_create.extend(notifications)
 
-                # Создаем все уведомления одним батчем
                 if notifications_to_create:
                     user_notifications_scheduled = await self._batch_create_notifications(
                         notifications_to_create
                     )
 
-            # Логика для чатов
             chat_notifications_scheduled = await chat_notification_scheduler_service.schedule_notifications_for_task(deadline)
 
             total_scheduled = user_notifications_scheduled + chat_notifications_scheduled
@@ -313,8 +307,6 @@ class NotificationSchedulerService:
 
         try:
             async with db_manager.async_session() as session:
-                # Используем PostgreSQL INSERT ... ON CONFLICT для upsert
-                # Для множественных вставок используем bulk insert с VALUES
                 values_list = [
                     {
                         **notif_data,
@@ -338,7 +330,6 @@ class NotificationSchedulerService:
                 )
                 result = await session.execute(stmt)
                 await session.commit()
-                # rowcount возвращает количество затронутых строк (включая обновленные)
                 return result.rowcount or len(notifications_data)
 
         except Exception as e:
@@ -380,7 +371,6 @@ class NotificationSchedulerService:
                 f"Отменено {cancelled_count} уведомлений для обновленного дедлайна {deadline.id}"
             )
 
-            # Также отменяем уведомления в чатах для этого дедлайна
             cancelled_in_chats = await chat_notification_scheduler_service.cancel_notifications_for_task(
                 deadline.id
             )

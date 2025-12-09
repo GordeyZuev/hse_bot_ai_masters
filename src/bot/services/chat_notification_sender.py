@@ -6,6 +6,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
+from src.bot.services.chat_service import chat_service
 from src.core.database import db_manager
 from src.core.models import ChatScheduledNotification, ChatTopic, Task
 from src.utils import get_logger, safe_send_message
@@ -118,7 +119,7 @@ class ChatNotificationSender:
         """Обработать уведомления для одного чата и топика"""
         batch_text = None
         message_thread_id = None
-        
+
         try:
             # Проверяем, активен ли топик
             chat_topic = notifications[0].chat_topic
@@ -150,11 +151,21 @@ class ChatNotificationSender:
                 await self._mark_notifications_as_failed(list(notifications))
 
         except Exception as e:
-            # Проверяем, является ли это ошибкой миграции чата
+            # Проверяем, является ли это ошибкой миграции или отсутствия чата
             from aiogram.exceptions import TelegramBadRequest
+
             from src.bot.middlewares.private_chat import TelegramErrorHandler
-            
+
             if isinstance(e, TelegramBadRequest):
+                err_msg = str(e).lower()
+                if "chat not found" in err_msg or "chat not exist" in err_msg:
+                    logger.warning(f"(C) {chat_id} (topic: {topic_id}) - чат недоступен, деактивируем")
+                    await chat_service.deactivate_chat(chat_id)
+                    await self._mark_notifications_as_failed(list(notifications))
+                    stats["failed"] += len(notifications)
+                    stats["total_processed"] += len(notifications)
+                    return
+
                 # Пытаемся обработать миграцию
                 new_chat_id = await TelegramErrorHandler.handle_chat_migration(e, chat_id, bot)
                 if new_chat_id:
@@ -169,15 +180,20 @@ class ChatNotificationSender:
                                 stats["sent"] += len(notifications)
                                 stats["total_processed"] += len(notifications)
                                 await self._mark_notifications_as_sent(list(notifications))
+                                return
                             else:
-                                stats["failed"] += len(notifications)
-                                stats["total_processed"] += len(notifications)
-                                await self._mark_notifications_as_failed(list(notifications))
-                            return
+                                logger.error(f"(C) {new_chat_id} - Повторная отправка после миграции не удалась")
                     except Exception as retry_error:
                         logger.error(f"(C) {new_chat_id} - Ошибка повторной отправки после миграции: {retry_error}")
-            
+
+                    # Если повторная отправка не удалась — отмечаем как failed
+                    await self._mark_notifications_as_failed(list(notifications))
+                    stats["failed"] += len(notifications)
+                    stats["total_processed"] += len(notifications)
+                    return
+
             logger.error(f"(C) {chat_id} (topic: {topic_id}) - Ошибка обработки: {e}")
+            await self._mark_notifications_as_failed(list(notifications))
             stats["failed"] += len(notifications)
             stats["total_processed"] += len(notifications)
 
@@ -238,6 +254,9 @@ class ChatNotificationSender:
         items.sort(key=lambda x: x[0])
 
         for idx, (_planned, notifs) in enumerate(items, 1):
+            if idx > 1:
+                # Добавляем пустую строку между заданиями для лучшей читаемости
+                lines.append("\n")
             n0 = notifs[0]
             deadline = n0.task
             hw_name = deadline.hw_name or "Без названия"

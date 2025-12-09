@@ -64,10 +64,13 @@ def _format_deadlines_with_divider(
     text = DEADLINES_TITLE.format(days=days)
 
     if not_done_deadlines:
-        for data in not_done_deadlines:
+        for idx, data in enumerate(not_done_deadlines):
             deadline = data["deadline"]
             subject = data["subject"]
             i = deadline_numbers[deadline.id]
+
+            if idx > 0:
+                text += "\n"
 
             text += f"<b>{i}. {subject.name}</b>\n"
             if deadline.source_link:
@@ -88,7 +91,7 @@ def _format_deadlines_with_divider(
         text += "\n"
 
     if done_deadlines and not hide_done:
-        for data in done_deadlines:
+        for _idx, data in enumerate(done_deadlines):
             deadline = data["deadline"]
             subject = data["subject"]
             i = deadline_numbers[deadline.id]

@@ -8,28 +8,25 @@ import pytz
 def format_time_remaining(deadline_ts: datetime, now: datetime | None = None) -> str:
     """Форматировать остаток времени до дедлайна.
 
-    Args:
-        deadline_ts: Время дедлайна (UTC, aware)
-        now: Текущее время (UTC, aware), если None - используется datetime.now(UTC)
-
-    Returns:
-        Строка вида "(X дн.)", "(X ч.)", "(X мин.)" или "(сегодня!)"
+    Правило:
+    - Если осталось > 24 ч: показываем дни (округляем вверх по суткам).
+    - Если осталось <= 24 ч и > 0: показываем часы (округляем вверх).
     """
     if now is None:
         now = datetime.now(UTC)
 
-    delta = deadline_ts - now
+    total_seconds = (deadline_ts - now).total_seconds()
 
-    if delta.days > 0:
-        return f"({delta.days} дн.)"
-    elif delta.seconds >= 3600:
-        hours = delta.seconds // 3600
-        return f"({hours} ч.)"
-    elif delta.seconds >= 60:
-        minutes = delta.seconds // 60
-        return f"({minutes} мин.)"
-    else:
-        return "(сегодня!)"
+    if total_seconds <= 0:
+        return ""
+
+    hours = int((total_seconds + 3599) // 3600)  # ceil без float
+
+    if hours > 24:
+        days = (hours + 23) // 24  # ceil по суткам
+        return f"({days} дн.)"
+
+    return f"({hours} ч.)"
 
 
 def format_deadline_datetime(deadline_ts: datetime, tz_name: str = "Europe/Moscow") -> str:

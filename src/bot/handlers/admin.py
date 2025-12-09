@@ -200,14 +200,18 @@ async def format_statistics_message(stats: dict) -> str:
 
     # Пользователи
     total_users = stats.get("total_users", 0)
+    active_day = stats.get("active_users_day", 0)
     active_week = stats.get("active_users_week", 0)
     active_month = stats.get("active_users_month", 0)
 
     if total_users > 0:
+        day_pct = (active_day / total_users) * 100
         week_pct = (active_week / total_users) * 100
         month_pct = (active_month / total_users) * 100
         text += ADMIN_STATS_USERS_ACTIVE.format(
             total_users=total_users,
+            active_day=active_day,
+            day_pct=day_pct,
             active_week=active_week,
             week_pct=week_pct,
             active_month=active_month,
@@ -216,6 +220,7 @@ async def format_statistics_message(stats: dict) -> str:
     else:
         text += ADMIN_STATS_USERS_NO_TOTAL.format(
             total_users=total_users,
+            active_day=active_day,
             active_week=active_week,
             active_month=active_month,
         )
@@ -396,6 +401,7 @@ async def callback_confirm_broadcast(
     try:
         data = await state.get_data()
         broadcast_text = data.get("broadcast_text")
+        broadcast_entities = data.get("broadcast_entities")
 
         if not broadcast_text:
             await safe_edit_message(callback.message, "❌ Сообщение для рассылки не найдено.")
@@ -406,6 +412,7 @@ async def callback_confirm_broadcast(
         result = await admin_service.send_broadcast(
             broadcast_text,
             callback.bot,
+            broadcast_entities=broadcast_entities,
         )
 
         success_count = result.get("success", 0)
@@ -583,16 +590,19 @@ async def cmd_chat_stats(message: Message, db_user):
     try:
         from src.bot.services.chat_service import chat_service
 
+        logger.info(f"(A) {db_user.tg_user_id} - Запрос статистики по чатам")
+
         # Получаем статистику по чатам
         total_chats = await chat_service.get_chat_groups_count()
         active_chats = await chat_service.get_active_chat_groups_count()
         chat_groups = await chat_service.get_all_chat_groups()
+        inactive_chats = max(total_chats - active_chats, 0)
 
         text = "📊 <b>Статистика по чатам</b>\n\n"
         text += "📈 <b>Общая статистика:</b>\n"
         text += f"• Всего настроенных чатов: {total_chats}\n"
         text += f"• Активных чатов: {active_chats}\n"
-        text += f"• Неактивных чатов: {total_chats - active_chats}\n\n"
+        text += f"• Неактивных чатов: {inactive_chats}\n\n"
 
         if chat_groups:
             text += "📋 <b>Список чатов:</b>\n"
@@ -623,14 +633,17 @@ async def callback_admin_chat_management(callback: CallbackQuery, db_user):
     try:
         from src.bot.services.chat_service import chat_service
 
+        logger.info(f"(A) {db_user.tg_user_id} - Открытие управления чатами")
+
         # Получаем статистику по чатам
         total_chats = await chat_service.get_chat_groups_count()
         active_chats = await chat_service.get_active_chat_groups_count()
+        inactive_chats = max(total_chats - active_chats, 0)
 
         text = ADMIN_CHAT_MANAGEMENT.format(
             total_chats=total_chats,
             active_chats=active_chats,
-            inactive_chats=total_chats - active_chats,
+            inactive_chats=inactive_chats,
         )
 
         builder = InlineKeyboardBuilder()
@@ -668,6 +681,8 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
     try:
         from src.bot.services.chat_service import chat_service
 
+        logger.info(f"(A) {db_user.tg_user_id} - Запрос списка чатов")
+
         # Получаем все чаты с загруженными предметами
         chat_groups = await chat_service.get_all_chat_groups()
 
@@ -675,7 +690,9 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
             text = ADMIN_CHAT_LIST_EMPTY
         else:
             # Формируем детальный список
-            text = ADMIN_CHAT_LIST_HEADER.format(total_count=len(chat_groups))
+            unique_chats = {cg.chat_id for cg in chat_groups}
+            text = ADMIN_CHAT_LIST_HEADER.format(total_count=len(unique_chats))
+            text += f"Всего топиков: <b>{len(chat_groups)}</b>\n\n"
 
             # Группируем по предметам для удобства
             by_subject = {}
@@ -697,7 +714,9 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
                     chat_url = f"https://t.me/c/{chat_link_id}"
 
                     # Показываем название чата если есть
-                    chat_title = chat_group.chat_title or "Название недоступно"
+                    chat_title = (
+                        chat_group.chat.chat_title if chat_group.chat else None
+                    ) or "Название недоступно"
 
                     # Показываем топик если есть
                     if chat_group.topic_id and chat_group.topic_title:
@@ -715,10 +734,12 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
                     break
 
             # Добавляем краткую статистику
-            active_count = sum(1 for cg in chat_groups if cg.is_active)
+            active_chat_ids = {cg.chat_id for cg in chat_groups if cg.is_active}
+            active_count = len(active_chat_ids)
+            inactive_count = max(len(unique_chats) - active_count, 0)
             text += ADMIN_CHAT_LIST_SUMMARY.format(
                 active_count=active_count,
-                inactive_count=len(chat_groups) - active_count,
+                inactive_count=inactive_count,
             )
 
         builder = InlineKeyboardBuilder()

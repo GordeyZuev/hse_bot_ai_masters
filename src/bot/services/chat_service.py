@@ -504,24 +504,20 @@ class ChatService:
                 logger.error(f"Ошибка переключения активности чата {chat_id}: {e}")
                 return False, "Произошла ошибка при изменении настроек"
 
-    async def get_all_chat_groups(self) -> list[dict]:
-        """Получить все настроенные чаты с объединенными данными"""
+    async def get_all_chat_groups(self) -> list[ChatTopic]:
+        """Получить все топики чатов с подгруженными предметами и чатами."""
         async with db_manager.async_session() as session:
             try:
-                stmt = select(Chat).options(selectinload(Chat.topics).selectinload(ChatTopic.subject))
+                stmt = (
+                    select(ChatTopic)
+                    .options(
+                        selectinload(ChatTopic.subject),
+                        selectinload(ChatTopic.chat),
+                    )
+                    .order_by(ChatTopic.created_at)
+                )
                 result = await session.execute(stmt)
-                chats = list(result.scalars().all())
-
-                # Формируем объединенные данные
-                result_list = []
-                for chat in chats:
-                    for topic in chat.topics:
-                        result_list.append({
-                            "chat": chat,
-                            "topic": topic,
-                            "subject": topic.subject,
-                        })
-                return result_list
+                return list(result.scalars().all())
             except Exception as e:
                 logger.error(f"Ошибка получения списка чатов: {e}")
                 return []
@@ -569,14 +565,16 @@ class ChatService:
         return await self.get_chats_count()
 
     async def get_active_chat_groups_count(self) -> int:
-        """Получить количество активных топиков"""
+        """Получить количество чатов, где есть хотя бы один активный топик."""
         async with db_manager.async_session() as session:
             try:
                 stmt = select(ChatTopic).where(ChatTopic.is_active)
                 result = await session.execute(stmt)
-                return len(result.scalars().all())
+                active_topics = list(result.scalars().all())
+                active_chat_ids = {topic.chat_id for topic in active_topics}
+                return len(active_chat_ids)
             except Exception as e:
-                logger.error(f"Ошибка подсчета активных топиков: {e}")
+                logger.error(f"Ошибка подсчета активных чатов: {e}")
                 return 0
 
 
@@ -759,31 +757,31 @@ class ChatService:
 
     async def migrate_chat_id(self, old_chat_id: int, new_chat_id: int, bot: Bot | None = None) -> bool:
         """Обновить ID чата при миграции группы в супергруппу
-        
+
         Args:
             old_chat_id: Старый ID чата (группа)
             new_chat_id: Новый ID чата (супергруппа)
             bot: Опционально, для обновления информации о чате
-            
+
         Returns:
             bool: True если миграция успешна, False если произошла ошибка
         """
         try:
             async with db_manager.async_session() as session:
                 from sqlalchemy import update
-                
+
                 # Проверяем, существует ли старый чат
                 old_chat = await session.get(Chat, old_chat_id)
                 if not old_chat:
                     logger.warning(f"Чат {old_chat_id} не найден для миграции")
                     return False
-                
+
                 # Проверяем, не существует ли уже новый чат
                 new_chat = await session.get(Chat, new_chat_id)
                 if new_chat:
                     logger.warning(f"Чат {new_chat_id} уже существует, пропускаем миграцию")
                     return False
-                
+
                 # Обновляем информацию о чате, если есть доступ к боту
                 chat_title = old_chat.chat_title
                 if bot:
@@ -792,31 +790,31 @@ class ChatService:
                         chat_title = getattr(chat_info, "title", chat_title)
                     except Exception as e:
                         logger.debug(f"Не удалось получить информацию о новом чате {new_chat_id}: {e}")
-                
+
                 # Обновляем Chat: меняем chat_id и chat_type
                 old_chat.chat_id = new_chat_id
                 old_chat.chat_type = "supergroup"
                 if chat_title:
                     old_chat.chat_title = chat_title
-                
+
                 # Обновляем все ChatTopic с старым chat_id
                 await session.execute(
                     update(ChatTopic)
                     .where(ChatTopic.chat_id == old_chat_id)
                     .values(chat_id=new_chat_id)
                 )
-                
+
                 # Обновляем все ChatScheduledNotification с старым chat_id
                 await session.execute(
                     update(ChatScheduledNotification)
                     .where(ChatScheduledNotification.chat_id == old_chat_id)
                     .values(chat_id=new_chat_id)
                 )
-                
+
                 await session.commit()
                 logger.info(f"Чат мигрирован: {old_chat_id} → {new_chat_id}")
                 return True
-                
+
         except Exception as e:
             logger.error(f"Ошибка миграции чата {old_chat_id} → {new_chat_id}: {e}")
             return False

@@ -41,7 +41,7 @@ def upgrade() -> None:
             END IF;
         END $$;
     """))
-    
+
     # Добавляем constraint для mode (если не существует)
     op.execute(text("""
         DO $$
@@ -210,7 +210,7 @@ def upgrade() -> None:
                 DELETE FROM chat_scheduled_notifications WHERE chat_topic_id IS NULL;
                 ALTER TABLE chat_scheduled_notifications ALTER COLUMN chat_topic_id SET NOT NULL;
             END IF;
-            
+
             -- Проверяем и устанавливаем NOT NULL для chat_id
             IF EXISTS (
                 SELECT 1
@@ -255,7 +255,7 @@ def upgrade() -> None:
             ) THEN
                 ALTER TABLE chat_scheduled_notifications DROP CONSTRAINT unique_chat_deadline_notification;
             END IF;
-            
+
             -- Создаем новый constraint, если не существует
             IF NOT EXISTS (
                 SELECT 1
@@ -311,7 +311,7 @@ def upgrade() -> None:
             ) THEN
                 DROP INDEX idx_chat_sched_notif_chat_status;
             END IF;
-            
+
             -- Создаем новый индекс, если не существует
             IF NOT EXISTS (
                 SELECT 1

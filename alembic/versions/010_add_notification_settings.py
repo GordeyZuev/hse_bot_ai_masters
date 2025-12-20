@@ -1,7 +1,7 @@
 """Add notification settings: sleep time and update notifications toggle
 
-Revision ID: add_notification_updates
-Revises: cbea2120eaa8
+Revision ID: 010
+Revises: 009
 Create Date: 2025-01-28 12:00:00.000000
 
 """
@@ -13,8 +13,8 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = "add_notification_updates"
-down_revision: str | Sequence[str] | None = "cbea2120eaa8"
+revision: str = "010"
+down_revision: str | Sequence[str] | None = "009"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -1,7 +1,7 @@
 """Add chat groups support
 
-Revision ID: d6117a9653ff
-Revises: 4f17dc3b1c48
+Revision ID: 004
+Revises: 003
 Create Date: 2025-10-27 17:48:03.012699
 
 """
@@ -13,8 +13,8 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = "d6117a9653ff"
-down_revision: str | Sequence[str] | None = "4f17dc3b1c48"
+revision: str = "004"
+down_revision: str | Sequence[str] | None = "003"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -1,8 +1,8 @@
 """Add topic_title to chat_groups
 
-Revision ID: a1b2c3d4e5f6
-Revises: d6117a9653ff
-Create Date: 2025-10-28 13:48:30
+Revision ID: 007
+Revises: 004
+Create Date: 2025-10-28 13:48:30.000000
 
 """
 from collections.abc import Sequence
@@ -13,8 +13,8 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = "a1b2c3d4e5f6"
-down_revision: str | Sequence[str] | None = "d6117a9653ff"
+revision: str = "007"
+down_revision: str | Sequence[str] | None = "004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

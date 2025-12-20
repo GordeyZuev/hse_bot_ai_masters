@@ -1,7 +1,7 @@
-"""refactor_chat_groups_to_chats_and_topics
+"""Refactor chat_groups to chats and topics
 
-Revision ID: b93b504740b8
-Revises: f1a2b3c4d5e6
+Revision ID: 014
+Revises: 013
 Create Date: 2025-12-02 02:22:38.173185
 
 """
@@ -14,8 +14,8 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = "b93b504740b8"
-down_revision: str | Sequence[str] | None = "f1a2b3c4d5e6"
+revision: str = "014"
+down_revision: str | Sequence[str] | None = "013"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

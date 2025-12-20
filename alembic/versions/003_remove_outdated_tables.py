@@ -1,11 +1,10 @@
 """Remove outdated tables
 
-Revision ID: 4f17dc3b1c48
+Revision ID: 003
 Revises: 002
 Create Date: 2025-09-07 16:28:39.480573
 
 """
-
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -14,14 +13,14 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = "4f17dc3b1c48"
+revision: str = "003"
 down_revision: str | Sequence[str] | None = "002"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Remove outdated tables that have been replaced by new implementations."""
+    """Upgrade schema."""
 
     # Drop outdated notification_log table (replaced by scheduled_notifications)
     op.drop_index(
@@ -39,7 +38,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Recreate outdated tables if needed for rollback."""
+    """Downgrade schema."""
 
     # Recreate user_notifications table
     op.create_table(

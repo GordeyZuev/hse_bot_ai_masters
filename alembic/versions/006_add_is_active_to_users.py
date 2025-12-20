@@ -1,7 +1,7 @@
-"""add_is_active_to_users
+"""Add is_active to users
 
-Revision ID: 73b82a745d6e
-Revises: d6117a9653ff
+Revision ID: 006
+Revises: 004
 Create Date: 2025-10-27 19:08:14.211041
 
 """
@@ -13,8 +13,8 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = "73b82a745d6e"
-down_revision: str | Sequence[str] | None = "d6117a9653ff"
+revision: str = "006"
+down_revision: str | Sequence[str] | None = "004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

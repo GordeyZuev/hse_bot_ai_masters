@@ -1,9 +1,11 @@
-"""rename deadlines->tasks; users/subjects column updates
+"""Rename deadlines->tasks; users/subjects column updates
 
-Revision ID: f1a2b3c4d5e6
-Revises: e3f1a2b4c5d6
-Create Date: 2025-11-04
+Revision ID: 013
+Revises: 012
+Create Date: 2025-11-04 00:00:00.000000
+
 """
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy import inspect
@@ -12,13 +14,14 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision = "f1a2b3c4d5e6"
-down_revision = "e3f1a2b4c5d6"
-branch_labels = None
-depends_on = None
+revision: str = "013"
+down_revision: str | Sequence[str] | None = "012"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """Upgrade schema."""
     conn = op.get_bind()
     inspector = inspect(conn)
     tables = inspector.get_table_names()
@@ -102,6 +105,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Downgrade schema."""
     conn = op.get_bind()
     inspector = inspect(conn)
     tables = inspector.get_table_names()

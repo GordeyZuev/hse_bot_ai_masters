@@ -1,9 +1,11 @@
-"""add task_user_status table
+"""Add task_user_status table
 
-Revision ID: e3f1a2b4c5d6
-Revises: 936938f0c3a2_add_chat_title_to_chat_groups
-Create Date: 2025-11-03
+Revision ID: 012
+Revises: 011
+Create Date: 2025-11-03 00:00:00.000000
+
 """
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy import inspect
@@ -12,13 +14,14 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision = "e3f1a2b4c5d6"
-down_revision = "936938f0c3a2"
-branch_labels = None
-depends_on = None
+revision: str = "012"
+down_revision: str | Sequence[str] | None = "011"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """Upgrade schema."""
     # Проверяем существование таблицы
     conn = op.get_bind()
     inspector = inspect(conn)
@@ -56,7 +59,7 @@ def upgrade() -> None:
 
         # Если таблица уже существует, проверяем внешний ключ
         # Если tasks уже существует, но FK ссылается на deadlines, обновляем FK
-        # (На случай, если миграция f1a2b3c4d5e6 уже выполнилась, но FK не обновился автоматически)
+        # (На случай, если миграция 013_rename_deadlines_to_tasks уже выполнилась, но FK не обновился автоматически)
         if "tasks" in tables and "deadlines" not in tables:
             foreign_keys = inspector.get_foreign_keys("task_user_status")
             for fk in foreign_keys:
@@ -78,6 +81,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Downgrade schema."""
     # Проверяем существование перед удалением
     conn = op.get_bind()
     inspector = inspect(conn)

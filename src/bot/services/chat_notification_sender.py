@@ -365,8 +365,8 @@ class ChatNotificationSender:
             deadline_ts = deadline.hard_deadline_ts
 
         # Форматируем время (в часовом поясе Москвы)
-        from src.utils.time import format_datetime_for_user
-        formatted_time = format_datetime_for_user(deadline_ts, "Europe/Moscow")
+        from src.utils.notification_formatting import format_deadline_datetime
+        formatted_time = format_deadline_datetime(deadline_ts, "Europe/Moscow")
         text += f"{formatted_time}\n"
 
         if deadline.note:

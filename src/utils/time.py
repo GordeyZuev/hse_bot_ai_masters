@@ -10,15 +10,6 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def ensure_aware_utc(dt: datetime) -> datetime:
-    """Convert any datetime to aware UTC. If naive, assume it is UTC and attach tzinfo."""
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
-
-
 def get_timezone(tz_name: str) -> pytz.BaseTzInfo:
     """Return timezone by name, supporting strings like 'UTC+05:00' or 'UTC-3'."""
     if not tz_name:
@@ -41,14 +32,6 @@ def get_timezone(tz_name: str) -> pytz.BaseTzInfo:
         return pytz.UTC
 
 
-def to_user_timezone(dt: datetime, tz_name: str) -> datetime:
-    """Convert UTC datetime to user's timezone."""
-    if dt is None:
-        return None
-    user_tz = get_timezone(tz_name)
-    return ensure_aware_utc(dt).astimezone(user_tz)
-
-
 def localize_naive_and_convert_to_utc(
     dt: datetime, default_tz_name: str = "Europe/Moscow"
 ) -> datetime:
@@ -59,18 +42,6 @@ def localize_naive_and_convert_to_utc(
         tz = get_timezone(default_tz_name)
         dt = tz.localize(dt)
     return dt.astimezone(UTC)
-
-
-def make_user_window_utc(
-    days: int, user_tz_name: str
-) -> tuple[datetime, datetime, datetime, datetime]:
-    """Compute (now_local, end_local, now_utc, end_utc) for the user window of given days."""
-    user_tz = get_timezone(user_tz_name)
-    now_local = datetime.now(user_tz)
-    end_local = now_local + timedelta(days=days)
-    now_utc = now_local.astimezone(UTC)
-    end_utc = end_local.astimezone(UTC)
-    return now_local, end_local, now_utc, end_utc
 
 
 def format_offset_from_moscow_label(tz_name: str) -> str:

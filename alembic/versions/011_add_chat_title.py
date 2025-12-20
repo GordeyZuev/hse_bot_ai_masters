@@ -1,7 +1,7 @@
-"""add_chat_title_to_chat_groups
+"""Add chat_title to chat_groups
 
-Revision ID: 936938f0c3a2
-Revises: add_notification_updates
+Revision ID: 011
+Revises: 010
 Create Date: 2025-11-01 19:09:43.718695
 
 """
@@ -13,8 +13,8 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = "936938f0c3a2"
-down_revision: str | Sequence[str] | None = "add_notification_updates"
+revision: str = "011"
+down_revision: str | Sequence[str] | None = "010"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

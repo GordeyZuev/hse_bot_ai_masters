@@ -620,6 +620,10 @@ class NotificationSender:
             s: Subject = e["subject"]
             change_info = e.get("change_info", {})
 
+            # Добавляем пустую строку перед заданием (кроме первого)
+            if i > 1:
+                lines.append("")
+
             lines.append(f"<b>{i}. {s.name if s else 'Предмет'}</b>")
             if d.source_link:
                 lines.append(f"📝 <a href='{d.source_link}'>{d.hw_name}</a>")
@@ -659,8 +663,6 @@ class NotificationSender:
             if d.note:
                 lines.append(f"💬 <i>{d.note}</i>")
 
-            lines.append("")
-
         return "\n".join(lines)
 
     def _format_multiple_deadlines_notification(
@@ -681,6 +683,10 @@ class NotificationSender:
             deadline = data["deadline"]
             subject = data["subject"]
 
+            # Добавляем пустую строку перед заданием (кроме первого)
+            if i > 1:
+                message += "\n"
+
             message += f"<b>{i}. {subject.name}</b>\n"
 
             # Задание с гиперссылкой, если есть ссылка
@@ -697,8 +703,6 @@ class NotificationSender:
             elif deadline.hard_deadline_ts:
                 date_str = format_deadline_datetime_with_time_word(deadline.hard_deadline_ts, user_tz.zone)
                 message += f"🔴 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
-
-            message += "\n"
 
         return message
 

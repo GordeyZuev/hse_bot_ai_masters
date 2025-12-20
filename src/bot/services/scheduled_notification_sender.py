@@ -295,6 +295,10 @@ class ScheduledNotificationSender:
             # Вычисляем время до дедлайна (без скобок для "Осталось")
             time_left_str = format_time_remaining(deadline_ts, now).strip("()")
 
+            # Добавляем пустую строку перед заданием (кроме первого)
+            if i > 1:
+                message += "\n"
+
             message += f"<b>{i}. {subject.name}</b>\n"
 
             # Задание с гиперссылкой, если есть ссылка
@@ -306,9 +310,7 @@ class ScheduledNotificationSender:
                 else:
                     message += f"📝 {deadline.hw_name}\n"
 
-            message += f"{deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})"
-
-            message += "\n"
+            message += f"{deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
 
         return message
 

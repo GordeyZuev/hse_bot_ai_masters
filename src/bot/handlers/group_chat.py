@@ -606,25 +606,14 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
             )
             return
 
-        # Проверяем, есть ли уже чат (может быть в другом режиме)
         existing_chat = await chat_service.get_chat(chat_id)
-        if existing_chat:
-            # Если чат существует, но топик не настроен - показываем выбор режима или настраиваем
-            # Для простоты, если чат существует, используем его режим
-            mode = existing_chat.mode
-        else:
-            # Новый чат - показываем выбор режима
-            await show_chat_setup_interface(message)
-            return
 
-        # Получаем список доступных предметов
         matched_subjects = []
         subjects = []
         async with db_manager.async_session() as session:
             from sqlalchemy import select
 
             if subject_name_search:
-                # Поиск по частичному совпадению имени (регистронезависимый)
                 stmt = (
                     select(Subject)
                     .where(Subject.is_active, Subject.name.ilike(f"%{subject_name_search}%"))
@@ -634,15 +623,12 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                 matched_subjects = list(result.scalars().all())
 
                 if len(matched_subjects) == 1:
-                    # Найдено одно совпадение - настраиваем сразу
                     subject = matched_subjects[0]
                     logger.info(
                         f"(C) {chat_id} - Найдено точное совпадение: '{subject.name}' (ID: {subject.id}), "
                         f"настраиваем чат автоматически"
                     )
 
-                    # Получаем topic_id если команда вызвана в топике
-                    topic_id = await chat_service.get_topic_id_from_message(message)
                     topic_title = None
                     if topic_id is not None:
                         topic_title = await _resolve_topic_title(message, chat_id, topic_id)
@@ -652,17 +638,8 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                             except Exception:
                                 topic_title = None
 
-                    # Определяем режим
-                    if existing_chat:
-                        mode = existing_chat.mode
-                    else:
-                        await message.answer(
-                            "❌ Сначала выберите режим работы бота командой /setup_discipline без аргументов.",
-                            parse_mode="HTML"
-                        )
-                        return
+                    mode = existing_chat.mode if existing_chat else "single"
 
-                    # В multi-mode проверяем topic_id
                     if mode == "multi" and topic_id is None:
                         await message.answer(
                             "❌ В multi-mode нельзя настраивать общий чат. Вызовите команду в топике.",
@@ -670,7 +647,6 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                         )
                         return
 
-                    # Настраиваем чат с дефолтными настройками
                     success, message_text = await chat_service.setup_chat_group(
                         message.bot,
                         chat_id,
@@ -686,7 +662,6 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                     )
 
                     if success:
-                        # Если определили название топика — сразу сохраним его в БД
                         if topic_id is not None and topic_title:
                             with contextlib.suppress(Exception):
                                 await chat_service.update_chat_settings(
@@ -697,38 +672,44 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                                     topic_title=topic_title,
                                     topic_id_set=True,
                                 )
-                        # Получаем топик с учетом режима
-                        chat = await chat_service.get_chat(chat_id)
-                        if chat and chat.mode == "single":
-                            topics = await chat_service.get_chat_groups_topics(chat_id)
-                            chat_topic = topics[0] if topics else None
-                        else:
-                            chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
-
-                        if chat_topic:
-                            await show_chat_settings_interface(message, chat_topic, edit_mode=False)
-                        else:
-                            await message.answer("✅ Чат настроен!", parse_mode="HTML")
+                        topic_info = f" (топик {topic_id})" if topic_id else " (общий чат)"
+                        await message.answer(
+                            f"✅ Бот настроен на предмет <b>«{subject.name}»</b>{topic_info}!\n\n"
+                            f"Используйте /chat_settings для изменения настроек.",
+                            parse_mode="HTML"
+                        )
                     else:
                         await message.answer(message_text, parse_mode="HTML")
                     return
 
                 elif len(matched_subjects) > 1:
-                    # Найдено несколько совпадений - показываем список для выбора
+                    if existing_chat:
+                        mode = existing_chat.mode
+                    else:
+                        await show_chat_setup_interface(message)
+                        return
                     text = f"🔍 <b>Найдено несколько предметов по запросу «{subject_name_search}»:</b>\n\n"
                     subjects = matched_subjects
                 else:
-                    # Ничего не найдено - показываем сообщение и полный список
+                    if existing_chat:
+                        mode = existing_chat.mode
+                    else:
+                        await show_chat_setup_interface(message)
+                        return
                     text = (
                         f"❌ Предмет по запросу «{subject_name_search}» не найден.\n\n"
                         "📚 <b>Доступные предметы:</b>\n\n"
                     )
-                    # Получаем все предметы
                     stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
                     result = await session.execute(stmt)
                     subjects = list(result.scalars().all())
             else:
-                # Аргументы не переданы - показываем все предметы
+                if not existing_chat:
+                    await show_chat_setup_interface(message)
+                    return
+
+                mode = existing_chat.mode
+
                 stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
                 result = await session.execute(stmt)
                 subjects = list(result.scalars().all())
@@ -741,7 +722,6 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
             await message.answer("❌ Нет доступных предметов для настройки")
             return
 
-        # Показываем список предметов (если не было автоматической настройки)
         if not subject_name_search or len(matched_subjects) != 1:
             builder = InlineKeyboardBuilder()
             for subject in subjects:

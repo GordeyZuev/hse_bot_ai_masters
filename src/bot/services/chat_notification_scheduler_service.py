@@ -4,7 +4,7 @@ from sqlalchemy import and_, delete, select
 from sqlalchemy.dialects.postgresql import insert
 
 from src.core.database import db_manager
-from src.core.models import Chat, ChatScheduledNotification, ChatTopic, Task
+from src.core.models import ChatGroup, ChatScheduledNotification, ChatTopic, Task
 from src.utils import get_logger
 from src.utils.time import utc_now
 
@@ -339,13 +339,13 @@ class ChatNotificationSchedulerService:
         try:
             async with db_manager.async_session() as session:
                 # Получаем чат для определения режима
-                chat = await session.get(Chat, chat_id)
-                if not chat:
+                chat_group = await session.get(ChatGroup, chat_id)
+                if not chat_group:
                     logger.error(f"Чат {chat_id} не найден")
                     return 0
 
                 # Получаем топик с учетом режима
-                if chat.mode == "single":
+                if chat_group.mode == "single":
                     # В single-mode игнорируем topic_id и получаем единственный топик
                     from sqlalchemy import select
                     stmt = select(ChatTopic).where(ChatTopic.chat_id == chat_id)

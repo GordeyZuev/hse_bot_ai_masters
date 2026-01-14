@@ -224,9 +224,9 @@ class ScheduledNotification(Base):
     )
 
 
-class Chat(Base):
+class ChatGroup(Base):
     """Основная таблица чатов (метаданные)"""
-    __tablename__ = "chat_groups"  # Оставляем старое имя таблицы для совместимости
+    __tablename__ = "chat_groups"
 
     chat_id = Column(BigInteger, primary_key=True)
     mode = Column(Text, nullable=False)  # 'single' или 'multi'
@@ -236,7 +236,7 @@ class Chat(Base):
 
     # Relationships
     topics = relationship(
-        "ChatTopic", back_populates="chat", cascade="all, delete-orphan"
+        "ChatTopic", back_populates="chat_group", cascade="all, delete-orphan"
     )
 
     __table_args__ = (
@@ -275,7 +275,7 @@ class ChatTopic(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    chat = relationship("Chat", back_populates="topics")
+    chat_group = relationship("ChatGroup", back_populates="topics")
     subject = relationship("Subject", back_populates="chat_topics")
     notifications = relationship(
         "ChatScheduledNotification", back_populates="chat_topic", cascade="all, delete-orphan"

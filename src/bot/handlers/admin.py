@@ -715,7 +715,7 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
 
                     # Показываем название чата если есть
                     chat_title = (
-                        chat_group.chat.chat_title if chat_group.chat else None
+                        chat_group.chat_group.chat_title if chat_group.chat_group else None
                     ) or "Название недоступно"
 
                     # Показываем топик если есть

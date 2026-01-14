@@ -163,9 +163,9 @@ Sync (DataSyncer) → Task Changes Detector → NotificationSender.send_immediat
 
 #### 5. **Работа с групповыми чатами**
 ```
-Telegram Chat → GroupChat Handler → ChatService → ChatNotificationScheduler → ChatNotificationSender → Telegram Chat/Topic
+Telegram ChatGroup → GroupChat Handler → ChatService → ChatNotificationScheduler → ChatNotificationSender → Telegram ChatGroup/Topic
     ↓                  ↓                ↓                       ↓                          ↓
-  /start cmd      Настройка чата    БД (Chat)             Планирование              HTTP API
+  /start cmd      Настройка чата    БД (ChatGroup)             Планирование              HTTP API
                                                    уведомлений для чатов
 ```
 
@@ -212,7 +212,7 @@ Telegram Chat → GroupChat Handler → ChatService → ChatNotificationSchedule
   - `UserNotificationSettings`, `ScheduledNotification` - модели уведомлений для пользователей
     - `UserNotificationSettings` включает: `enable_deadline_update_notifications` (управление уведомлениями об обновлениях), `sleep_start_time`, `sleep_end_time` (режим сна)
   - `TaskUserStatus` - модель для отслеживания статуса выполнения заданий пользователями
-  - `Chat`, `ChatTopic`, `ChatScheduledNotification` - модели для групповых чатов
+  - `ChatGroup`, `ChatTopic`, `ChatScheduledNotification` - модели для групповых чатов
   - Расширенная модель `Subject` с поддержкой ссылок на материалы (`wiki_url`, `vk_playlist_url`, `yt_playlist_url`)
 
 #### Sync (`src/core/sync/`)
@@ -315,7 +315,7 @@ Telegram Chat → GroupChat Handler → ChatService → ChatNotificationSchedule
 
 ```
 1. Настройка чата:
-Telegram Chat → /start → GroupChatHandler → ChatService → Database (Chat)
+Telegram ChatGroup → /start → GroupChatHandler → ChatService → Database (ChatGroup)
                                                         ↓
                                                  Привязка к предмету
 
@@ -325,14 +325,14 @@ New/Updated Task → ChatNotificationScheduler → ChatScheduledNotification →
               Для всех чатов по предмету
 
 3. Отправка уведомлений:
-Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram Chat/Topic
+Scheduler → ChatNotificationSender → ChatScheduledNotification → Telegram ChatGroup/Topic
               ↓
         Батч-обработка по чатам
 ```
 
 ### 🗄️ Модели базы данных
 
-#### Chat
+#### ChatGroup
 - **`chat_id`** (BigInteger, PK) - ID чата в Telegram
 - **`mode`** (Text) - Режим работы: 'single' или 'multi'
 - **`chat_type`** (Text) - 'group' или 'supergroup'

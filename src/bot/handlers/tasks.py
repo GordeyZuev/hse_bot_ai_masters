@@ -25,6 +25,33 @@ logger = get_logger()
 router = Router()
 
 
+def _format_single_deadline(data: dict, deadline_numbers: dict[int, int], user_tz_name: str, is_done: bool = False) -> str:
+    """Форматирование одного дедлайна"""
+    deadline = data["deadline"]
+    subject = data["subject"]
+    i = deadline_numbers[deadline.id]
+
+    text = f"<b>{i}. {subject.name}</b>\n"
+    if deadline.source_link:
+        text += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+    else:
+        text += f"📝 {deadline.hw_name}\n"
+
+    if data.get("nearest_deadline"):
+        now = datetime.now(UTC)
+        date_str = format_deadline_datetime(data["nearest_deadline"], user_tz_name)
+
+        if is_done:
+            remain = format_time_remaining(data["nearest_deadline"], now)
+            text += f"✅ {date_str} {remain}"
+        else:
+            deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"
+            remain = format_time_remaining(data["nearest_deadline"], now)
+            text += f"{deadline_type_icon} {date_str} {remain}"
+
+    return text
+
+
 def _format_deadlines_with_divider(
     all_deadlines: list[dict], days: int, user_tz_name: str, hide_done: bool = True, deadline_numbers: dict[int, int] | None = None
 ) -> str:
@@ -65,49 +92,17 @@ def _format_deadlines_with_divider(
 
     if not_done_deadlines:
         for idx, data in enumerate(not_done_deadlines):
-            deadline = data["deadline"]
-            subject = data["subject"]
-            i = deadline_numbers[deadline.id]
-
             if idx > 0:
                 text += "\n"
-
-            text += f"<b>{i}. {subject.name}</b>\n"
-            if deadline.source_link:
-                text += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
-            else:
-                text += f"📝 {deadline.hw_name}\n"
-
-            if data.get("nearest_deadline"):
-                now = datetime.now(UTC)
-                date_str = format_deadline_datetime(data["nearest_deadline"], user_tz_name)
-                deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"
-                remain = format_time_remaining(data["nearest_deadline"], now)
-                text += f"{deadline_type_icon} {date_str} {remain}"
-
+            text += _format_single_deadline(data, deadline_numbers, user_tz_name, is_done=False)
             text += "\n\n"
 
     if not_done_deadlines and done_deadlines and not hide_done:
         text += "\n"
 
     if done_deadlines and not hide_done:
-        for _idx, data in enumerate(done_deadlines):
-            deadline = data["deadline"]
-            subject = data["subject"]
-            i = deadline_numbers[deadline.id]
-
-            text += f"<b>{i}. {subject.name}</b>\n"
-            if deadline.source_link:
-                text += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
-            else:
-                text += f"📝 {deadline.hw_name}\n"
-
-            if data.get("nearest_deadline"):
-                now = datetime.now(UTC)
-                date_str = format_deadline_datetime(data["nearest_deadline"], user_tz_name)
-                remain = format_time_remaining(data["nearest_deadline"], now)
-                text += f"✅ {date_str} {remain}"
-
+        for data in done_deadlines:
+            text += _format_single_deadline(data, deadline_numbers, user_tz_name, is_done=True)
             text += "\n\n"
 
     text += DEADLINES_TOTAL.format(count=len(all_deadlines))
@@ -188,7 +183,7 @@ async def send_deadlines_list(message: Message, db_user, days: int, hide_done: b
             builder.button(text=button_text, callback_data=callback_data)
 
         if not all_deadlines:
-            builder.button(text="📚 Подписки", callback_data="quick_sub")
+            builder.button(text="📚 Подписки", callback_data="quick_subjects")
             builder.button(text="🔙 Назад", callback_data="back_to_menu")
             builder.adjust(3, 1, 1)
         else:
@@ -312,7 +307,7 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         # Кнопки снизу
         bottom_builder = InlineKeyboardBuilder()
         if not all_deadlines:
-            bottom_builder.button(text="📚 Подписки", callback_data="quick_sub")
+            bottom_builder.button(text="📚 Подписки", callback_data="quick_subjects")
             bottom_builder.button(text="🔙 Назад", callback_data="back_to_menu")
             bottom_builder.adjust(2)
         else:
@@ -546,6 +541,6 @@ async def callback_divider_ignore(callback: CallbackQuery):
     await callback.answer()
 
 
-def register_deadline_handlers(dp):
-    """Регистрация handlers для дедлайнов"""
+def register_task_handlers(dp):
+    """Регистрация handlers для задач (tasks/deadlines)"""
     dp.include_router(router)

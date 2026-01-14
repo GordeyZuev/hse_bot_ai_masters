@@ -100,8 +100,8 @@ class DatabaseMiddleware(BaseMiddleware):
         """Обновить название чата в БД, если оно изменилось"""
         try:
             async with db_manager.async_session() as session:
-                from src.core.models.models import Chat
-                stmt = select(Chat).where(Chat.chat_id == chat.id)
+                from src.core.models import ChatGroup
+                stmt = select(ChatGroup).where(ChatGroup.chat_id == chat.id)
                 result = await session.execute(stmt)
                 chat_obj = result.scalar_one_or_none()
 

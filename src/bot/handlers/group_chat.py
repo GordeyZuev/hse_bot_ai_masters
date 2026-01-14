@@ -1373,14 +1373,14 @@ async def callback_setup_mode(callback: CallbackQuery, db_user, state: FSMContex
 
                 # Создаем чат с выбранным режимом
                 async with db_manager.async_session() as session:
-                    from src.core.models.models import Chat
-                    chat = Chat(
+                    from src.core.models import ChatGroup
+                    chat_group = ChatGroup(
                         chat_id=chat_id,
                         mode=mode,
                         chat_title=chat_title,
                         chat_type=chat_type,
                     )
-                    session.add(chat)
+                    session.add(chat_group)
                     await session.commit()
 
                 text = "✅ <b>Режим Multi-mode установлен!</b>\n\n"

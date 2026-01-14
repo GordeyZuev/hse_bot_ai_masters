@@ -6,7 +6,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
 from src.core.database import db_manager
-from src.core.models import Chat, ChatScheduledNotification, ChatTopic, Subject
+from src.core.models import ChatGroup, ChatScheduledNotification, ChatTopic, Subject
 from src.utils import get_logger
 
 
@@ -107,15 +107,15 @@ class ChatService:
         async with db_manager.async_session() as session:
             try:
                 # Проверяем, не настроен ли уже чат (в текущей сессии)
-                existing_chat = await session.get(Chat, chat_id)
-                if not existing_chat and mode is None:
+                existing_chat_group = await session.get(ChatGroup, chat_id)
+                if not existing_chat_group and mode is None:
                     return False, "Сначала выберите режим работы бота"
-                if existing_chat and mode is None:
-                    mode = existing_chat.mode
+                if existing_chat_group and mode is None:
+                    mode = existing_chat_group.mode
 
-                if existing_chat:
+                if existing_chat_group:
                     # Определяем режим для проверки
-                    check_mode = mode if mode is not None else existing_chat.mode
+                    check_mode = mode if mode is not None else existing_chat_group.mode
 
                     if check_mode == "multi":
                         # В multi-mode проверяем, есть ли уже топик с таким topic_id
@@ -179,24 +179,24 @@ class ChatService:
                         "Первое и второе уведомления не могут быть настроены одинаково",
                     )
 
-                # Создаем или обновляем Chat
-                if existing_chat:
-                    chat = existing_chat
+                # Создаем или обновляем ChatGroup
+                if existing_chat_group:
+                    chat_group = existing_chat_group
                     if mode is None:
-                        mode = chat.mode
+                        mode = chat_group.mode
                     # Обновляем режим, если нужно
-                    if chat.mode != mode:
-                        chat.mode = mode
+                    if chat_group.mode != mode:
+                        chat_group.mode = mode
                 else:
                     if mode is None:
                         return False, "Сначала выберите режим работы бота"
-                    chat = Chat(
+                    chat_group = ChatGroup(
                         chat_id=chat_id,
                         mode=mode,
                         chat_title=chat_title,
                         chat_type=chat_type,
                     )
-                    session.add(chat)
+                    session.add(chat_group)
                     # Для нового чата нужно сделать flush, чтобы получить chat_id
                     await session.flush()
 
@@ -278,10 +278,10 @@ class ChatService:
                 logger.error(f"Ошибка настройки {chat_id}: {e}")
                 return False, "Произошла ошибка при настройке чата"
 
-    async def get_chat(self, chat_id: int) -> Chat | None:
+    async def get_chat(self, chat_id: int) -> ChatGroup | None:
         """Получить метаданные чата"""
         async with db_manager.async_session() as session:
-            stmt = select(Chat).where(Chat.chat_id == chat_id)
+            stmt = select(ChatGroup).where(ChatGroup.chat_id == chat_id)
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
@@ -355,12 +355,12 @@ class ChatService:
         async with db_manager.async_session() as session:
             try:
                 # Получаем чат в текущей сессии
-                chat = await session.get(Chat, chat_id)
-                if not chat:
+                chat_group = await session.get(ChatGroup, chat_id)
+                if not chat_group:
                     return False, "Чат не настроен"
 
                 # Получаем топик в текущей сессии с учетом режима
-                if chat.mode == "single":
+                if chat_group.mode == "single":
                     # В single-mode игнорируем topic_id и получаем единственный топик
                     stmt = select(ChatTopic).where(ChatTopic.chat_id == chat_id)
                     result = await session.execute(stmt)
@@ -425,8 +425,8 @@ class ChatService:
                 try:
                     chat_info = await bot.get_chat(chat_id)
                     new_chat_title = getattr(chat_info, "title", None)
-                    if new_chat_title and new_chat_title != chat.chat_title:
-                        chat.chat_title = new_chat_title
+                    if new_chat_title and new_chat_title != chat_group.chat_title:
+                        chat_group.chat_title = new_chat_title
                 except Exception as e:
                     logger.debug(f"Не удалось обновить chat_title для чата {chat_id}: {e}")
 
@@ -451,12 +451,12 @@ class ChatService:
         async with db_manager.async_session() as session:
             try:
                 # Получаем чат для определения режима
-                chat = await session.get(Chat, chat_id)
-                if not chat:
+                chat_group = await session.get(ChatGroup, chat_id)
+                if not chat_group:
                     return False, "❌ Чат не найден"
 
                 # Получаем топик в текущей сессии с учетом режима
-                if chat.mode == "single":
+                if chat_group.mode == "single":
                     # В single-mode игнорируем topic_id и получаем единственный топик
                     stmt = (
                         select(ChatTopic)
@@ -512,7 +512,7 @@ class ChatService:
                     select(ChatTopic)
                     .options(
                         selectinload(ChatTopic.subject),
-                        selectinload(ChatTopic.chat),
+                        selectinload(ChatTopic.chat_group),
                     )
                     .order_by(ChatTopic.created_at)
                 )
@@ -542,7 +542,7 @@ class ChatService:
         """Получить количество настроенных чатов"""
         async with db_manager.async_session() as session:
             try:
-                stmt = select(Chat)
+                stmt = select(ChatGroup)
                 result = await session.execute(stmt)
                 return len(result.scalars().all())
             except Exception as e:
@@ -583,12 +583,12 @@ class ChatService:
         try:
             async with db_manager.async_session() as session:
                 # Получаем чат для определения режима
-                chat = await session.get(Chat, chat_id)
-                if not chat:
+                chat_group = await session.get(ChatGroup, chat_id)
+                if not chat_group:
                     return False, "❌ Чат не найден"
 
                 # Получаем топик в текущей сессии с учетом режима
-                if chat.mode == "single":
+                if chat_group.mode == "single":
                     # В single-mode игнорируем topic_id и получаем единственный топик
                     stmt = (
                         select(ChatTopic)
@@ -655,9 +655,9 @@ class ChatService:
         """Обновить название чата"""
         try:
             async with db_manager.async_session() as session:
-                chat = await session.get(Chat, chat_id)
-                if chat:
-                    chat.chat_title = chat_title
+                chat_group = await session.get(ChatGroup, chat_id)
+                if chat_group:
+                    chat_group.chat_title = chat_title
                     await session.commit()
                     logger.debug(f"Название чата {chat_id} обновлено: {chat_title}")
                     return True
@@ -701,9 +701,9 @@ class ChatService:
                         chat_info = await bot.get_chat(chat_id)
                         chat_title = getattr(chat_info, "title", None)
                         if chat_title:
-                            chat = await session.get(Chat, chat_id)
-                            if chat:
-                                chat.chat_title = chat_title
+                            chat_group = await session.get(ChatGroup, chat_id)
+                            if chat_group:
+                                chat_group.chat_title = chat_title
                     except Exception as e:
                         logger.warning(f"Не удалось обновить chat_title для чата {chat_id}: {e}")
 
@@ -719,15 +719,15 @@ class ChatService:
         try:
             async with db_manager.async_session() as session:
                 # Получаем чат в текущей сессии
-                chat = await session.get(Chat, chat_id)
-                if not chat:
+                chat_group = await session.get(ChatGroup, chat_id)
+                if not chat_group:
                     return False, "❌ Чат не найден"
 
                 # Проверяем права админа
                 if not await self.is_chat_admin(bot, chat_id, user_id):
                     return False, "❌ У вас нет прав для изменения режима чата"
 
-                if chat.mode == new_mode:
+                if chat_group.mode == new_mode:
                     return False, f"❌ Чат уже в режиме {new_mode}"
 
                 # Получаем все топики
@@ -742,7 +742,7 @@ class ChatService:
                         await session.delete(topic)
 
                 # Переключаем режим
-                chat.mode = new_mode
+                chat_group.mode = new_mode
                 await session.commit()
 
                 mode_name = "single" if new_mode == "single" else "multi"
@@ -771,19 +771,19 @@ class ChatService:
                 from sqlalchemy import update
 
                 # Проверяем, существует ли старый чат
-                old_chat = await session.get(Chat, old_chat_id)
-                if not old_chat:
+                old_chat_group = await session.get(ChatGroup, old_chat_id)
+                if not old_chat_group:
                     logger.warning(f"Чат {old_chat_id} не найден для миграции")
                     return False
 
                 # Проверяем, не существует ли уже новый чат
-                new_chat = await session.get(Chat, new_chat_id)
-                if new_chat:
+                new_chat_group = await session.get(ChatGroup, new_chat_id)
+                if new_chat_group:
                     logger.warning(f"Чат {new_chat_id} уже существует, пропускаем миграцию")
                     return False
 
                 # Обновляем информацию о чате, если есть доступ к боту
-                chat_title = old_chat.chat_title
+                chat_title = old_chat_group.chat_title
                 if bot:
                     try:
                         chat_info = await bot.get_chat(new_chat_id)
@@ -791,11 +791,11 @@ class ChatService:
                     except Exception as e:
                         logger.debug(f"Не удалось получить информацию о новом чате {new_chat_id}: {e}")
 
-                # Обновляем Chat: меняем chat_id и chat_type
-                old_chat.chat_id = new_chat_id
-                old_chat.chat_type = "supergroup"
+                # Обновляем ChatGroup: меняем chat_id и chat_type
+                old_chat_group.chat_id = new_chat_id
+                old_chat_group.chat_type = "supergroup"
                 if chat_title:
-                    old_chat.chat_title = chat_title
+                    old_chat_group.chat_title = chat_title
 
                 # Обновляем все ChatTopic с старым chat_id
                 await session.execute(

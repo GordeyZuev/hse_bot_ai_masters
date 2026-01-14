@@ -21,24 +21,6 @@ class SubscriptionStates(StatesGroup):
     choosing_subject = State()
 
 
-@router.message(and_f(Command("sub"), F.chat.type == "private"))
-@router.message(and_f(Command("mysubs"), F.chat.type == "private"))
-@router.callback_query(F.data == "quick_sub")
-@router.callback_query(F.data == "quick_mysubs")
-async def cmd_subscriptions(event: Message | CallbackQuery, db_user, state: FSMContext):
-    """Редирект старых команд в единый раздел Дисциплины."""
-    if isinstance(event, CallbackQuery):
-        await event.answer()
-        # Переиспользуем общий раздел дисциплин
-        await cmd_subjects(event, db_user, state)
-    else:
-        # Преобразуем в callback-совместимый вызов
-        class _FakeCallback:
-            def __init__(self, message: Message):
-                self.message = message
-        await cmd_subjects(_FakeCallback(event), db_user, state)
-
-
 @router.callback_query(F.data.startswith("sub_year_"))
 async def process_year_choice(callback: CallbackQuery, db_user, state: FSMContext):
     """Обработка выбора курса"""
@@ -182,7 +164,7 @@ async def cmd_unsubscribe_all(event: Message | CallbackQuery, db_user):
         builder.button(
             text="✅ Да, отписаться от всего", callback_data="execute_unsuball"
         )
-        builder.button(text="❌ Отмена", callback_data="quick_mysubs")
+        builder.button(text="❌ Отмена", callback_data="quick_subjects")
         builder.adjust(1)
 
         if edit_mode:
@@ -209,7 +191,7 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
         text = f"🗑 <b>Отписка от всех предметов</b>\n\n{message_text}"
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="📚 Подписаться заново", callback_data="quick_sub")
+        builder.button(text="📚 Подписаться заново", callback_data="quick_subjects")
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(1)
 
@@ -221,7 +203,6 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
         await callback.answer("Произошла ошибка", show_alert=True)
 
 
-# Удаляем старые команды /unsub, так как теперь все в /sub
 
 
 # Обработчики навигации
@@ -229,7 +210,7 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
 async def back_to_year_choice(callback: CallbackQuery, db_user, state: FSMContext):
     """Возврат к выбору курса"""
     await callback.answer()
-    await cmd_subscriptions(callback, db_user, state)
+    await cmd_subjects(callback, db_user, state) 
 
 
 @router.callback_query(F.data == "back_to_menu")

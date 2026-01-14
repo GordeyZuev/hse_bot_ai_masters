@@ -61,7 +61,7 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
 
         # Создаем клавиатуру с полезными действиями
         builder = InlineKeyboardBuilder()
-        builder.button(text="📚 Подписки", callback_data="quick_sub")
+        builder.button(text="📚 Подписки", callback_data="quick_subjects")
         builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
         builder.button(text="⚙️ Настройки", callback_data="quick_settings")
         builder.button(text="🔙 Назад", callback_data="back_to_menu")

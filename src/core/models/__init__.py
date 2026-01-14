@@ -1,6 +1,6 @@
 from .models import (
     Base,
-    Chat,
+    ChatGroup,
     ChatScheduledNotification,
     ChatTopic,
     ScheduledNotification,
@@ -13,14 +13,9 @@ from .models import (
 )
 
 
-# Обратная совместимость: ChatGroup как alias для Chat
-ChatGroup = Chat
-
-
 __all__ = [
     "Base",
-    "Chat",
-    "ChatGroup",  # Для обратной совместимости
+    "ChatGroup",
     "ChatScheduledNotification",
     "ChatTopic",
     "ScheduledNotification",

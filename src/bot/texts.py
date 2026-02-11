@@ -57,6 +57,7 @@ ADMIN_HELP_TEXT = """
 
 <b>📊 Для администраторов:</b>
 • /stats — статистика использования и админ-панель.
+• /user_info — информация о пользователе (ID или @username).
 • /fast_sync — быстрая синхронизация с Google Sheets.
 • /broadcast — массовая рассылка.
 • /logs — получить файлы логов.
@@ -446,6 +447,31 @@ ADMIN_CHAT_LIST_HEADER = """📋 <b>Список подключенных чат
 """
 
 ADMIN_CHAT_LIST_SUMMARY = "<i>Активных: {active_count} | Неактивных: {inactive_count}</i>"
+
+ADMIN_USER_INFO = """👤 <b>Информация о пользователе</b>
+
+<b>Имя:</b> {full_name}
+<b>Username:</b> {username}
+<b>ID:</b> {user_id}
+<b>Статус:</b> {status}
+
+🕰 <b>Зарегистрирован:</b> {created_at}
+🕐 <b>Последняя активность:</b> {last_activity}
+
+{subscriptions_info}"""
+
+ADMIN_USER_NOT_FOUND = """❌ <b>Пользователь не найден</b>
+
+Проверьте правильность ID или username."""
+
+ADMIN_USER_INFO_USAGE = """❌ <b>Укажите ID или username пользователя</b>
+
+Использование: /user_info &lt;id или @username&gt;
+
+Примеры:
+• /user_info 123456789
+• /user_info @ivanov
+• /user_info ivanov"""
 
 
 # ============================================================================

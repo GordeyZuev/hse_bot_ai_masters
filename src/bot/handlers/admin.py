@@ -32,6 +32,9 @@ from src.bot.texts import (
     ADMIN_SYNC_ERROR,
     ADMIN_SYNC_ERROR_GENERIC,
     ADMIN_SYNC_SUCCESS,
+    ADMIN_USER_INFO,
+    ADMIN_USER_INFO_USAGE,
+    ADMIN_USER_NOT_FOUND,
     ERROR_BROADCAST_EXECUTE,
     ERROR_BROADCAST_PREPARE,
     ERROR_CHAT_LIST,
@@ -45,7 +48,7 @@ from src.bot.texts import (
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
 from src.utils import get_logger, safe_edit_message
-from src.utils.notification_formatting import format_duration
+from src.utils.notification_formatting import format_deadline_datetime, format_duration
 
 
 logger = get_logger()
@@ -278,6 +281,82 @@ async def format_statistics_message(stats: dict) -> str:
     text += ADMIN_STATS_SYSTEM.format(last_sync=stats.get("last_sync", "Неизвестно"))
 
     return text
+
+
+@router.message(Command("user_info"))
+async def cmd_user_info(message: Message, db_user):
+    """Обработчик команды /user_info - информация о пользователе для админов"""
+    if not is_admin(db_user.tg_user_id):
+        await message.answer(ERROR_NO_ADMIN_RIGHTS)
+        return
+
+    try:
+        # Парсим аргументы команды
+        args = message.text.split(maxsplit=1)
+
+        if len(args) < 2:
+            await message.answer(ADMIN_USER_INFO_USAGE)
+            return
+
+        identifier = args[1].strip()
+
+        if not identifier:
+            await message.answer(ADMIN_USER_INFO_USAGE)
+            return
+
+        # Получаем информацию о пользователе
+        user_info = await admin_service.get_user_info_by_identifier(identifier)
+
+        if not user_info:
+            await message.answer(ADMIN_USER_NOT_FOUND)
+            logger.info(f"(A) {db_user.tg_user_id} - /user_info {identifier} - не найден")
+            return
+
+        user = user_info["user"]
+        subscriptions = user_info["subscriptions"]
+
+        # Форматируем полное имя
+        full_name_parts = []
+        if user.first_name:
+            full_name_parts.append(user.first_name)
+        if user.last_name:
+            full_name_parts.append(user.last_name)
+        full_name = " ".join(full_name_parts) if full_name_parts else "-"
+
+        # Форматируем username
+        username = f"@{user.username}" if user.username else "-"
+
+        # Форматируем статус
+        status = "✅ Активен" if user.is_active else "❌ Неактивен"
+
+        # Форматируем даты
+        created_at = format_deadline_datetime(user.created_at) if user.created_at else "-"
+        last_activity = format_deadline_datetime(user.last_activity) if user.last_activity else "-"
+
+        # Форматируем подписки
+        if subscriptions:
+            subs_list = "\n".join(f"• {sub.name}" for sub in subscriptions)
+            subscriptions_info = f"📚 <b>Подписки ({len(subscriptions)}):</b>\n{subs_list}"
+        else:
+            subscriptions_info = "📚 <b>Подписок нет.</b>"
+
+        # Формируем итоговое сообщение
+        text = ADMIN_USER_INFO.format(
+            full_name=full_name,
+            username=username,
+            user_id=user.tg_user_id,
+            status=status,
+            created_at=created_at,
+            last_activity=last_activity,
+            subscriptions_info=subscriptions_info,
+        )
+
+        await message.answer(text)
+        logger.info(f"(A) {db_user.tg_user_id} - /user_info {identifier}")
+
+    except Exception as e:
+        logger.error(f"(A) {db_user.tg_user_id} - команда /user_info: {e}")
+        await message.answer(f"❌ Ошибка при получении информации о пользователе: {e!s}")
 
 
 @router.message(Command("logs"))

@@ -15,6 +15,8 @@ from src.core.database import db_manager
 from src.core.models import (
     ChatScheduledNotification,
     ScheduledNotification,
+    Subject,
+    Subscription,
     Task,
     User,
 )
@@ -325,5 +327,50 @@ class AdminService:
                 f"📄 <b>Текущие логи</b>\n\n❌ Ошибка при отправке логов: {e!s}",
             )
             return False
+
+    async def get_user_info_by_identifier(self, identifier: str) -> dict[str, Any] | None:
+        """Получить информацию о пользователе по ID или username
+
+        Args:
+            identifier: ID пользователя (число) или username (с @ или без)
+
+        Returns:
+            Словарь с информацией о пользователе или None если не найден
+        """
+        async with db_manager.async_session() as session:
+            try:
+                # Убираем @ если есть
+                clean_identifier = identifier.lstrip("@")
+
+                # Определяем тип идентификатора и ищем пользователя
+                if clean_identifier.isdigit():
+                    stmt = select(User).where(User.tg_user_id == int(clean_identifier))
+                else:
+                    stmt = select(User).where(User.username == clean_identifier)
+
+                result = await session.execute(stmt)
+                user = result.scalar_one_or_none()
+
+                if not user:
+                    return None
+
+                # Получаем подписки пользователя
+                subscriptions_stmt = (
+                    select(Subject)
+                    .join(Subscription)
+                    .where(Subscription.user_id == user.tg_user_id)
+                    .order_by(Subject.name)
+                )
+                subscriptions_result = await session.execute(subscriptions_stmt)
+                subscriptions = list(subscriptions_result.scalars().all())
+
+                return {
+                    "user": user,
+                    "subscriptions": subscriptions,
+                }
+
+            except Exception as e:
+                logger.error(f"Ошибка получения информации о пользователе {identifier}: {e}")
+                return None
 
 admin_service = AdminService()

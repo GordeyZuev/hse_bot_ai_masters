@@ -470,7 +470,7 @@ async def callback_mark_done_subject(callback: CallbackQuery, db_user):
         callback.message, f"<b>{subject_name}</b>\n\nОтметьте выполненные задания:",
         reply_markup=builder.as_markup(),
         parse_mode="HTML",
-        disable_web_page_preview=True,
+        disable_web_page_preview=True
     )
 
 

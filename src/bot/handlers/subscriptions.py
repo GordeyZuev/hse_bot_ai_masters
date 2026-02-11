@@ -210,7 +210,7 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
 async def back_to_year_choice(callback: CallbackQuery, db_user, state: FSMContext):
     """Возврат к выбору курса"""
     await callback.answer()
-    await cmd_subjects(callback, db_user, state) 
+    await cmd_subjects(callback, db_user, state)
 
 
 @router.callback_query(F.data == "back_to_menu")

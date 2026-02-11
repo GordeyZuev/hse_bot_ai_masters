@@ -2,6 +2,7 @@ import re
 from datetime import UTC, datetime
 
 from aiogram import F, Router
+from aiogram.enums import ButtonStyle
 from aiogram.filters import Command, and_f
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -9,9 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from src.bot.services.deadline_service import deadline_service
 from src.bot.services.task_status_service import task_status_service
 from src.bot.texts import (
-    DEADLINES_ALL_DONE,
     DEADLINES_ERROR,
-    DEADLINES_TITLE,
     DEADLINES_TOTAL,
 )
 from src.utils import get_logger, safe_edit_message
@@ -23,6 +22,15 @@ from src.utils.notification_formatting import (
 
 logger = get_logger()
 router = Router()
+
+ALL_DEADLINES_THRESHOLD = 100
+
+
+def _deadlines_title(days: int) -> str:
+    """Заголовок списка дедлайнов: 'Все дедлайны' или 'Дедлайны на N дней'"""
+    if days >= ALL_DEADLINES_THRESHOLD:
+        return "📅 <b>Все дедлайны</b>"
+    return f"📅 <b>Дедлайны на {days} дней</b>"
 
 
 def _format_single_deadline(data: dict, deadline_numbers: dict[int, int], user_tz_name: str, is_done: bool = False) -> str:
@@ -86,9 +94,9 @@ def _format_deadlines_with_divider(
     )
 
     if not not_done_deadlines and done_deadlines and hide_done:
-        return DEADLINES_ALL_DONE.format(days=days)
+        return _deadlines_title(days) + "\n\nВы все выполнили! Поздравляем!"
 
-    text = DEADLINES_TITLE.format(days=days)
+    text = _deadlines_title(days) + "\n\n"
 
     if not_done_deadlines:
         for idx, data in enumerate(not_done_deadlines):
@@ -122,8 +130,8 @@ async def cmd_deadlines(message: Message, db_user):
                 days = int(match.group(1))
                 if days < 1:
                     days = 1
-                elif days > 365:
-                    days = 365
+                elif days > 500:
+                    days = 500
             except ValueError:
                 days = 7
 
@@ -172,15 +180,16 @@ async def send_deadlines_list(message: Message, db_user, days: int, hide_done: b
         # Создаем клавиатуру с стандартными кнопками
         builder = InlineKeyboardBuilder()
 
-        periods = [(7, "7 дней"), (15, "15 дней"), (30, "30 дней")]
+        periods = [(7, "7 дней"), (15, "15 дней"), (500, "Все")]
         for period_days, period_text in periods:
             if period_days == days:
                 button_text = f"🔷 {period_text}"
                 callback_data = f"current_{period_days}_h{1 if hide_done else 0}"
+                builder.button(text=button_text, callback_data=callback_data, style=ButtonStyle.PRIMARY)
             else:
                 button_text = period_text
                 callback_data = f"deadlines_{period_days}_h{1 if hide_done else 0}"
-            builder.button(text=button_text, callback_data=callback_data)
+                builder.button(text=button_text, callback_data=callback_data)
 
         if not all_deadlines:
             builder.button(text="📚 Подписки", callback_data="quick_subjects")
@@ -279,15 +288,16 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
 
         # Периоды (3 кнопки в один ряд)
         periods_builder = InlineKeyboardBuilder()
-        periods = [(7, "7 дней"), (15, "15 дней"), (30, "30 дней")]
+        periods = [(7, "7 дней"), (15, "15 дней"), (500, "Все")]
         for period_days, period_text in periods:
             if period_days == days:
                 button_text = f"🔷 {period_text}"
                 callback_data = f"check_current_{period_days}_h{1 if hide_done else 0}"
+                periods_builder.button(text=button_text, callback_data=callback_data, style=ButtonStyle.PRIMARY)
             else:
                 button_text = period_text
                 callback_data = f"check_period_{period_days}_h{1 if hide_done else 0}"
-            periods_builder.button(text=button_text, callback_data=callback_data)
+                periods_builder.button(text=button_text, callback_data=callback_data)
         periods_builder.adjust(3)
 
         # Дедлайны (по 4 кнопки в ряд)
@@ -301,7 +311,11 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
                 idx = deadline_numbers[deadline.id]
                 button_text = f"{idx}. {icon}"
                 callback_data = f"quick_toggle_{deadline.id}_{days}_h{1 if hide_done else 0}"
-                deadlines_builder.button(text=button_text, callback_data=callback_data)
+                btn_style = ButtonStyle.SUCCESS if is_done else None
+                if btn_style:
+                    deadlines_builder.button(text=button_text, callback_data=callback_data, style=btn_style)
+                else:
+                    deadlines_builder.button(text=button_text, callback_data=callback_data)
             deadlines_builder.adjust(4)
 
         # Кнопки снизу
@@ -311,7 +325,7 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
             bottom_builder.button(text="🔙 Назад", callback_data="back_to_menu")
             bottom_builder.adjust(2)
         else:
-            bottom_builder.button(text="🔙 Сохранить и выйти", callback_data=f"deadlines_{days}_h{1 if hide_done else 0}")
+            bottom_builder.button(text="🔙 Сохранить и выйти", callback_data=f"deadlines_{days}_h{1 if hide_done else 0}", style=ButtonStyle.SUCCESS)
             bottom_builder.adjust(1)
 
         # Объединяем все построители

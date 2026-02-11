@@ -114,7 +114,7 @@
 | `/stats` | Статистика бота | `/stats` |
 | `/logs` | Просмотр логов | `/logs` |
 | `/user_info` | Информация о пользователе | `/user_info 123456` или `/user_info @username` |
-| `/fast_sync` | Быстрая синхронизация | `/fast_sync` |
+| `/full_sync` | Полная синхронизация (дисциплины + дедлайны) | `/full_sync` |
 | `/broadcast` | Массовая рассылка | `/broadcast` |
 | `/chat_stats` | Статистика групповых чатов | `/chat_stats` |
 | `/chat_toggle_all` | Вкл/выкл все групповые чаты | `/chat_toggle_all` |

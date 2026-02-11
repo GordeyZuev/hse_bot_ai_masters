@@ -7,7 +7,7 @@ packages = ["src"]
 
 [project]
 name = "hse-bot-ai-masters"
-version = "1.0.0"
+version = "1.1.2"
 description = "Telegram bot for HSE AI Masters deadline notifications"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,7 +30,7 @@ classifiers = [
 
 dependencies = [
     "aiofiles==24.1.0",
-    "aiogram==3.22.0",
+    "aiogram==3.25.0",
     "aiohappyeyeballs==2.6.1",
     "aiohttp==3.12.15",
     "aiosignal==1.4.0",

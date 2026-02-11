@@ -19,6 +19,7 @@
 - [Работа с групповыми чатами](#-работа-с-групповыми-чатами-v100)
 - [Система отслеживания статуса заданий](#-система-отслеживания-статуса-заданий-v100)
 - [Утилиты для работы с Telegram API](#-утилиты-для-работы-с-telegram-api-v100)
+- [Стили кнопок (ButtonStyle)](#-стили-кнопок-buttonstyle-v112)
 - [Безопасность](#-безопасность)
 - [Производительность](#-производительность)
 - [Мониторинг и логирование](#-мониторинг-и-логирование)
@@ -262,7 +263,7 @@ Telegram ChatGroup → GroupChat Handler → ChatService → ChatNotificationSch
 ## 📦 Зависимости
 
 ### Основные библиотеки
-- **`aiogram`** (3.22.0) - Telegram Bot API framework (поддержка пользователей и групповых чатов)
+- **`aiogram`** (3.25.0) - Telegram Bot API framework (поддержка пользователей, групповых чатов, цветных кнопок)
 - **`SQLAlchemy`** (2.0.43) - ORM для работы с базой данных
 - **`asyncpg`** (0.30.0) - Асинхронный PostgreSQL драйвер
 - **`APScheduler`** (3.11.0) - Планировщик задач (уведомления для пользователей и чатов)
@@ -498,11 +499,57 @@ Middleware для обработки ошибок в групповых чата
 - Режим сна автоматически применяется для личных сообщений
 - Ошибки обрабатываются автоматически через middleware
 
+## 🎨 Стили кнопок (ButtonStyle) (v1.1.2)
+
+Начиная с Telegram Bot API 9.3 и aiogram 3.25.0, inline-кнопки поддерживают цветные стили через параметр `style` у `InlineKeyboardButton`. Используется enum `aiogram.enums.ButtonStyle`.
+
+### Доступные стили
+
+| Стиль | Значение | Цвет | Назначение |
+|-------|----------|------|------------|
+| `ButtonStyle.DANGER` | `"danger"` | Красный | Деструктивные действия (удаление, отписка, отключение) |
+| `ButtonStyle.SUCCESS` | `"success"` | Зелёный | Позитивные действия (сохранение, включение, подтверждение) |
+| `ButtonStyle.PRIMARY` | `"primary"` | Синий | Главные CTA-кнопки (основное действие, акцент) |
+| *(без стиля)* | — | По умолчанию | Обычные навигационные кнопки |
+
+### Использование с InlineKeyboardBuilder
+
+```python
+from aiogram.enums import ButtonStyle
+
+builder.button(
+    text="🗑 Удалить",
+    callback_data="delete",
+    style=ButtonStyle.DANGER
+)
+```
+
+### Использование с InlineKeyboardButton напрямую
+
+```python
+from aiogram.enums import ButtonStyle
+from aiogram.types import InlineKeyboardButton
+
+InlineKeyboardButton(
+    text="📅 Дедлайны",
+    callback_data="quick_deadlines",
+    style=ButtonStyle.PRIMARY
+)
+```
+
+### Где применяются стили
+
+**Danger:** `confirm_unsuball`, `execute_unsuball`, `disable_notifications`, `toggle_update_notifications` (off), `clear_sleep_time`, `admin_cancel_broadcast`, `chat_toggle_active` (off), `chat_delete_message`
+
+**Success:** `back_to_year_choice` (Сохранить и выйти), `enable_notifications`, `toggle_update_notifications` (on), `quick_toggle_*` (выполненные задачи), `deadlines_*` (Сохранить и выйти из mark-done), `admin_confirm_broadcast`, `chat_toggle_active` (on), `chat_setup_finish`
+
+**Primary:** Активный период дедлайнов (7 дней / 15 дней / Все), `admin_panel`, `quick_deadlines` (в уведомлениях)
+
 ## 📚 Связанная документация
 
 - **[README.md](../README.md)** - Основная документация и обзор возможностей
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Руководство по развертыванию и эксплуатации
-- **[UPDATES.md](UPDATES.md)** - История обновлений и версий (v1.1.0)
+- **[UPDATES.md](UPDATES.md)** - История обновлений и версий (v1.1.2)
 
 ---
 
@@ -512,6 +559,6 @@ Middleware для обработки ошибок в групповых чата
 
 *Подробная техническая документация архитектуры и компонентов*
 
-**Версия:** 1.1.0
+**Версия:** 1.1.2
 
 </div>

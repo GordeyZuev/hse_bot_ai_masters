@@ -1,6 +1,7 @@
 import re
 
 from aiogram import F, Router
+from aiogram.enums import ButtonStyle
 from aiogram.filters import Command, and_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -111,11 +112,13 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
                 builder.button(
                     text="🔕 Дедлайны - отключить уведомления",
                     callback_data="disable_notifications",
+                    style=ButtonStyle.DANGER,
                 )
             else:
                 builder.button(
                     text="🔔 Дедлайны - включить уведомления",
-                    callback_data="enable_notifications"
+                    callback_data="enable_notifications",
+                    style=ButtonStyle.SUCCESS,
                 )
 
         if settings:
@@ -123,11 +126,13 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
                 builder.button(
                     text="🔕 Изменения - отключить уведомления",
                     callback_data="toggle_update_notifications",
+                    style=ButtonStyle.DANGER,
                 )
             else:
                 builder.button(
                     text="🔔 Изменения - включить уведомления",
                     callback_data="toggle_update_notifications",
+                    style=ButtonStyle.SUCCESS,
                 )
 
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
@@ -451,7 +456,7 @@ async def callback_sleep_settings(callback: CallbackQuery, db_user):
         builder = InlineKeyboardBuilder()
         builder.button(text="⚙️ Настроить", callback_data="setup_sleep_time")
         if settings and settings.sleep_start_time and settings.sleep_end_time:
-            builder.button(text="🗑️ Сбросить", callback_data="clear_sleep_time")
+            builder.button(text="🗑️ Сбросить", callback_data="clear_sleep_time", style=ButtonStyle.DANGER)
         builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
         builder.adjust(2, 1)
 
@@ -532,7 +537,7 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="⚙️ Настроить", callback_data="setup_sleep_time")
-                builder.button(text="🗑️ Сбросить", callback_data="clear_sleep_time")
+                builder.button(text="🗑️ Сбросить", callback_data="clear_sleep_time", style=ButtonStyle.DANGER)
                 builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
                 builder.adjust(2, 1)
 

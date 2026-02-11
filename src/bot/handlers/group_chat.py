@@ -13,6 +13,7 @@
 import contextlib
 
 from aiogram import F, Router
+from aiogram.enums import ButtonStyle
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, and_f
 from aiogram.fsm.context import FSMContext
@@ -401,9 +402,9 @@ async def show_chat_settings_interface(message: Message, chat_topic, edit_mode: 
         builder.button(text="⚙️ Настроить уведомления", callback_data="chat_edit_settings")
         # Добавляем переключатель уведомлений в общий раздел
         if chat_topic.is_active:
-            builder.button(text="🔕 Отключить уведомления", callback_data="chat_toggle_active")
+            builder.button(text="🔕 Отключить уведомления", callback_data="chat_toggle_active", style=ButtonStyle.DANGER)
         else:
-            builder.button(text="🔔 Включить уведомления", callback_data="chat_toggle_active")
+            builder.button(text="🔔 Включить уведомления", callback_data="chat_toggle_active", style=ButtonStyle.SUCCESS)
 
         # Управление топиком (только в single-mode)
         if chat.mode == "single":
@@ -1125,7 +1126,7 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
 
             # Предлагаем удалить сообщение
             builder = InlineKeyboardBuilder()
-            builder.button(text="🗑️ Удалить сообщение", callback_data="chat_delete_message")
+            builder.button(text="🗑️ Удалить сообщение", callback_data="chat_delete_message", style=ButtonStyle.DANGER)
             builder.button(text="🔙 Назад", callback_data="back_to_start")
             builder.adjust(1)
 
@@ -1174,7 +1175,7 @@ async def callback_set_reminder1_value(callback: CallbackQuery, db_user, state: 
         builder = InlineKeyboardBuilder()
         builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
         builder.button(text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2")
-        builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish")
+        builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish", style=ButtonStyle.SUCCESS)
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(1)
 
@@ -1221,7 +1222,7 @@ async def callback_set_reminder2_value(callback: CallbackQuery, db_user, state: 
         builder = InlineKeyboardBuilder()
         builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
         builder.button(text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2")
-        builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish")
+        builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish", style=ButtonStyle.SUCCESS)
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(1)
 
@@ -2482,7 +2483,7 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
             builder = InlineKeyboardBuilder()
             builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
             builder.button(text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2")
-            builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish")
+            builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish", style=ButtonStyle.SUCCESS)
             builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
             builder.adjust(1)
 

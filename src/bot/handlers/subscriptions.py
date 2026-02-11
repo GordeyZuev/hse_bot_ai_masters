@@ -1,5 +1,6 @@
 # ruff: noqa: ARG001
 from aiogram import F, Router
+from aiogram.enums import ButtonStyle
 from aiogram.filters import Command, and_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -73,7 +74,7 @@ async def show_subjects_for_year(
             builder.button(text=button_text, callback_data=callback_data)
 
         builder.row()
-        builder.button(text="🔙 Сохранить и выйти", callback_data="back_to_year_choice")
+        builder.button(text="🔙 Сохранить и выйти", callback_data="back_to_year_choice", style=ButtonStyle.SUCCESS)
         builder.adjust(1)
 
         await state.update_data(year=year)
@@ -162,7 +163,7 @@ async def cmd_unsubscribe_all(event: Message | CallbackQuery, db_user):
 
         builder = InlineKeyboardBuilder()
         builder.button(
-            text="✅ Да, отписаться от всего", callback_data="execute_unsuball"
+            text="✅ Да, отписаться от всего", callback_data="execute_unsuball", style=ButtonStyle.DANGER
         )
         builder.button(text="❌ Отмена", callback_data="quick_subjects")
         builder.adjust(1)
@@ -223,7 +224,7 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     builder.button(text="📖 Дисциплины", callback_data="quick_subjects")
-    builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
+    builder.button(text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY)
     builder.button(text="⚙️ Настройки", callback_data="quick_settings")
     builder.button(text="❓ Помощь", callback_data="quick_help")
 
@@ -231,7 +232,7 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
 
     if is_admin(callback.from_user.id):
         builder.row()
-        builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel")
+        builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel", style=ButtonStyle.PRIMARY)
         builder.adjust(2, 2, 1)
     else:
         builder.adjust(2, 2)
@@ -288,7 +289,7 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
         builder.button(text="1️⃣ Первый курс", callback_data="subjects_year_1")
         builder.button(text="2️⃣ Второй курс", callback_data="subjects_year_2")
         builder.row()
-        builder.button(text="🗑 Отписаться от всего", callback_data="confirm_unsuball")
+        builder.button(text="🗑 Отписаться от всего", callback_data="confirm_unsuball", style=ButtonStyle.DANGER)
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(2, 1)
     except Exception as e:

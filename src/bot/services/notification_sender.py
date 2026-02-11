@@ -3,6 +3,7 @@ from typing import Any
 
 import pytz
 from aiogram import Bot
+from aiogram.enums import ButtonStyle
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, or_, select
 
@@ -266,7 +267,7 @@ class NotificationSender:
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="📅 Дедлайны", callback_data="quick_deadlines"
+                        text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY
                     )
                 ]
             ]
@@ -399,7 +400,7 @@ class NotificationSender:
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text="📅 Дедлайны", callback_data="quick_deadlines"
+                                text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY
                             )
                         ]
                     ]
@@ -539,7 +540,7 @@ class NotificationSender:
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text="📅 Дедлайны", callback_data="quick_deadlines"
+                                text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY
                             )
                         ]
                     ]

@@ -1,6 +1,7 @@
 import os
 
 from aiogram import F, Router
+from aiogram.enums import ButtonStyle
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -167,7 +168,7 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
         if isinstance(message_or_callback, CallbackQuery):
             await safe_edit_message(message_or_callback.message, text, reply_markup=keyboard)
         else:
-            # Для команды /fast_sync статусное сообщение редактируем напрямую
+            # Для команды /full_sync статусное сообщение редактируем напрямую
             await safe_edit_message(message_or_callback, text)
 
         logger.info(
@@ -375,18 +376,72 @@ async def cmd_logs(message: Message, db_user):
         await message.answer(f"❌ Ошибка при получении логов: {e!s}")
 
 
-@router.message(Command("fast_sync"))
-async def cmd_fast_sync(message: Message, db_user):
-    """Обработчик команды /fast_sync - быстрая синхронизация для админов"""
+@router.message(Command("full_sync"))
+async def cmd_full_sync(message: Message, db_user):
+    """Обработчик команды /full_sync - полная синхронизация (дисциплины + дедлайны) для админов"""
     if not is_admin(db_user.tg_user_id):
         await message.answer(ERROR_NO_ADMIN_RIGHTS)
         return
 
-    # Создаем статусное сообщение
-    status_message = await message.answer("🔄 <b>Запускаю синхронизацию...</b>")
+    status_message = await message.answer("🔄 <b>Запускаю полную синхронизацию...</b>")
 
-    # Используем общую функцию синхронизации
-    await perform_sync(status_message, db_user, show_back_button=False)
+    try:
+        # 1. Синхронизация дисциплин
+        logger.info(f"(A) {db_user.tg_user_id} - /full_sync: синхронизация дисциплин")
+        subjects_result = await data_syncer.sync_subjects()
+        subjects_updated = subjects_result.get("updated", 0)
+        subjects_created = subjects_result.get("created", 0)
+
+        await safe_edit_message(
+            status_message,
+            "🔄 <b>Дисциплины синхронизированы, синхронизирую дедлайны...</b>",
+        )
+
+        # 2. Синхронизация дедлайнов
+        logger.info(f"(A) {db_user.tg_user_id} - /full_sync: синхронизация дедлайнов")
+        sync_result = await data_syncer.sync_data()
+        deadlines_success = (
+            bool(sync_result.get("success"))
+            if isinstance(sync_result, dict)
+            else bool(sync_result)
+        )
+
+        # Отправка мгновенных уведомлений об изменениях
+        if deadlines_success and isinstance(sync_result, dict):
+            changes = sync_result.get("changes", [])
+            if changes:
+                try:
+                    await notification_sender.send_immediate_task_changes(
+                        message.bot, changes
+                    )
+                    logger.info(
+                        f"Отправлены мгновенные уведомления об изменениях: {len(changes)} дедлайнов"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Ошибка отправки мгновенных уведомлений при полной синхронизации: {e}"
+                    )
+
+        # Формируем итоговое сообщение
+        if deadlines_success:
+            text = (
+                "✅ <b>Полная синхронизация завершена</b>\n\n"
+                f"📚 <b>Дисциплины:</b> обновлено {subjects_updated}, создано {subjects_created}\n"
+                f"📝 <b>Дедлайны:</b> синхронизированы"
+            )
+        else:
+            text = (
+                "⚠️ <b>Синхронизация завершена частично</b>\n\n"
+                f"📚 <b>Дисциплины:</b> обновлено {subjects_updated}, создано {subjects_created}\n"
+                f"📝 <b>Дедлайны:</b> ошибка синхронизации"
+            )
+
+        await safe_edit_message(status_message, text)
+        logger.info(f"(A) {db_user.tg_user_id} - /full_sync завершена")
+
+    except Exception as e:
+        logger.error(f"(A) {db_user.tg_user_id} - /full_sync: {e}")
+        await safe_edit_message(status_message, ADMIN_SYNC_ERROR_GENERIC)
 
 
 @router.message(Command("stats"))
@@ -421,7 +476,7 @@ async def cmd_broadcast(event: Message | CallbackQuery, db_user, state: FSMConte
         text = ADMIN_BROADCAST_CONFIRM.format(user_count=user_count)
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="❌ Отмена", callback_data="admin_cancel_broadcast")
+        builder.button(text="❌ Отмена", callback_data="admin_cancel_broadcast", style=ButtonStyle.DANGER)
 
         await state.set_state(BroadcastStates.waiting_message)
         await message.answer(text, reply_markup=builder.as_markup())
@@ -453,8 +508,8 @@ async def process_broadcast_message(message: Message, db_user, state: FSMContext
         )
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="✅ Отправить", callback_data="admin_confirm_broadcast")
-        builder.button(text="❌ Отмена", callback_data="admin_cancel_broadcast")
+        builder.button(text="✅ Отправить", callback_data="admin_confirm_broadcast", style=ButtonStyle.SUCCESS)
+        builder.button(text="❌ Отмена", callback_data="admin_cancel_broadcast", style=ButtonStyle.DANGER)
         builder.adjust(2)
 
         await state.set_state(BroadcastStates.confirming_broadcast)

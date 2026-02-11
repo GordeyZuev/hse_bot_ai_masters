@@ -1,4 +1,5 @@
 from aiogram import Router
+from aiogram.enums import ButtonStyle
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -39,7 +40,7 @@ async def handle_start_in_private(message: Message, db_user, user_name: str):
 
         builder = InlineKeyboardBuilder()
         builder.button(text="📖 Дисциплины", callback_data="quick_subjects")
-        builder.button(text="📅 Дедлайны", callback_data="quick_deadlines")
+        builder.button(text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY)
         builder.button(text="⚙️ Настройки", callback_data="quick_settings")
         builder.button(text="❓ Помощь", callback_data="quick_help")
 
@@ -47,7 +48,7 @@ async def handle_start_in_private(message: Message, db_user, user_name: str):
 
         if is_admin(db_user.tg_user_id):
             builder.row()
-            builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel")
+            builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel", style=ButtonStyle.PRIMARY)
             builder.adjust(2, 2, 1)
         else:
             builder.adjust(2, 2)

@@ -247,6 +247,13 @@ class DeadlineService:
 
         return message
 
+    @staticmethod
+    def _deadlines_title(days: int) -> str:
+        """Заголовок: 'Все дедлайны' для больших периодов, иначе 'Дедлайны на N дней'"""
+        if days >= 100:
+            return "📅 <b>Все дедлайны</b>"
+        return f"📅 <b>Дедлайны на {days} дней</b>"
+
     def format_deadlines_list(
         self,
         deadlines_data: list[dict[str, Any]],
@@ -254,10 +261,11 @@ class DeadlineService:
         user_tz_name: str = "Europe/Moscow",
     ) -> str:
         """Форматирование списка дедлайнов"""
+        title = self._deadlines_title(days)
         if not deadlines_data:
-            return f"📅 <b>Дедлайны на {days} дней</b>\n\nДедлайнов не найдено.\nВозможно, у вас нет подписок на предметы."
+            return f"{title}\n\nДедлайнов не найдено.\nВозможно, у вас нет подписок на предметы."
 
-        message = f"📅 <b>Дедлайны на {days} дней</b>\n\n"
+        message = f"{title}\n\n"
 
         for i, data in enumerate(deadlines_data, 1):
             deadline = data["deadline"]

@@ -49,7 +49,7 @@ from src.bot.texts import (
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
 from src.utils import get_logger, safe_edit_message
-from src.utils.notification_formatting import format_deadline_datetime, format_duration
+from src.utils.notification_formatting import format_deadline_tg_time, format_duration
 
 
 logger = get_logger()
@@ -330,9 +330,9 @@ async def cmd_user_info(message: Message, db_user):
         # Форматируем статус
         status = "✅ Активен" if user.is_active else "❌ Неактивен"
 
-        # Форматируем даты
-        created_at = format_deadline_datetime(user.created_at) if user.created_at else "-"
-        last_activity = format_deadline_datetime(user.last_activity) if user.last_activity else "-"
+        admin_tz = getattr(db_user, "timezone", None) or "Europe/Moscow"
+        created_at = format_deadline_tg_time(user.created_at, tz_name=admin_tz) if user.created_at else "-"
+        last_activity = format_deadline_tg_time(user.last_activity, tz_name=admin_tz) if user.last_activity else "-"
 
         # Форматируем подписки
         if subscriptions:
@@ -352,7 +352,7 @@ async def cmd_user_info(message: Message, db_user):
             subscriptions_info=subscriptions_info,
         )
 
-        await message.answer(text)
+        await message.answer(text, parse_mode="HTML")
         logger.info(f"(A) {db_user.tg_user_id} - /user_info {identifier}")
 
     except Exception as e:

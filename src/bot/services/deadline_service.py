@@ -7,7 +7,7 @@ from src.core.database import db_manager
 from src.core.models import Subject, Subscription, Task, TaskUserStatus
 from src.utils import get_logger
 from src.utils.notification_formatting import (
-    format_deadline_datetime,
+    format_deadline_tg_time,
     format_time_remaining,
 )
 
@@ -205,12 +205,9 @@ class DeadlineService:
         message = f"📚 <b>{subject.name}</b>\n"
         message += f"📝 <b>{deadline.hw_name}</b>\n\n"
 
-        # Текущее время (UTC)
         now = datetime.now(UTC)
-
-        # Дедлайны с проверкой актуальности и правильным форматированием времени
         if deadline.soft_deadline_ts:
-            soft_date = format_deadline_datetime(deadline.soft_deadline_ts, user_tz_name)
+            soft_date = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name=user_tz_name)
 
             if deadline.soft_deadline_ts >= now:
                 message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date}\n"
@@ -218,7 +215,7 @@ class DeadlineService:
                 message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date} <i>(прошел)</i>\n"
 
         if deadline.hard_deadline_ts:
-            hard_date = format_deadline_datetime(deadline.hard_deadline_ts, user_tz_name)
+            hard_date = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name=user_tz_name)
 
             if deadline.hard_deadline_ts >= now:
                 message += f"🔴 <b>Жесткий дедлайн:</b> {hard_date}\n"
@@ -275,21 +272,20 @@ class DeadlineService:
             # Делаем название ДЗ гиперссылкой, если есть ссылка
             if deadline.source_link:
                 message += (
-                    f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                    f"• 📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
                 )
             else:
-                message += f"📝 {deadline.hw_name}\n"
+                message += f"• 📝 {deadline.hw_name}\n"
 
-            # Ближайший дедлайн с правильным цветом
+            # Ближайший дедлайн (tg-time + fallback в TZ пользователя)
             if data.get("nearest_deadline"):
-                # Форматируем время в часовом поясе пользователя
                 now = datetime.now(UTC)
-                date_str = format_deadline_datetime(data["nearest_deadline"], user_tz_name)
+                date_str = format_deadline_tg_time(data["nearest_deadline"], tz_name=user_tz_name)
 
                 # Выбираем цвет в зависимости от типа дедлайна
                 deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"
                 remain = format_time_remaining(data["nearest_deadline"], now)
-                message += f"{deadline_type_icon} {date_str} {remain}"
+                message += f"• {deadline_type_icon} {date_str} {remain}"
 
             message += "\n\n"
 

@@ -240,7 +240,7 @@ class ChatNotificationSender:
         from datetime import UTC, datetime
 
         from src.utils.notification_formatting import (
-            format_deadline_datetime,
+            format_deadline_tg_time,
             format_time_remaining,
         )
 
@@ -271,32 +271,32 @@ class ChatNotificationSender:
 
             # Мягкий дедлайн (если есть и актуален)
             if deadline.soft_deadline_ts and deadline.soft_deadline_ts >= now:
-                soft_str = format_deadline_datetime(deadline.soft_deadline_ts)
+                soft_str = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name="Europe/Moscow")
                 remain = format_time_remaining(deadline.soft_deadline_ts, now)
-                lines.append(f"🟡 {soft_str} {remain}\n")
+                lines.append(f"• 🟡 {soft_str} {remain}\n")
                 has_any_deadline = True
 
             # Жёсткий дедлайн (если есть и актуален)
             if deadline.hard_deadline_ts and deadline.hard_deadline_ts >= now:
-                hard_str = format_deadline_datetime(deadline.hard_deadline_ts)
+                hard_str = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name="Europe/Moscow")
                 remain = format_time_remaining(deadline.hard_deadline_ts, now)
-                lines.append(f"🔴 {hard_str} {remain}\n")
+                lines.append(f"• 🔴 {hard_str} {remain}\n")
                 has_any_deadline = True
 
             # Если нет актуальных дедлайнов, но есть прошедшие - показываем их
             if not has_any_deadline:
                 if deadline.soft_deadline_ts:
-                    soft_str = format_deadline_datetime(deadline.soft_deadline_ts)
-                    lines.append(f"🟡 {soft_str} <i>(прошёл)</i>\n")
+                    soft_str = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name="Europe/Moscow")
+                    lines.append(f"• 🟡 {soft_str} <i>(прошёл)</i>\n")
                     has_any_deadline = True
                 if deadline.hard_deadline_ts:
-                    hard_str = format_deadline_datetime(deadline.hard_deadline_ts)
-                    lines.append(f"🔴 {hard_str} <i>(прошёл)</i>\n")
+                    hard_str = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name="Europe/Moscow")
+                    lines.append(f"• 🔴 {hard_str} <i>(прошёл)</i>\n")
                     has_any_deadline = True
 
             # Если вообще нет дедлайнов - показываем сообщение
             if not has_any_deadline:
-                lines.append("<i>Дедлайны не указаны</i>\n")
+                lines.append("• <i>Дедлайны не указаны</i>\n")
 
             lines.append("\n")
 
@@ -364,9 +364,8 @@ class ChatNotificationSender:
         else:
             deadline_ts = deadline.hard_deadline_ts
 
-        # Форматируем время (в часовом поясе Москвы)
-        from src.utils.notification_formatting import format_deadline_datetime
-        formatted_time = format_deadline_datetime(deadline_ts, "Europe/Moscow")
+        from src.utils.notification_formatting import format_deadline_tg_time
+        formatted_time = format_deadline_tg_time(deadline_ts, tz_name="Europe/Moscow")
         text += f"{formatted_time}\n"
 
         if deadline.note:

@@ -2657,9 +2657,6 @@ async def _compose_info_text(chat_id: int, topic_id: int | None = None) -> str |
         result = await session.execute(stmt)
         tasks = list(result.scalars().all())
 
-    import pytz
-    pytz.timezone("Europe/Moscow")
-
     if not tasks:
         lines.append("Актуальных дедлайнов нет.\n")
     else:
@@ -2672,14 +2669,14 @@ async def _compose_info_text(chat_id: int, topic_id: int | None = None) -> str |
                 lines.append(f"\n<b>{idx}. {hw}</b>\n")
 
             from src.utils.notification_formatting import (
-                format_deadline_datetime,
+                format_deadline_tg_time,
                 format_time_remaining,
             )
 
             def add_dt(ts, icon):
-                date_str = format_deadline_datetime(ts, "Europe/Moscow")
+                date_str = format_deadline_tg_time(ts, tz_name="Europe/Moscow")
                 suffix = format_time_remaining(ts, now)
-                lines.append(f"{icon} {date_str} {suffix}\n")
+                lines.append(f"• {icon} {date_str} {suffix}\n")
 
             if d.soft_deadline_ts and d.soft_deadline_ts >= now:
                 add_dt(d.soft_deadline_ts, "🟡")

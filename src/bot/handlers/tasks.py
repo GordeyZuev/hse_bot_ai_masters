@@ -15,7 +15,7 @@ from src.bot.texts import (
 )
 from src.utils import get_logger, safe_edit_message
 from src.utils.notification_formatting import (
-    format_deadline_datetime,
+    format_deadline_tg_time,
     format_time_remaining,
 )
 
@@ -41,21 +41,21 @@ def _format_single_deadline(data: dict, deadline_numbers: dict[int, int], user_t
 
     text = f"<b>{i}. {subject.name}</b>\n"
     if deadline.source_link:
-        text += f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+        text += f"• 📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
     else:
-        text += f"📝 {deadline.hw_name}\n"
+        text += f"• 📝 {deadline.hw_name}\n"
 
     if data.get("nearest_deadline"):
         now = datetime.now(UTC)
-        date_str = format_deadline_datetime(data["nearest_deadline"], user_tz_name)
+        date_str = format_deadline_tg_time(data["nearest_deadline"], tz_name=user_tz_name)
 
         if is_done:
             remain = format_time_remaining(data["nearest_deadline"], now)
-            text += f"✅ {date_str} {remain}"
+            text += f"• ✅ {date_str} {remain}"
         else:
             deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"
             remain = format_time_remaining(data["nearest_deadline"], now)
-            text += f"{deadline_type_icon} {date_str} {remain}"
+            text += f"• {deadline_type_icon} {date_str} {remain}"
 
     return text
 
@@ -174,8 +174,8 @@ async def send_deadlines_list(message: Message, db_user, days: int, hide_done: b
             db_user.tg_user_id, days, hide_done=False
         )
 
-        # Форматируем сообщение с разделителем
-        text = _format_deadlines_with_divider(all_deadlines, days, db_user.timezone, hide_done)
+        user_tz = db_user.timezone or "Europe/Moscow"
+        text = _format_deadlines_with_divider(all_deadlines, days, user_tz, hide_done)
 
         # Создаем клавиатуру с стандартными кнопками
         builder = InlineKeyboardBuilder()
@@ -201,6 +201,7 @@ async def send_deadlines_list(message: Message, db_user, days: int, hide_done: b
                     "🙈 Скрыть выполненные" if not hide_done else "🐵 Показать выполненные"
                 ),
                 callback_data=f"toggle_hide_done_{days}_h{1 if hide_done else 0}",
+                style=ButtonStyle.PRIMARY if not hide_done else None,
             )
             builder.button(
                 text="📝 Отметить выполненные",
@@ -282,9 +283,10 @@ async def send_deadlines_list_for_checking(message: Message, db_user, days: int,
         # Для кнопок используем стабильный порядок (all_sorted), чтобы кнопки не перемещались
         sorted_all = all_sorted
 
-        # Форматируем текст с разделителем (всегда показываем выполненные)
-        # Передаем стабильную нумерацию, чтобы номера в тексте совпадали с номерами на кнопках
-        text = _format_deadlines_with_divider(deadlines_data_for_text, days, db_user.timezone, hide_done=False, deadline_numbers=deadline_numbers)
+        user_tz = db_user.timezone or "Europe/Moscow"
+        text = _format_deadlines_with_divider(
+            deadlines_data_for_text, days, user_tz, hide_done=False, deadline_numbers=deadline_numbers
+        )
 
         # Периоды (3 кнопки в один ряд)
         periods_builder = InlineKeyboardBuilder()

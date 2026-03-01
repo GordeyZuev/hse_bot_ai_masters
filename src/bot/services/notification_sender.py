@@ -19,6 +19,7 @@ from src.core.models import (
 from src.utils import get_logger, safe_send_message
 from src.utils.notification_formatting import (
     format_deadline_datetime_with_time_word,
+    format_deadline_tg_time,
 )
 
 
@@ -301,21 +302,18 @@ class NotificationSender:
         message = "🔔 <b>Напоминание о дедлайне</b>\n\n"
         message += f"📚 <b>Предмет:</b> {subject.name}\n"
 
-        # Задание с гиперссылкой, если есть ссылка
         if deadline.source_link:
             message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
         else:
             message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
 
-        # Информация о дедлайнах
-        user_tz_name = getattr(user, "timezone", "") or "UTC"
-
+        user_tz_name = getattr(user, "timezone", "") or "Europe/Moscow"
         if deadline.soft_deadline_ts:
-            soft_date = format_deadline_datetime_with_time_word(deadline.soft_deadline_ts, user_tz_name)
+            soft_date = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name=user_tz_name)
             message += f"🟡 <b>Дедлайн:</b> {soft_date} (Осталось {offset_value} {unit_text})\n"
 
         if deadline.hard_deadline_ts:
-            hard_date = format_deadline_datetime_with_time_word(deadline.hard_deadline_ts, user_tz_name)
+            hard_date = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name=user_tz_name)
             message += f"🔴 <b>Дедлайн:</b> {hard_date} (Осталось {offset_value} {unit_text})\n"
 
         if deadline.note:
@@ -375,23 +373,18 @@ class NotificationSender:
                 if (user.tg_user_id, deadline.id) in done_tasks:
                     continue
 
-                (
-                    pytz.timezone(user.timezone)
-                    if user and user.timezone
-                    else pytz.UTC
-                )
-
                 message = f"📌 <b>{action_text}</b>\n\n"
                 message += f"📚 <b>Предмет:</b> {subject_name}\n"
                 if deadline.source_link:
                     message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
                 else:
                     message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
+                user_tz_name = (user.timezone or "Europe/Moscow") if user else "Europe/Moscow"
                 if soft:
-                    soft_str = format_deadline_datetime_with_time_word(soft, user.timezone)
+                    soft_str = format_deadline_tg_time(soft, tz_name=user_tz_name)
                     message += f"🟡 {soft_str}\n"
                 if hard:
-                    hard_str = format_deadline_datetime_with_time_word(hard, user.timezone)
+                    hard_str = format_deadline_tg_time(hard, tz_name=user_tz_name)
                     message += f"🔴 {hard_str}\n"
                 if deadline.note:
                     message += f"\n💬 <i>{deadline.note}</i>"
@@ -532,7 +525,7 @@ class NotificationSender:
                 user_tz = (
                     pytz.timezone(user.timezone)
                     if user and user.timezone
-                    else pytz.UTC
+                    else pytz.timezone("Europe/Moscow")
                 )
                 message = self._format_multiple_deadline_updates(entries, user_tz)
 
@@ -621,48 +614,44 @@ class NotificationSender:
             s: Subject = e["subject"]
             change_info = e.get("change_info", {})
 
-            # Добавляем пустую строку перед заданием (кроме первого)
             if i > 1:
                 lines.append("")
 
             lines.append(f"<b>{i}. {s.name if s else 'Предмет'}</b>")
             if d.source_link:
-                lines.append(f"📝 <a href='{d.source_link}'>{d.hw_name}</a>")
+                lines.append(f"• 📝 <a href='{d.source_link}'>{d.hw_name}</a>")
             else:
-                lines.append(f"📝 {d.hw_name}")
+                lines.append(f"• 📝 {d.hw_name}")
 
-            # Мягкий дедлайн
+            user_tz_name = user_tz.zone if user_tz else "Europe/Moscow"
             if d.soft_deadline_ts:
-                soft_str = format_deadline_datetime_with_time_word(d.soft_deadline_ts, user_tz.zone)
+                soft_str = format_deadline_tg_time(d.soft_deadline_ts, tz_name=user_tz_name)
 
                 if not is_new and change_info.get("soft_deadline_changed", False):
-                    # Показываем изменение с перечеркнутым старым значением
                     old_soft = change_info.get("old_soft_deadline_ts")
                     if old_soft:
                         old_soft_str = format_deadline_datetime_with_time_word(old_soft, user_tz.zone)
-                        lines.append(f"🟡 {soft_str} (<s>{old_soft_str}</s>)")
+                        lines.append(f"• 🟡 {soft_str} (<s>{old_soft_str}</s>)")
                     else:
-                        lines.append(f"🟡 {soft_str} <i>(добавлен)</i>")
+                        lines.append(f"• 🟡 {soft_str} <i>(добавлен)</i>")
                 else:
-                    lines.append(f"🟡 {soft_str}")
+                    lines.append(f"• 🟡 {soft_str}")
 
-            # Жесткий дедлайн
             if d.hard_deadline_ts:
-                hard_str = format_deadline_datetime_with_time_word(d.hard_deadline_ts, user_tz.zone)
+                hard_str = format_deadline_tg_time(d.hard_deadline_ts, tz_name=user_tz_name)
 
                 if not is_new and change_info.get("hard_deadline_changed", False):
-                    # Показываем изменение с перечеркнутым старым значением
                     old_hard = change_info.get("old_hard_deadline_ts")
                     if old_hard:
                         old_hard_str = format_deadline_datetime_with_time_word(old_hard, user_tz.zone)
-                        lines.append(f"🔴 {hard_str} (<s>{old_hard_str}</s>)")
+                        lines.append(f"• 🔴 {hard_str} (<s>{old_hard_str}</s>)")
                     else:
-                        lines.append(f"🔴 {hard_str} <i>(добавлен)</i>")
+                        lines.append(f"• 🔴 {hard_str} <i>(добавлен)</i>")
                 else:
-                    lines.append(f"🔴 {hard_str}")
+                    lines.append(f"• 🔴 {hard_str}")
 
             if d.note:
-                lines.append(f"💬 <i>{d.note}</i>")
+                lines.append(f"• 💬 <i>{d.note}</i>")
 
         return "\n".join(lines)
 
@@ -679,31 +668,30 @@ class NotificationSender:
 
         message = f"🔔 <b>Напоминания о дедлайнах ({len(deadlines_data)})</b>\n\n"
 
-        user_tz = pytz.timezone(getattr(user, "timezone", "") or "UTC")
+        user_tz = pytz.timezone(getattr(user, "timezone", "") or "Europe/Moscow")
         for i, data in enumerate(deadlines_data, 1):
             deadline = data["deadline"]
             subject = data["subject"]
 
-            # Добавляем пустую строку перед заданием (кроме первого)
             if i > 1:
                 message += "\n"
 
             message += f"<b>{i}. {subject.name}</b>\n"
 
-            # Задание с гиперссылкой, если есть ссылка
             if deadline.source_link:
                 message += (
-                    f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                    f"• 📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
                 )
             else:
-                message += f"📝 {deadline.hw_name}\n"
+                message += f"• 📝 {deadline.hw_name}\n"
 
+            user_tz_name = user_tz.zone
             if deadline.soft_deadline_ts:
-                date_str = format_deadline_datetime_with_time_word(deadline.soft_deadline_ts, user_tz.zone)
-                message += f"🟡 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
+                date_str = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name=user_tz_name)
+                message += f"• 🟡 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
             elif deadline.hard_deadline_ts:
-                date_str = format_deadline_datetime_with_time_word(deadline.hard_deadline_ts, user_tz.zone)
-                message += f"🔴 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
+                date_str = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name=user_tz_name)
+                message += f"• 🔴 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
 
         return message
 

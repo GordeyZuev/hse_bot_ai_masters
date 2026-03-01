@@ -161,7 +161,9 @@ class ScheduledNotificationSender:
         # Определяем TZ пользователя для форматирования
         user = await db_manager.get_user_by_id(user_id)
         user_tz = (
-            pytz.timezone(user.timezone) if user and user.timezone else pytz.UTC
+            pytz.timezone(user.timezone)
+            if user and user.timezone
+            else pytz.timezone("Europe/Moscow")
         )
 
         # Получаем настройки уведомлений для проверки времени сна
@@ -223,30 +225,23 @@ class ScheduledNotificationSender:
 
         deadline_type_icon = "🟡" if notification.deadline_type == "soft" else "🔴"
 
-        # Определяем какой дедлайн использовать
         if notification.deadline_type == "soft":
             deadline_ts = deadline.soft_deadline_ts
         else:
             deadline_ts = deadline.hard_deadline_ts
 
         from src.utils.notification_formatting import (
-            format_deadline_datetime_with_time_word,
+            format_deadline_tg_time,
             format_time_remaining,
         )
 
         now = datetime.now(UTC)
-
-        # Форматируем дату в TZ пользователя
-        deadline_str = format_deadline_datetime_with_time_word(
-            deadline_ts, user_tz.zone
-        )
-        # Вычисляем время до дедлайна (без скобок для "Осталось")
+        deadline_str = format_deadline_tg_time(deadline_ts, tz_name=user_tz.zone)
         time_left_str = format_time_remaining(deadline_ts, now).strip("()")
 
         message = "⏰ <b>Напоминание о дедлайне</b>\n\n"
         message += f"📚 <b>Предмет:</b> {subject.name}\n"
 
-        # Задание с гиперссылкой, если есть ссылка
         if deadline.hw_name:
             if deadline.source_link:
                 message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
@@ -276,42 +271,35 @@ class ScheduledNotificationSender:
 
             deadline_type_icon = "🟡" if notification.deadline_type == "soft" else "🔴"
 
-            # Определяем какой дедлайн использовать
             if notification.deadline_type == "soft":
                 deadline_ts = deadline.soft_deadline_ts
             else:
                 deadline_ts = deadline.hard_deadline_ts
 
             from src.utils.notification_formatting import (
-                format_deadline_datetime_with_time_word,
+                format_deadline_tg_time,
                 format_time_remaining,
             )
 
             now = datetime.now(UTC)
 
-            # Форматируем дату в TZ пользователя
-            deadline_str = format_deadline_datetime_with_time_word(
-                deadline_ts, user_tz.zone
-            )
-            # Вычисляем время до дедлайна (без скобок для "Осталось")
+            deadline_str = format_deadline_tg_time(deadline_ts, tz_name=user_tz.zone)
             time_left_str = format_time_remaining(deadline_ts, now).strip("()")
 
-            # Добавляем пустую строку перед заданием (кроме первого)
             if i > 1:
                 message += "\n"
 
             message += f"<b>{i}. {subject.name}</b>\n"
 
-            # Задание с гиперссылкой, если есть ссылка
             if deadline.hw_name:
                 if deadline.source_link:
                     message += (
-                        f"📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                        f"• 📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
                     )
                 else:
-                    message += f"📝 {deadline.hw_name}\n"
+                    message += f"• 📝 {deadline.hw_name}\n"
 
-            message += f"{deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
+            message += f"• {deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
 
         return message
 

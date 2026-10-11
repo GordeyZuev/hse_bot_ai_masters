@@ -31,10 +31,13 @@ async def callback_help(callback: CallbackQuery, db_user):
         chat_title = callback.message.chat.title or f"Чат {chat_id}"
         username = callback.from_user.username
 
-        logger.info(f"[CHAT] quick_help в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}")
+        logger.info(
+            f"[CHAT] quick_help в чате '{chat_title}' (ID: {chat_id}) пользователем @{username or f'ID{user_id}'}"
+        )
 
         # Только админам показываем справку в чате
         from src.bot.services.chat_service import chat_service
+
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
             await callback.answer(ERROR_NO_PERMISSION, show_alert=True)
             return
@@ -43,6 +46,7 @@ async def callback_help(callback: CallbackQuery, db_user):
 
         # Перенаправляем в group_chat.py
         from src.bot.handlers.group_chat import send_chat_help_message
+
         await send_chat_help_message(callback.message, edit_mode=True)
     else:
         await callback.answer()
@@ -69,7 +73,8 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
 
         if edit_mode:
             await safe_edit_message(
-                message, text,
+                message,
+                text,
                 reply_markup=builder.as_markup(),
                 disable_web_page_preview=True,
             )
@@ -86,6 +91,7 @@ async def send_help_message(message: Message, db_user, edit_mode: bool = False):
         user_id = message.from_user.id if message.from_user else 0
         logger.error(f"(U) {user_id} - команда /help: {e}")
         from src.bot.texts import ERROR_COMMAND_HELP
+
         await message.answer(ERROR_COMMAND_HELP)
 
 

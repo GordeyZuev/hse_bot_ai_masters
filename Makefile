@@ -1,4 +1,4 @@
-.PHONY: help install-uv install install-dev setup run lint lint-fix format clean logs update clean-docker clean-space db grant-db
+.PHONY: help install-uv install install-dev setup run lint lint-fix format format-check test check sync-dry clean logs deploy update migrate clean-docker clean-space db grant-db
 
 help: ## Show help message
 	@echo "Available commands:"
@@ -43,17 +43,35 @@ lint-fix: ## Auto-fix linting issues
 format: ## Format code
 	uv run ruff format .
 
+format-check: ## Check code formatting without changing files
+	uv run ruff format --check .
+
+test: ## Run tests
+	uv run pytest
+
+check: lint format-check test ## Run local quality gate
+	uv run alembic upgrade head --sql >/dev/null
+
+sync-dry: ## Validate Google Sheets without changing the database
+	uv run python main.py sync --dry-run
+
 clean: ## Clean temp files
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
 
-logs: ## View today's logs
-	tail -f logs/app_$(shell date +%Y-%m-%d).log
+logs: ## View the current application log
+	tail -f $$(ls -t logs/app_[0-9]*.log | head -1)
 
-update: ## Stop containers, git pull, restart containers
+deploy: ## Build and deploy the current checkout (no git pull)
 	@./scripts/deploy.sh
+
+update: ## Pull the latest commit, then build and deploy it
+	@./scripts/deploy.sh --pull
+
+migrate: ## Back up and migrate DB; requires the app to be stopped
+	@./scripts/deploy.sh --migrate-only
 
 clean-docker: ## Clean unused Docker images, containers, and build cache
 	@echo "Cleaning unused Docker data..."
@@ -80,8 +98,7 @@ clean-space: ## Clean old unused containers, images and free up disk space (pres
 	@echo "✅ Очистка завершена!"
 
 db: ## Connect to PostgreSQL database
-	docker-compose exec db psql -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-hse_bot_db}
+	docker compose --env-file src/config/.env exec db sh -c 'exec psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
 
 grant-db: ## Grant privileges to user on all tables (run once if migrations fail)
 	@./scripts/grant-privileges.sh
-

@@ -5,6 +5,7 @@ Revises: 003
 Create Date: 2025-10-31 00:00:00.000000
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -35,5 +36,3 @@ def downgrade() -> None:
         batch_op.drop_column("vk_playlist_url")
         batch_op.drop_column("wiki_url")
         batch_op.drop_column("sheet_subject_id")
-
-

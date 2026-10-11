@@ -10,9 +10,7 @@ if TYPE_CHECKING:
 
 
 def apply_sleep_mode(
-    user: "User",
-    settings: "UserNotificationSettings | None",
-    message_text: str
+    user: "User", settings: "UserNotificationSettings | None", message_text: str
 ) -> tuple[str, bool]:
     """
     Применить режим сна к тексту сообщения и определить флаг disable_notification.
@@ -34,12 +32,12 @@ def apply_sleep_mode(
     if settings and user:
         user_tz_name = user.timezone if user.timezone else "Europe/Moscow"
         is_sleep = is_sleep_time(
-            settings.sleep_start_time,
-            settings.sleep_end_time,
-            user_tz_name
+            settings.sleep_start_time, settings.sleep_end_time, user_tz_name
         )
 
         if is_sleep:
-            message_text = message_text + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
+            message_text = (
+                message_text + "\n\n<i>Отправлено без уведомления. Доброй ночи! 😴</i>"
+            )
 
     return message_text, is_sleep

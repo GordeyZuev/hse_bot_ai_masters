@@ -5,6 +5,7 @@ Revises: 009
 Create Date: 2025-01-28 12:00:00.000000
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -26,14 +27,25 @@ def upgrade() -> None:
     # Add enable_deadline_update_notifications column with default True
     op.add_column(
         "user_notification_settings",
-        sa.Column("enable_deadline_update_notifications", sa.Boolean(), nullable=True, server_default="true"),
+        sa.Column(
+            "enable_deadline_update_notifications",
+            sa.Boolean(),
+            nullable=True,
+            server_default="true",
+        ),
     )
 
     # Update all existing records to have True for enable_deadline_update_notifications
-    op.execute("UPDATE user_notification_settings SET enable_deadline_update_notifications = true WHERE enable_deadline_update_notifications IS NULL")
+    op.execute(
+        "UPDATE user_notification_settings SET enable_deadline_update_notifications = true WHERE enable_deadline_update_notifications IS NULL"
+    )
 
     # Make the column NOT NULL
-    op.alter_column("user_notification_settings", "enable_deadline_update_notifications", nullable=False)
+    op.alter_column(
+        "user_notification_settings",
+        "enable_deadline_update_notifications",
+        nullable=False,
+    )
 
     # Add sleep time columns (nullable)
     op.add_column(
@@ -55,4 +67,3 @@ def downgrade() -> None:
     op.drop_column("user_notification_settings", "sleep_start_time")
     op.drop_column("user_notification_settings", "enable_deadline_update_notifications")
     # ### end Alembic commands ###
-

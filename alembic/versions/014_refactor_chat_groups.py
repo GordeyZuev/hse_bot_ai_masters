@@ -5,6 +5,7 @@ Revises: 013
 Create Date: 2025-12-02 02:22:38.173185
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -23,7 +24,8 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Upgrade schema."""
     # 1. Добавляем mode в chat_groups (если не существует)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -40,10 +42,12 @@ def upgrade() -> None:
                 UPDATE chat_groups SET mode = 'single' WHERE mode IS NULL;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Добавляем constraint для mode (если не существует)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -56,10 +60,12 @@ def upgrade() -> None:
                 CHECK (mode IN ('single', 'multi'));
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # 2. Создаем таблицу chat_group_topics (если не существует)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -90,11 +96,13 @@ def upgrade() -> None:
                 );
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # 3. Мигрируем данные из chat_groups в chat_group_topics
     # Для каждой записи в chat_groups создаем запись в chat_group_topics (если еще не мигрировано)
-    op.execute(text("""
+    op.execute(
+        text("""
         INSERT INTO chat_group_topics (
             chat_id, topic_id, topic_title, subject_id,
             reminder1_offset, reminder1_unit,
@@ -116,11 +124,13 @@ def upgrade() -> None:
                 OR cgt.topic_id = cg.topic_id
             )
         )
-    """))
+    """)
+    )
 
     # 4. Обновляем chat_scheduled_notifications
     # Добавляем chat_topic_id, chat_id и topic_id (если не существуют)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -148,11 +158,13 @@ def upgrade() -> None:
                 ALTER TABLE chat_scheduled_notifications ADD COLUMN topic_id BIGINT;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Связываем уведомления с chat_group_topics по (chat_id, topic_id)
     # Обновляем только те записи, которые еще не были обновлены
-    op.execute(text("""
+    op.execute(
+        text("""
         UPDATE chat_scheduled_notifications csn
         SET
             chat_topic_id = (
@@ -185,17 +197,21 @@ def upgrade() -> None:
                 OR cgt.topic_id = (SELECT cg.topic_id FROM chat_groups cg WHERE cg.chat_id = csn.chat_group_id)
             )
         )
-    """))
+    """)
+    )
 
     # Проверяем, что все уведомления связаны с топиками
     # Если есть уведомления без связи, удаляем их (они невалидны)
-    op.execute(text("""
+    op.execute(
+        text("""
         DELETE FROM chat_scheduled_notifications
         WHERE chat_topic_id IS NULL
-    """))
+    """)
+    )
 
     # Делаем chat_topic_id и chat_id NOT NULL после заполнения (если еще не NOT NULL)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             -- Проверяем и устанавливаем NOT NULL для chat_topic_id
@@ -224,10 +240,12 @@ def upgrade() -> None:
                 ALTER TABLE chat_scheduled_notifications ALTER COLUMN chat_id SET NOT NULL;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Добавляем FK для chat_topic_id (если не существует)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -240,10 +258,12 @@ def upgrade() -> None:
                 FOREIGN KEY (chat_topic_id) REFERENCES chat_group_topics(id) ON DELETE CASCADE;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Обновляем уникальный constraint: добавляем topic_id
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             -- Удаляем старый constraint, если существует
@@ -268,10 +288,12 @@ def upgrade() -> None:
                 UNIQUE (chat_topic_id, deadline_id, deadline_type, notification_number);
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Удаляем старый FK для chat_group_id (если существует)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF EXISTS (
@@ -282,10 +304,12 @@ def upgrade() -> None:
                 ALTER TABLE chat_scheduled_notifications DROP CONSTRAINT chat_scheduled_notifications_chat_group_id_fkey;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Удаляем старую колонку chat_group_id (если существует)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF EXISTS (
@@ -297,10 +321,12 @@ def upgrade() -> None:
                 ALTER TABLE chat_scheduled_notifications DROP COLUMN chat_group_id;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Обновляем индексы
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             -- Удаляем старый индекс, если существует
@@ -322,10 +348,12 @@ def upgrade() -> None:
                 ON chat_scheduled_notifications(chat_topic_id, status);
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # 5. Удаляем ненужные столбцы из chat_groups (но оставляем таблицу)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_groups' AND column_name = 'topic_id') THEN
@@ -353,11 +381,13 @@ def upgrade() -> None:
                 ALTER TABLE chat_groups DROP COLUMN is_active;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Удаляем старые constraints (если они существуют)
     # Используем IF EXISTS через raw SQL, так как Alembic не поддерживает это напрямую
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'check_chat_reminder1_positive' AND conrelid = 'chat_groups'::regclass) THEN
@@ -373,10 +403,12 @@ def upgrade() -> None:
                 ALTER TABLE chat_groups DROP CONSTRAINT check_chat_reminder2_unit_valid;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Переименовываем колонку last_updated в updated_at в таблице tasks (если существует)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF EXISTS (
@@ -388,7 +420,8 @@ def upgrade() -> None:
                 ALTER TABLE tasks RENAME COLUMN last_updated TO updated_at;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
 
 def downgrade() -> None:
@@ -397,20 +430,48 @@ def downgrade() -> None:
     op.add_column("chat_groups", sa.Column("topic_id", sa.BigInteger(), nullable=True))
     op.add_column("chat_groups", sa.Column("topic_title", sa.Text(), nullable=True))
     op.add_column("chat_groups", sa.Column("subject_id", sa.Integer(), nullable=True))
-    op.add_column("chat_groups", sa.Column("reminder1_offset", sa.Integer(), nullable=False, server_default="7"))
-    op.add_column("chat_groups", sa.Column("reminder1_unit", sa.Text(), nullable=False, server_default="days"))
-    op.add_column("chat_groups", sa.Column("reminder2_offset", sa.Integer(), nullable=False, server_default="1"))
-    op.add_column("chat_groups", sa.Column("reminder2_unit", sa.Text(), nullable=False, server_default="days"))
-    op.add_column("chat_groups", sa.Column("is_active", sa.Boolean(), nullable=False, server_default="true"))
+    op.add_column(
+        "chat_groups",
+        sa.Column("reminder1_offset", sa.Integer(), nullable=False, server_default="7"),
+    )
+    op.add_column(
+        "chat_groups",
+        sa.Column("reminder1_unit", sa.Text(), nullable=False, server_default="days"),
+    )
+    op.add_column(
+        "chat_groups",
+        sa.Column("reminder2_offset", sa.Integer(), nullable=False, server_default="1"),
+    )
+    op.add_column(
+        "chat_groups",
+        sa.Column("reminder2_unit", sa.Text(), nullable=False, server_default="days"),
+    )
+    op.add_column(
+        "chat_groups",
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default="true"),
+    )
 
     # Восстанавливаем constraints
-    op.create_check_constraint("check_chat_reminder1_positive", "chat_groups", "reminder1_offset >= 0")
-    op.create_check_constraint("check_chat_reminder1_unit_valid", "chat_groups", "reminder1_unit IN ('days', 'hours')")
-    op.create_check_constraint("check_chat_reminder2_positive", "chat_groups", "reminder2_offset >= 0")
-    op.create_check_constraint("check_chat_reminder2_unit_valid", "chat_groups", "reminder2_unit IN ('days', 'hours')")
+    op.create_check_constraint(
+        "check_chat_reminder1_positive", "chat_groups", "reminder1_offset >= 0"
+    )
+    op.create_check_constraint(
+        "check_chat_reminder1_unit_valid",
+        "chat_groups",
+        "reminder1_unit IN ('days', 'hours')",
+    )
+    op.create_check_constraint(
+        "check_chat_reminder2_positive", "chat_groups", "reminder2_offset >= 0"
+    )
+    op.create_check_constraint(
+        "check_chat_reminder2_unit_valid",
+        "chat_groups",
+        "reminder2_unit IN ('days', 'hours')",
+    )
 
     # Мигрируем данные обратно (берем первую запись из chat_group_topics для каждого чата)
-    op.execute(text("""
+    op.execute(
+        text("""
         UPDATE chat_groups cg
         SET
             topic_id = (SELECT topic_id FROM chat_group_topics WHERE chat_id = cg.chat_id LIMIT 1),
@@ -421,7 +482,8 @@ def downgrade() -> None:
             reminder2_offset = (SELECT reminder2_offset FROM chat_group_topics WHERE chat_id = cg.chat_id LIMIT 1),
             reminder2_unit = (SELECT reminder2_unit FROM chat_group_topics WHERE chat_id = cg.chat_id LIMIT 1),
             is_active = (SELECT is_active FROM chat_group_topics WHERE chat_id = cg.chat_id LIMIT 1)
-    """))
+    """)
+    )
 
     # Восстанавливаем FK для subject_id
     op.create_foreign_key(
@@ -430,16 +492,27 @@ def downgrade() -> None:
         "subjects",
         ["subject_id"],
         ["id"],
-        ondelete="CASCADE"
+        ondelete="CASCADE",
     )
 
     # Обновляем chat_scheduled_notifications обратно
-    op.drop_constraint("unique_chat_topic_deadline_notification", "chat_scheduled_notifications", type_="unique")
-    op.drop_constraint("fk_chat_scheduled_notifications_chat_topic_id", "chat_scheduled_notifications", type_="foreignkey")
-    op.drop_index("idx_chat_sched_notif_topic_status", table_name="chat_scheduled_notifications")
+    op.drop_constraint(
+        "unique_chat_topic_deadline_notification",
+        "chat_scheduled_notifications",
+        type_="unique",
+    )
+    op.drop_constraint(
+        "fk_chat_scheduled_notifications_chat_topic_id",
+        "chat_scheduled_notifications",
+        type_="foreignkey",
+    )
+    op.drop_index(
+        "idx_chat_sched_notif_topic_status", table_name="chat_scheduled_notifications"
+    )
 
     # Восстанавливаем chat_group_id (если был удален)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -453,10 +526,12 @@ def downgrade() -> None:
                 ALTER TABLE chat_scheduled_notifications ALTER COLUMN chat_group_id SET NOT NULL;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     # Восстанавливаем FK для chat_group_id
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -469,18 +544,19 @@ def downgrade() -> None:
                 FOREIGN KEY (chat_group_id) REFERENCES chat_groups(chat_id) ON DELETE CASCADE;
             END IF;
         END $$;
-    """))
+    """)
+    )
 
     op.create_index(
         "idx_chat_sched_notif_chat_status",
         "chat_scheduled_notifications",
         ["chat_group_id", "status"],
-        unique=False
+        unique=False,
     )
     op.create_unique_constraint(
         "unique_chat_deadline_notification",
         "chat_scheduled_notifications",
-        ["chat_group_id", "deadline_id", "deadline_type", "notification_number"]
+        ["chat_group_id", "deadline_id", "deadline_type", "notification_number"],
     )
     op.drop_column("chat_scheduled_notifications", "chat_topic_id")
     op.drop_column("chat_scheduled_notifications", "chat_id")
@@ -494,7 +570,8 @@ def downgrade() -> None:
     op.drop_column("chat_groups", "mode")
 
     # Возвращаем переименование колонки updated_at обратно в last_updated (если существует)
-    op.execute(text("""
+    op.execute(
+        text("""
         DO $$
         BEGIN
             IF EXISTS (
@@ -506,4 +583,5 @@ def downgrade() -> None:
                 ALTER TABLE tasks RENAME COLUMN updated_at TO last_updated;
             END IF;
         END $$;
-    """))
+    """)
+    )

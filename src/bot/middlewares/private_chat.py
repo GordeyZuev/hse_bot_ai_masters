@@ -40,7 +40,10 @@ class TelegramErrorHandler:
         """Проверить, является ли ошибка некритичной (можно игнорировать)"""
         if isinstance(error, TelegramBadRequest):
             error_msg = str(error).lower()
-            if "message is not modified" in error_msg or "message not found" in error_msg:
+            if (
+                "message is not modified" in error_msg
+                or "message not found" in error_msg
+            ):
                 return True
         return False
 
@@ -57,7 +60,9 @@ class TelegramErrorHandler:
         try:
             # Проверяем, есть ли response_parameters в ошибке
             if hasattr(error, "response_parameters") and error.response_parameters:
-                migrate_to_chat_id = getattr(error.response_parameters, "migrate_to_chat_id", None)
+                migrate_to_chat_id = getattr(
+                    error.response_parameters, "migrate_to_chat_id", None
+                )
                 if migrate_to_chat_id:
                     return int(migrate_to_chat_id)
 
@@ -73,7 +78,9 @@ class TelegramErrorHandler:
         return None
 
     @staticmethod
-    async def handle_chat_migration(error: TelegramBadRequest, old_chat_id: int, bot: Bot | None = None) -> int | None:
+    async def handle_chat_migration(
+        error: TelegramBadRequest, old_chat_id: int, bot: Bot | None = None
+    ) -> int | None:
         """Обработать миграцию чата из группы в супергруппу
 
         Args:
@@ -90,19 +97,24 @@ class TelegramErrorHandler:
 
         try:
             from src.bot.services.chat_service import chat_service
+
             success = await chat_service.migrate_chat_id(old_chat_id, new_chat_id, bot)
             if success:
                 logger.info(f"Чат успешно мигрирован: {old_chat_id} → {new_chat_id}")
                 return new_chat_id
             else:
-                logger.warning(f"Не удалось мигрировать чат: {old_chat_id} → {new_chat_id}")
+                logger.warning(
+                    f"Не удалось мигрировать чат: {old_chat_id} → {new_chat_id}"
+                )
                 return None
         except Exception as e:
             logger.error(f"Ошибка обработки миграции чата {old_chat_id}: {e}")
             return None
 
     @staticmethod
-    async def handle_telegram_error(error: Exception, user_id: int | None = None, chat_id: int | None = None) -> bool:
+    async def handle_telegram_error(
+        error: Exception, user_id: int | None = None, chat_id: int | None = None
+    ) -> bool:
         """Обработать ошибку Telegram API
 
         Args:
@@ -150,7 +162,11 @@ class PrivateChatMiddleware(BaseMiddleware):
             return await handler(event, data)
         except (TelegramBadRequest, TelegramForbiddenError) as e:
             # Проверяем, что это личный чат
-            chat = event.chat if hasattr(event, "chat") else (event.message.chat if hasattr(event, "message") else None)
+            chat = (
+                event.chat
+                if hasattr(event, "chat")
+                else (event.message.chat if hasattr(event, "message") else None)
+            )
             if chat and chat.type == "private":
                 user = event.from_user
                 user_id = user.id if user else None
@@ -200,7 +216,7 @@ async def safe_send_message(
     user_id: int | None = None,
     success_message: str | None = None,
     is_group_chat: bool = False,
-    **kwargs
+    **kwargs,
 ) -> bool:
     """
     Безопасная отправка сообщения с автоматической обработкой ошибок, логированием и деактивацией.
@@ -238,7 +254,9 @@ async def safe_send_message(
                     kwargs["disable_notification"] = True
         except Exception as e:
             # Не критично, если не удалось проверить режим сна - просто отправляем как есть
-            logger.debug(f"Не удалось проверить режим сна для пользователя {user_id}: {e}")
+            logger.debug(
+                f"Не удалось проверить режим сна для пользователя {user_id}: {e}"
+            )
 
     try:
         await bot.send_message(chat_id=chat_id, text=text, **kwargs)
@@ -248,22 +266,30 @@ async def safe_send_message(
     except (TelegramForbiddenError, TelegramBadRequest) as e:
         # Обрабатываем миграцию чата (группа → супергруппа)
         if isinstance(e, TelegramBadRequest) and is_group_chat and not user_id:
-            new_chat_id = await TelegramErrorHandler.handle_chat_migration(e, chat_id, bot)
+            new_chat_id = await TelegramErrorHandler.handle_chat_migration(
+                e, chat_id, bot
+            )
             if new_chat_id:
                 # Повторяем отправку с новым ID чата
                 try:
                     await bot.send_message(chat_id=new_chat_id, text=text, **kwargs)
                     if success_message:
-                        logger.info(success_message.replace(str(chat_id), str(new_chat_id)))
+                        logger.info(
+                            success_message.replace(str(chat_id), str(new_chat_id))
+                        )
                     return True
                 except Exception as retry_error:
-                    logger.error(f"Ошибка повторной отправки после миграции {chat_id} → {new_chat_id}: {retry_error}")
+                    logger.error(
+                        f"Ошибка повторной отправки после миграции {chat_id} → {new_chat_id}: {retry_error}"
+                    )
                     return False
 
         # Используем общий обработчик ошибок
         # Передаем chat_id для групповых чатов, user_id для личных
         error_chat_id = chat_id if is_group_chat and not user_id else None
-        if await TelegramErrorHandler.handle_telegram_error(e, user_id=user_id, chat_id=error_chat_id):
+        if await TelegramErrorHandler.handle_telegram_error(
+            e, user_id=user_id, chat_id=error_chat_id
+        ):
             # Ошибка обработана (заблокирован или некритичная ошибка)
             if isinstance(e, TelegramBadRequest):
                 if user_id:
@@ -276,4 +302,3 @@ async def safe_send_message(
         raise  # Другие ошибки пробрасываем
     except Exception:
         raise
-

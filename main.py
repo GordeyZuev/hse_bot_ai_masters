@@ -5,7 +5,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.bot.bot import hse_bot
 from src.core.database import db_manager
 from src.core.scheduler import hse_scheduler
 from src.core.sync.data_syncer import data_syncer
@@ -26,14 +25,11 @@ class HSEBotSyncApp:
     async def initialize(self):
         """Инициализация приложения"""
         await self.db_manager.ensure_initialized()
-        # Сначала синхронизируем дисциплины, затем дедлайны
-        try:
-            await self.data_syncer.sync_subjects()
-        except Exception as e:
-            logger.warning(f"Инициализация: ошибка синхронизации дисциплин: {e}")
+        # sync_data atomically starts with the subject catalog and then processes
+        # deadline sheets, so a second subject fetch would only add latency.
         success = await self.data_syncer.sync_data()
 
-        if success:
+        if success.get("success"):
             logger.info("Инициализация завершена успешно")
         else:
             logger.warning("Инициализация завершена с предупреждениями")
@@ -56,10 +52,10 @@ class HSEBotSyncApp:
         finally:
             await self.shutdown()
 
-    async def run_single_sync(self):
+    async def run_single_sync(self, dry_run: bool = False):
         """Выполнить одну синхронизацию и завершить работу"""
         try:
-            success = await self.data_syncer.sync_data()
+            success = await self.data_syncer.sync_data(dry_run=dry_run)
             return success
         finally:
             await self.shutdown()
@@ -96,11 +92,13 @@ async def run_migrations():
 
         # Создаем синхронный движок для Alembic
         from sqlalchemy import create_engine
+
         sync_engine = create_engine(database_url, pool_pre_ping=True)
 
         try:
             # Проверяем текущую версию
             from alembic.runtime.migration import MigrationContext
+
             with sync_engine.connect() as sync_conn:
                 context = MigrationContext.configure(sync_conn)
                 current_rev = context.get_current_revision()
@@ -109,7 +107,9 @@ async def run_migrations():
                     logger.info(f"База данных уже на актуальной версии: {head_rev}")
                     return True
 
-                logger.info(f"Текущая версия: {current_rev}, целевая версия: {head_rev}")
+                logger.info(
+                    f"Текущая версия: {current_rev}, целевая версия: {head_rev}"
+                )
 
             # Выполняем миграции
             # upgrade принимает только config и revision, connection берется из config
@@ -124,6 +124,7 @@ async def run_migrations():
     except Exception as e:
         logger.error(f"Ошибка запуска миграций: {e}")
         import traceback
+
         logger.error(traceback.format_exc())
         return False
 
@@ -148,11 +149,28 @@ async def main():
     command = sys.argv[1].lower() if len(sys.argv) > 1 else "help"
 
     if command == "sync":
-        logger.info("Режим: одиночная синхронизация")
+        dry_run = "--dry-run" in sys.argv[2:]
+        mode_label = (
+            "проверка синхронизации без записи"
+            if dry_run
+            else "одиночная синхронизация"
+        )
+        logger.info(f"Режим: {mode_label}")
         app = HSEBotSyncApp()
-        await app.initialize()
-        success = await app.run_single_sync()
-        sys.exit(0 if success else 1)
+        await app.db_manager.ensure_initialized()
+        result = await app.run_single_sync(dry_run=dry_run)
+        errors = result.get("errors") or []
+        if dry_run:
+            for error in errors:
+                logger.error(
+                    "Проверка Sheets: лист={}, строка={}, ID={}: {}",
+                    error.get("sheet"),
+                    error.get("row_number"),
+                    error.get("row_id"),
+                    error.get("message"),
+                )
+            logger.info("Проверка Sheets: ошибок={}", len(errors))
+        sys.exit(0 if result.get("success") and (not dry_run or not errors) else 1)
 
     elif command == "scheduler":
         logger.info("Режим: планировщик синхронизации")
@@ -161,10 +179,14 @@ async def main():
         await app.start_sync_scheduler()
 
     elif command == "bot":
+        from src.bot.bot import hse_bot
+
         logger.info("Режим: только телеграм бот")
         await hse_bot.start_polling(with_scheduler=False)
 
     elif command == "full":
+        from src.bot.bot import hse_bot
+
         logger.info("Режим: бот + синхронизация + уведомления")
         await hse_bot.start_polling(with_scheduler=True)
 
@@ -178,13 +200,15 @@ async def main():
         success = await restore_database()
         sys.exit(0 if success else 1)
 
-    else:
+    elif command in {"help", "--help", "-h"}:
         print("Телеграм бот для уведомлений о дедлайнах")
         print()
         print("Использование:")
         print("  uv run python main.py bot       - запустить только телеграм бота")
         print("  uv run python main.py sync      - выполнить одну синхронизацию")
-        print("  uv run python main.py scheduler - запустить только планировщик синхронизации")
+        print(
+            "  uv run python main.py scheduler - запустить только планировщик синхронизации"
+        )
         print("  uv run python main.py full      - запустить бота + синхронизацию")
         print("  uv run python main.py migrate   - выполнить миграции базы данных")
         print("  uv run python main.py restore   - восстановить структуру базы данных")
@@ -192,10 +216,16 @@ async def main():
         print()
         print("Рекомендуется использовать 'full' для полного функционала.")
         print("Или используйте 'make run' для удобного запуска.")
-        sys.exit(1)
+        return
+
+    else:
+        print(f"Неизвестная команда: {command}", file=sys.stderr)
+        print("Используйте 'hse-bot help' для справки.", file=sys.stderr)
+        raise SystemExit(2)
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Synchronous package entrypoint."""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
@@ -203,3 +233,7 @@ if __name__ == "__main__":
     except Exception as e:
         logger.critical(f"Критическая ошибка: {e}")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    cli()

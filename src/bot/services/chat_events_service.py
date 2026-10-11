@@ -38,14 +38,22 @@ async def handle_bot_chat_member_update(update: ChatMemberUpdated):
         old_status = update.old_chat_member.status
         new_status = update.new_chat_member.status
 
-        logger.debug(f"Статус бота в чате '{chat_title}' ({chat_id}): {old_status} → {new_status}")
+        logger.debug(
+            f"Статус бота в чате '{chat_title}' ({chat_id}): {old_status} → {new_status}"
+        )
 
         # Бот был удален из чата
-        if old_status in ["member", "administrator"] and new_status in ["left", "kicked"]:
+        if old_status in ["member", "administrator"] and new_status in [
+            "left",
+            "kicked",
+        ]:
             await handle_bot_removed_from_chat(chat_id)
 
         # Бот был добавлен в чат
-        elif old_status in ["left", "kicked"] and new_status in ["member", "administrator"]:
+        elif old_status in ["left", "kicked"] and new_status in [
+            "member",
+            "administrator",
+        ]:
             await handle_bot_added_to_chat(update)
 
     except Exception as e:
@@ -63,9 +71,15 @@ async def handle_bot_removed_from_chat(chat_id: int):
             await chat_service.deactivate_chat(chat_id)
 
             # Отменяем все запланированные уведомления
-            cancelled_count = await chat_notification_scheduler_service.cancel_chat_notifications(chat_id)
+            cancelled_count = (
+                await chat_notification_scheduler_service.cancel_chat_notifications(
+                    chat_id
+                )
+            )
 
-            logger.info(f"(C) {chat_id} - Удален. Отменено уведомлений: {cancelled_count}")
+            logger.info(
+                f"(C) {chat_id} - Удален. Отменено уведомлений: {cancelled_count}"
+            )
         else:
             logger.info(f"(C) {chat_id} - Удален из ненастроенного чата")
 
@@ -105,9 +119,13 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
                     # Multi-mode: показываем список топиков
                     text = "📚 <b>Настроенные топики:</b>\n\n"
                     for topic in topics:
-                        topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                        topic_display = topic.topic_title or (
+                            f"ID {topic.topic_id}" if topic.topic_id else "Общий чат"
+                        )
                         status = "✅" if topic.is_active else "❌"
-                        text += f"{status} <b>{topic_display}</b> — {topic.subject.name}\n"
+                        text += (
+                            f"{status} <b>{topic_display}</b> — {topic.subject.name}\n"
+                        )
                 elif topics:
                     # Single-mode: показываем информацию о топике
                     topic = topics[0]
@@ -120,7 +138,9 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="ℹ️ Информация", callback_data="chat_info")
-                builder.button(text="⚙️ Настройка бота", callback_data="chat_settings_from_start")
+                builder.button(
+                    text="⚙️ Настройка бота", callback_data="chat_settings_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
 
@@ -128,7 +148,7 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
                     chat_id=chat_id,
                     text=text,
                     reply_markup=builder.as_markup(),
-                    parse_mode="HTML"
+                    parse_mode="HTML",
                 )
             except Exception as e:
                 logger.warning(f"(C) {chat_id} - Не удалось отправить приветствие: {e}")
@@ -141,7 +161,9 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
                 text = GROUP_START_UNCONFIGURED_TEXT
 
                 builder = InlineKeyboardBuilder()
-                builder.button(text="⚙️ Настроить бота", callback_data="chat_setup_from_start")
+                builder.button(
+                    text="⚙️ Настроить бота", callback_data="chat_setup_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
 
@@ -149,7 +171,7 @@ async def handle_bot_added_to_chat(update: ChatMemberUpdated):
                     chat_id=chat_id,
                     text=text,
                     reply_markup=builder.as_markup(),
-                    parse_mode="HTML"
+                    parse_mode="HTML",
                 )
             except Exception as e:
                 logger.warning(f"(C) {chat_id} - Не удалось отправить приветствие: {e}")

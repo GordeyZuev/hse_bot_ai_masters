@@ -44,6 +44,8 @@ class NotificationSchedulerService:
                     and_(
                         Subscription.user_id == user_id,
                         Subject.is_active,
+                        Subject.is_archived.is_(False),
+                        Task.is_archived.is_(False),
                         tus.c.deadline_id.is_(None),
                     )
                 )
@@ -54,7 +56,9 @@ class NotificationSchedulerService:
     async def _get_subject_tasks(self, subject_id: int) -> list[Task]:
         """Получить все активные дедлайны по предмету"""
         async with db_manager.async_session() as session:
-            stmt = select(Task).where(Task.subject_id == subject_id)
+            stmt = select(Task).where(
+                Task.subject_id == subject_id, Task.is_archived.is_(False)
+            )
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
@@ -129,7 +133,9 @@ class NotificationSchedulerService:
                     and_(
                         ScheduledNotification.user_id == user_id,
                         ScheduledNotification.deadline_id == deadline.id,
-                        ScheduledNotification.status == "scheduled",
+                        ScheduledNotification.status.in_(
+                            ["scheduled", "processing", "retry"]
+                        ),
                     )
                 )
                 result = await session.execute(cancel_stmt)
@@ -147,6 +153,12 @@ class NotificationSchedulerService:
     async def schedule_notifications_for_task(self, deadline: Task) -> int:
         """Создать запланированные уведомления для дедлайна"""
         try:
+            if deadline.is_archived:
+                return 0
+            async with db_manager.async_session() as session:
+                subject = await session.get(Subject, deadline.subject_id)
+                if not subject or not subject.is_active or subject.is_archived:
+                    return 0
             subscribed_users = await self._get_subscribed_users(deadline.subject_id)
 
             user_notifications_scheduled = 0
@@ -157,9 +169,7 @@ class NotificationSchedulerService:
                         UserNotificationSettings.user_id.in_(user_ids)
                     )
                     settings_res = await session.execute(settings_stmt)
-                    settings_dict = {
-                        s.user_id: s for s in settings_res.scalars().all()
-                    }
+                    settings_dict = {s.user_id: s for s in settings_res.scalars().all()}
 
                 notifications_to_create = []
                 for user in subscribed_users:
@@ -180,13 +190,17 @@ class NotificationSchedulerService:
                         notifications_to_create.extend(notifications)
 
                 if notifications_to_create:
-                    user_notifications_scheduled = await self._batch_create_notifications(
-                        notifications_to_create
+                    user_notifications_scheduled = (
+                        await self._batch_create_notifications(notifications_to_create)
                     )
 
-            chat_notifications_scheduled = await chat_notification_scheduler_service.schedule_notifications_for_task(deadline)
+            chat_notifications_scheduled = await chat_notification_scheduler_service.schedule_notifications_for_task(
+                deadline
+            )
 
-            total_scheduled = user_notifications_scheduled + chat_notifications_scheduled
+            total_scheduled = (
+                user_notifications_scheduled + chat_notifications_scheduled
+            )
 
             logger.info(
                 f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id} "
@@ -233,28 +247,32 @@ class NotificationSchedulerService:
         )
 
         if reminder1_time and reminder1_time > now:
-            notifications.append({
-                "user_id": user.tg_user_id,
-                "deadline_id": deadline.id,
-                "deadline_type": deadline_type,
-                "notification_number": 1,
-                "original_deadline_ts": deadline_ts,
-                "planned_delivery_time": reminder1_time,
-            })
+            notifications.append(
+                {
+                    "user_id": user.tg_user_id,
+                    "deadline_id": deadline.id,
+                    "deadline_type": deadline_type,
+                    "notification_number": 1,
+                    "original_deadline_ts": deadline_ts,
+                    "planned_delivery_time": reminder1_time,
+                }
+            )
 
         reminder2_time = self._calculate_notification_time(
             deadline_ts, settings.reminder2_offset, settings.reminder2_unit
         )
 
         if reminder2_time and reminder2_time > now:
-            notifications.append({
-                "user_id": user.tg_user_id,
-                "deadline_id": deadline.id,
-                "deadline_type": deadline_type,
-                "notification_number": 2,
-                "original_deadline_ts": deadline_ts,
-                "planned_delivery_time": reminder2_time,
-            })
+            notifications.append(
+                {
+                    "user_id": user.tg_user_id,
+                    "deadline_id": deadline.id,
+                    "deadline_type": deadline_type,
+                    "notification_number": 2,
+                    "original_deadline_ts": deadline_ts,
+                    "planned_delivery_time": reminder2_time,
+                }
+            )
 
         return notifications
 
@@ -298,9 +316,7 @@ class NotificationSchedulerService:
             logger.error(f"Ошибка вычисления времени уведомления: {e}")
             return None
 
-    async def _batch_create_notifications(
-        self, notifications_data: list[dict]
-    ) -> int:
+    async def _batch_create_notifications(self, notifications_data: list[dict]) -> int:
         """Создать множество уведомлений одним батчем (upsert)"""
         if not notifications_data:
             return 0
@@ -322,9 +338,17 @@ class NotificationSchedulerService:
                         constraint="unique_user_deadline_notification",
                         set_={
                             "status": "scheduled",
-                            "planned_delivery_time": text("excluded.planned_delivery_time"),
-                            "original_deadline_ts": text("excluded.original_deadline_ts"),
+                            "planned_delivery_time": text(
+                                "excluded.planned_delivery_time"
+                            ),
+                            "original_deadline_ts": text(
+                                "excluded.original_deadline_ts"
+                            ),
                             "updated_at": utc_now(),
+                            "attempt_count": 0,
+                            "next_attempt_at": None,
+                            "claimed_at": None,
+                            "last_error": None,
                         },
                     )
                 )
@@ -346,33 +370,33 @@ class NotificationSchedulerService:
         planned_delivery_time: datetime,
     ) -> bool:
         """Создать запись запланированного уведомления (legacy метод для обратной совместимости)"""
-        notifications = [{
-            "user_id": user_id,
-            "deadline_id": deadline_id,
-            "deadline_type": deadline_type,
-            "notification_number": notification_number,
-            "original_deadline_ts": original_deadline_ts,
-            "planned_delivery_time": planned_delivery_time,
-        }]
+        notifications = [
+            {
+                "user_id": user_id,
+                "deadline_id": deadline_id,
+                "deadline_type": deadline_type,
+                "notification_number": notification_number,
+                "original_deadline_ts": original_deadline_ts,
+                "planned_delivery_time": planned_delivery_time,
+            }
+        ]
         count = await self._batch_create_notifications(notifications)
         return count > 0
 
-    async def reschedule_notifications_for_updated_task(
-        self, deadline: Task
-    ) -> int:
+    async def reschedule_notifications_for_updated_task(self, deadline: Task) -> int:
         """Перепланировать уведомления для обновленного дедлайна"""
         try:
-            cancelled_count = (
-                await db_manager.cancel_scheduled_notifications_for_task(
-                    deadline.id
-                )
+            cancelled_count = await db_manager.cancel_scheduled_notifications_for_task(
+                deadline.id
             )
             logger.info(
                 f"Отменено {cancelled_count} уведомлений для обновленного дедлайна {deadline.id}"
             )
 
-            cancelled_in_chats = await chat_notification_scheduler_service.cancel_notifications_for_task(
-                deadline.id
+            cancelled_in_chats = (
+                await chat_notification_scheduler_service.cancel_notifications_for_task(
+                    deadline.id
+                )
             )
             logger.info(
                 f"(Чаты) Отменено {cancelled_in_chats} уведомлений для обновленного дедлайна {deadline.id}"
@@ -506,7 +530,9 @@ class NotificationSchedulerService:
                 cancel_stmt = select(ScheduledNotification).where(
                     and_(
                         ScheduledNotification.user_id == user_id,
-                        ScheduledNotification.status == "scheduled",
+                        ScheduledNotification.status.in_(
+                            ["scheduled", "processing", "retry"]
+                        ),
                     )
                 )
                 result = await session.execute(cancel_stmt)

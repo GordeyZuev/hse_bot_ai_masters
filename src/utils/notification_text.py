@@ -1,7 +1,9 @@
 import re
 
 
-def build_custom_offset_prompt(reminder_number: int, cancel_callback: str) -> tuple[str, list[tuple[str, str]]]:
+def build_custom_offset_prompt(
+    reminder_number: int, cancel_callback: str
+) -> tuple[str, list[tuple[str, str]]]:
     """Return prompt text and inline buttons [(text, callback_data)]."""
     text = (
         f"✏️ <b>Настройка уведомления {reminder_number}</b>\n\n"
@@ -30,10 +32,12 @@ def parse_offset_text(text: str) -> tuple[int | None, str | None, str | None]:
             value = int(match.group(1))
             return value, unit, None
 
-    return None, None, (
-        "❌ Не удалось распознать формат.\n"
-        "Используйте формат: <code>число единица</code>\n"
-        "Например: <code>2 дня</code>, <code>6 часов</code>"
+    return (
+        None,
+        None,
+        (
+            "❌ Не удалось распознать формат.\n"
+            "Используйте формат: <code>число единица</code>\n"
+            "Например: <code>2 дня</code>, <code>6 часов</code>"
+        ),
     )
-
-

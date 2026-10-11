@@ -5,6 +5,7 @@ Revises: 006, 007
 Create Date: 2025-10-28 13:48:56.480112
 
 """
+
 from collections.abc import Sequence
 
 

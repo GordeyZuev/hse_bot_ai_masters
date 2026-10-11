@@ -1,9 +1,9 @@
-
 from sqlalchemy import delete, func, select
 
 from src.bot.services.notification_scheduler_service import (
     notification_scheduler_service,
 )
+from src.bot.services.user_action_events import add_user_action_event
 from src.core.database import db_manager
 from src.core.models import Subject, Subscription
 from src.utils import get_logger
@@ -21,7 +21,11 @@ class SubscriptionService:
             try:
                 stmt = (
                     select(Subject)
-                    .where(Subject.year == year, Subject.is_active)
+                    .where(
+                        Subject.year == year,
+                        Subject.is_active,
+                        Subject.is_archived.is_(False),
+                    )
                     .order_by(Subject.name)
                 )
                 result = await session.execute(stmt)
@@ -37,7 +41,10 @@ class SubscriptionService:
                 stmt = (
                     select(Subject)
                     .join(Subscription)
-                    .where(Subscription.user_id == user_id)
+                    .where(
+                        Subscription.user_id == user_id,
+                        Subject.is_archived.is_(False),
+                    )
                     .order_by(Subject.year, Subject.name)
                 )
                 result = await session.execute(stmt)
@@ -61,9 +68,25 @@ class SubscriptionService:
                 if existing:
                     return False, "Вы уже подписаны на этот предмет"
 
+                subject = await session.scalar(
+                    select(Subject).where(
+                        Subject.id == subject_id,
+                        Subject.is_active,
+                        Subject.is_archived.is_(False),
+                    )
+                )
+                if subject is None:
+                    return False, "Дисциплина неактивна или недоступна"
+
                 # Создаем новую подписку
                 subscription = Subscription(user_id=user_id, subject_id=subject_id)
                 session.add(subscription)
+                add_user_action_event(
+                    session,
+                    user_id=user_id,
+                    event_name="subscription_added",
+                    subject_id=subject_id,
+                )
                 await session.commit()
 
                 # Получаем название предмета для логирования
@@ -108,6 +131,13 @@ class SubscriptionService:
                     Subscription.subject_id == subject_id,
                 )
                 result = await session.execute(stmt)
+                if result.rowcount > 0:
+                    add_user_action_event(
+                        session,
+                        user_id=user_id,
+                        event_name="subscription_removed",
+                        subject_id=subject_id,
+                    )
                 await session.commit()
 
                 if result.rowcount > 0:
@@ -136,6 +166,13 @@ class SubscriptionService:
             try:
                 stmt = delete(Subscription).where(Subscription.user_id == user_id)
                 result = await session.execute(stmt)
+                if result.rowcount > 0:
+                    add_user_action_event(
+                        session,
+                        user_id=user_id,
+                        event_name="subscriptions_cleared",
+                        details={"count": result.rowcount},
+                    )
                 await session.commit()
 
                 count = result.rowcount

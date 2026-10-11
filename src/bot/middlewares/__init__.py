@@ -1,12 +1,17 @@
 from aiogram import Dispatcher
 
+from .callback_audit import CallbackAuditMiddleware
 from .database import DatabaseMiddleware
 from .group_chat import GroupChatMiddleware
+from .message_audit import MessageAuditMiddleware
 from .private_chat import PrivateChatMiddleware
 
 
 def register_middlewares(dp: Dispatcher):
     """Регистрация всех middleware"""
+    dp.callback_query.outer_middleware(CallbackAuditMiddleware())
+    dp.message.outer_middleware(MessageAuditMiddleware())
+
     # Сначала регистрируем DatabaseMiddleware для работы с БД
     dp.message.middleware(DatabaseMiddleware())
     dp.callback_query.middleware(DatabaseMiddleware())

@@ -27,12 +27,17 @@ class ChatNotificationSchedulerService:
                 # Получаем топик по subject_id и chat_id
                 async with db_manager.async_session() as session:
                     from sqlalchemy import select
-                    stmt = select(ChatTopic).where(
-                        and_(
-                            ChatTopic.chat_id == chat_id,
-                            ChatTopic.subject_id == subject_id
+
+                    stmt = (
+                        select(ChatTopic)
+                        .where(
+                            and_(
+                                ChatTopic.chat_id == chat_id,
+                                ChatTopic.subject_id == subject_id,
+                            )
                         )
-                    ).limit(1)
+                        .limit(1)
+                    )
                     result = await session.execute(stmt)
                     chat_topic = result.scalar_one_or_none()
 
@@ -55,11 +60,15 @@ class ChatNotificationSchedulerService:
                         )
                         total_scheduled += count
                     await session.commit()
-                    logger.info(f"(C) {chat_id} (topic {chat_topic.topic_id}) - Запланировано {total_scheduled} уведомлений")
+                    logger.info(
+                        f"(C) {chat_id} (topic {chat_topic.topic_id}) - Запланировано {total_scheduled} уведомлений"
+                    )
                     return total_scheduled
                 except Exception as e:
                     await session.rollback()
-                    logger.error(f"Ошибка планирования уведомлений для чата {chat_id}, откат транзакции: {e}")
+                    logger.error(
+                        f"Ошибка планирования уведомлений для чата {chat_id}, откат транзакции: {e}"
+                    )
                     raise
 
         except Exception as e:
@@ -73,8 +82,7 @@ class ChatNotificationSchedulerService:
             async with db_manager.async_session() as session:
                 stmt = select(ChatTopic).where(
                     and_(
-                        ChatTopic.subject_id == deadline.subject_id,
-                        ChatTopic.is_active
+                        ChatTopic.subject_id == deadline.subject_id, ChatTopic.is_active
                     )
                 )
                 result = await session.execute(stmt)
@@ -93,21 +101,29 @@ class ChatNotificationSchedulerService:
                         )
                         total_scheduled += count
                     await session.commit()
-                    logger.info(f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id} в топиках")
+                    logger.info(
+                        f"Запланировано {total_scheduled} уведомлений для дедлайна {deadline.id} в топиках"
+                    )
                     return total_scheduled
                 except Exception as e:
                     await session.rollback()
-                    logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}, откат транзакции: {e}")
+                    logger.error(
+                        f"Ошибка планирования уведомлений для дедлайна {deadline.id}, откат транзакции: {e}"
+                    )
                     raise
 
         except Exception as e:
-            logger.error(f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}")
+            logger.error(
+                f"Ошибка планирования уведомлений для дедлайна {deadline.id}: {e}"
+            )
             return 0
 
     async def _get_subject_tasks(self, subject_id: int) -> list[Task]:
         """Получить все активные задачи по предмету"""
         async with db_manager.async_session() as session:
-            stmt = select(Task).where(Task.subject_id == subject_id)
+            stmt = select(Task).where(
+                Task.subject_id == subject_id, Task.is_archived.is_(False)
+            )
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
@@ -138,7 +154,9 @@ class ChatNotificationSchedulerService:
             return total_scheduled
 
         except Exception as e:
-            logger.error(f"Ошибка планирования уведомлений для чата {chat_topic.chat_id} (topic {chat_topic.topic_id}) и дедлайна {deadline.id}: {e}")
+            logger.error(
+                f"Ошибка планирования уведомлений для чата {chat_topic.chat_id} (topic {chat_topic.topic_id}) и дедлайна {deadline.id}: {e}"
+            )
             return 0
 
     async def _create_chat_notifications(
@@ -180,6 +198,10 @@ class ChatNotificationSchedulerService:
                                 "planned_delivery_time": planned_time,
                                 "original_deadline_ts": deadline_ts,
                                 "updated_at": utc_now(),
+                                "attempt_count": 0,
+                                "next_attempt_at": None,
+                                "claimed_at": None,
+                                "last_error": None,
                             },
                         )
                     )
@@ -214,6 +236,10 @@ class ChatNotificationSchedulerService:
                                 "planned_delivery_time": planned_time,
                                 "original_deadline_ts": deadline_ts,
                                 "updated_at": utc_now(),
+                                "attempt_count": 0,
+                                "next_attempt_at": None,
+                                "claimed_at": None,
+                                "last_error": None,
                             },
                         )
                     )
@@ -224,7 +250,9 @@ class ChatNotificationSchedulerService:
             return notifications_created
 
         except Exception as e:
-            logger.error(f"Ошибка создания уведомлений для чата {chat_topic.chat_id} (topic {chat_topic.topic_id}): {e}")
+            logger.error(
+                f"Ошибка создания уведомлений для чата {chat_topic.chat_id} (topic {chat_topic.topic_id}): {e}"
+            )
             return 0
 
     def _calculate_notification_time(
@@ -248,7 +276,9 @@ class ChatNotificationSchedulerService:
                     and_(
                         ChatScheduledNotification.chat_topic_id == chat_topic.id,
                         ChatScheduledNotification.deadline_id == deadline.id,
-                        ChatScheduledNotification.status == "scheduled"
+                        ChatScheduledNotification.status.in_(
+                            ["scheduled", "processing", "retry"]
+                        ),
                     )
                 )
                 result = await session.execute(stmt)
@@ -265,7 +295,9 @@ class ChatNotificationSchedulerService:
                 return cancelled_count
 
         except Exception as e:
-            logger.error(f"Ошибка отмены уведомлений для чата {chat_topic.chat_id} (topic {chat_topic.topic_id}): {e}")
+            logger.error(
+                f"Ошибка отмены уведомлений для чата {chat_topic.chat_id} (topic {chat_topic.topic_id}): {e}"
+            )
             return 0
 
     async def reschedule_notifications_for_chat_settings_update(
@@ -278,7 +310,9 @@ class ChatNotificationSchedulerService:
                 stmt = select(ChatScheduledNotification).where(
                     and_(
                         ChatScheduledNotification.chat_topic_id == chat_topic.id,
-                        ChatScheduledNotification.status == "scheduled"
+                        ChatScheduledNotification.status.in_(
+                            ["scheduled", "processing", "retry"]
+                        ),
                     )
                 )
                 result = await session.execute(stmt)
@@ -290,8 +324,12 @@ class ChatNotificationSchedulerService:
                     # Пересчитываем новое время по обновлённым настройкам
                     new_planned_time = self._calculate_notification_time(
                         notification.original_deadline_ts,
-                        chat_topic.reminder1_offset if notification.notification_number == 1 else chat_topic.reminder2_offset,
-                        chat_topic.reminder1_unit if notification.notification_number == 1 else chat_topic.reminder2_unit
+                        chat_topic.reminder1_offset
+                        if notification.notification_number == 1
+                        else chat_topic.reminder2_offset,
+                        chat_topic.reminder1_unit
+                        if notification.notification_number == 1
+                        else chat_topic.reminder2_unit,
                     )
 
                     # Обновляем существующую запись вместо вставки новой
@@ -305,7 +343,9 @@ class ChatNotificationSchedulerService:
                 return rescheduled_count
 
         except Exception as e:
-            logger.error(f"Ошибка перепланирования уведомлений для чата {chat_topic.chat_id} (topic {chat_topic.topic_id}): {e}")
+            logger.error(
+                f"Ошибка перепланирования уведомлений для чата {chat_topic.chat_id} (topic {chat_topic.topic_id}): {e}"
+            )
             return 0
 
     async def cancel_notifications_for_task(self, deadline_id: int) -> int:
@@ -318,7 +358,9 @@ class ChatNotificationSchedulerService:
                     update(ChatScheduledNotification)
                     .where(
                         ChatScheduledNotification.deadline_id == deadline_id,
-                        ChatScheduledNotification.status == "scheduled",
+                        ChatScheduledNotification.status.in_(
+                            ["scheduled", "processing", "retry"]
+                        ),
                     )
                     .values(status="cancelled", updated_at=utc_now())
                 )
@@ -333,8 +375,9 @@ class ChatNotificationSchedulerService:
             )
             return 0
 
-
-    async def reschedule_notifications_for_chat_subject_change(self, chat_id: int, topic_id: int | None, new_subject_id: int) -> int:
+    async def reschedule_notifications_for_chat_subject_change(
+        self, chat_id: int, topic_id: int | None, new_subject_id: int
+    ) -> int:
         """Перепланирование уведомлений при смене дисциплины топика чата"""
         try:
             async with db_manager.async_session() as session:
@@ -348,6 +391,7 @@ class ChatNotificationSchedulerService:
                 if chat_group.mode == "single":
                     # В single-mode игнорируем topic_id и получаем единственный топик
                     from sqlalchemy import select
+
                     stmt = select(ChatTopic).where(ChatTopic.chat_id == chat_id)
                     result = await session.execute(stmt)
                     topics = list(result.scalars().all())
@@ -355,23 +399,30 @@ class ChatNotificationSchedulerService:
                         logger.error(f"Топик чата {chat_id} не найден (single-mode)")
                         return 0
                     if len(topics) > 1:
-                        logger.error(f"В single-mode должен быть только один топик для чата {chat_id}")
+                        logger.error(
+                            f"В single-mode должен быть только один топик для чата {chat_id}"
+                        )
                         return 0
                     chat_topic = topics[0]
                 else:
                     # В multi-mode используем topic_id
                     from sqlalchemy import and_, select
+
                     stmt = select(ChatTopic).where(
                         and_(
                             ChatTopic.chat_id == chat_id,
-                            ChatTopic.topic_id == topic_id if topic_id is not None else ChatTopic.topic_id.is_(None)
+                            ChatTopic.topic_id == topic_id
+                            if topic_id is not None
+                            else ChatTopic.topic_id.is_(None),
                         )
                     )
                     result = await session.execute(stmt)
                     chat_topic = result.scalar_one_or_none()
 
                     if not chat_topic:
-                        logger.error(f"Топик чата {chat_id} (topic {topic_id}) не найден")
+                        logger.error(
+                            f"Топик чата {chat_id} (topic {topic_id}) не найден"
+                        )
                         return 0
 
                 # Удаляем старые уведомления
@@ -392,9 +443,10 @@ class ChatNotificationSchedulerService:
             return scheduled_count
 
         except Exception as e:
-            logger.error(f"Ошибка перепланирования уведомлений при смене дисциплины чата {chat_id}: {e}")
+            logger.error(
+                f"Ошибка перепланирования уведомлений при смене дисциплины чата {chat_id}: {e}"
+            )
             return 0
-
 
     async def cancel_chat_notifications(self, chat_id: int) -> int:
         """Отмена всех запланированных уведомлений чата (при удалении бота)"""
@@ -407,7 +459,9 @@ class ChatNotificationSchedulerService:
                     update(ChatScheduledNotification)
                     .where(
                         ChatScheduledNotification.chat_id == chat_id,
-                        ChatScheduledNotification.status == "scheduled"
+                        ChatScheduledNotification.status.in_(
+                            ["scheduled", "processing", "retry"]
+                        ),
                     )
                     .values(status="cancelled")
                 )
@@ -415,7 +469,9 @@ class ChatNotificationSchedulerService:
                 cancelled_count = result.rowcount
                 await session.commit()
 
-                logger.info(f"Отменено {cancelled_count} уведомлений для чата {chat_id}")
+                logger.info(
+                    f"Отменено {cancelled_count} уведомлений для чата {chat_id}"
+                )
                 return cancelled_count
 
         except Exception as e:

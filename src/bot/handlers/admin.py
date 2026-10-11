@@ -1,4 +1,6 @@
 import os
+from datetime import UTC, date, datetime, timedelta
+from html import escape
 
 from aiogram import F, Router
 from aiogram.enums import ButtonStyle
@@ -68,6 +70,20 @@ except Exception as e:
 class BroadcastStates(StatesGroup):
     waiting_message = State()
     confirming_broadcast = State()
+    sending = State()
+
+
+_active_broadcast_admins: set[int] = set()
+_broadcast_types = {
+    "text": "Текст",
+    "photo": "Фото",
+    "video": "Видео",
+    "document": "Документ",
+    "animation": "Анимация",
+    "audio": "Аудио",
+    "voice": "Голосовое сообщение",
+    "video_note": "Видеосообщение",
+}
 
 
 def is_admin(user_id: int) -> bool:
@@ -86,12 +102,11 @@ async def show_statistics(message_or_callback, db_user, show_back_button: bool =
         builder.button(
             text="🔄 Обновить статистику", callback_data="admin_refresh_stats"
         )
+        builder.button(text="📊 События", callback_data="admin_events")
 
         if show_back_button:
             builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
-            builder.adjust(1, 1, 1)
-        else:
-            builder.adjust(1, 1)
+        builder.adjust(1)
 
         if isinstance(message_or_callback, CallbackQuery):
             await safe_edit_message(
@@ -166,7 +181,9 @@ async def perform_sync(message_or_callback, db_user, show_back_button: bool = Fa
             keyboard = None
 
         if isinstance(message_or_callback, CallbackQuery):
-            await safe_edit_message(message_or_callback.message, text, reply_markup=keyboard)
+            await safe_edit_message(
+                message_or_callback.message, text, reply_markup=keyboard
+            )
         else:
             # Для команды /full_sync статусное сообщение редактируем напрямую
             await safe_edit_message(message_or_callback, text)
@@ -290,7 +307,6 @@ async def cmd_user_info(message: Message, db_user):
     if not is_admin(db_user.tg_user_id):
         await message.answer(ERROR_NO_ADMIN_RIGHTS)
         return
-
     try:
         # Парсим аргументы команды
         args = message.text.split(maxsplit=1)
@@ -310,7 +326,9 @@ async def cmd_user_info(message: Message, db_user):
 
         if not user_info:
             await message.answer(ADMIN_USER_NOT_FOUND)
-            logger.info(f"(A) {db_user.tg_user_id} - /user_info {identifier} - не найден")
+            logger.info(
+                f"(A) {db_user.tg_user_id} - /user_info {identifier} - не найден"
+            )
             return
 
         user = user_info["user"]
@@ -331,13 +349,23 @@ async def cmd_user_info(message: Message, db_user):
         status = "✅ Активен" if user.is_active else "❌ Неактивен"
 
         admin_tz = getattr(db_user, "timezone", None) or "Europe/Moscow"
-        created_at = format_deadline_tg_time(user.created_at, tz_name=admin_tz) if user.created_at else "-"
-        last_activity = format_deadline_tg_time(user.last_activity, tz_name=admin_tz) if user.last_activity else "-"
+        created_at = (
+            format_deadline_tg_time(user.created_at, tz_name=admin_tz)
+            if user.created_at
+            else "-"
+        )
+        last_activity = (
+            format_deadline_tg_time(user.last_activity, tz_name=admin_tz)
+            if user.last_activity
+            else "-"
+        )
 
         # Форматируем подписки
         if subscriptions:
             subs_list = "\n".join(f"• {sub.name}" for sub in subscriptions)
-            subscriptions_info = f"📚 <b>Подписки ({len(subscriptions)}):</b>\n{subs_list}"
+            subscriptions_info = (
+                f"📚 <b>Подписки ({len(subscriptions)}):</b>\n{subs_list}"
+            )
         else:
             subscriptions_info = "📚 <b>Подписок нет.</b>"
 
@@ -357,7 +385,9 @@ async def cmd_user_info(message: Message, db_user):
 
     except Exception as e:
         logger.error(f"(A) {db_user.tg_user_id} - команда /user_info: {e}")
-        await message.answer(f"❌ Ошибка при получении информации о пользователе: {e!s}")
+        await message.answer(
+            f"❌ Ошибка при получении информации о пользователе: {e!s}"
+        )
 
 
 @router.message(Command("logs"))
@@ -366,14 +396,68 @@ async def cmd_logs(message: Message, db_user):
     if not is_admin(db_user.tg_user_id):
         await message.answer(ERROR_NO_ADMIN_RIGHTS)
         return
+    if message.chat.type != "private":
+        await message.answer("📄 Запросите логи в личном чате с ботом.")
+        return
 
     try:
-        logger.info(f"(A) {db_user.tg_user_id} - Логи")
-        await admin_service.send_logs_to_admin(message.bot, db_user.tg_user_id)
+        start, end = _parse_export_dates(message.text)
+    except ValueError:
+        await message.answer(
+            "Укажите /logs [ГГГГ-ММ-ДД [ГГГГ-ММ-ДД]], максимум 7 дней."
+        )
+        return
+
+    try:
+        logger.info(f"(A) {db_user.tg_user_id} - Логи {start}—{end}")
+        if not await admin_service.send_logs_to_admin(
+            message.bot, db_user.tg_user_id, start, end
+        ):
+            await message.answer(
+                "📄 Логов за этот период нет или их не удалось отправить."
+            )
 
     except Exception as e:
         logger.error(f"(A) {db_user.tg_user_id} - команда /logs: {e}")
         await message.answer(f"❌ Ошибка при получении логов: {e!s}")
+
+
+def _parse_export_dates(
+    text: str | None, default_date: date | None = None
+) -> tuple[date, date]:
+    args = (text or "").split()[1:]
+    if len(args) > 2:
+        raise ValueError("Слишком много дат")
+    start = date.fromisoformat(args[0]) if args else (default_date or date.today())
+    end = date.fromisoformat(args[1]) if len(args) == 2 else start
+    if end < start or end - start > timedelta(days=6):
+        raise ValueError("Диапазон должен составлять не более 7 дней")
+    return start, end
+
+
+@router.message(Command("events"))
+async def cmd_events(message: Message, db_user):
+    """Export product events to the administrator's private chat."""
+    if not is_admin(db_user.tg_user_id):
+        await message.answer(ERROR_NO_ADMIN_RIGHTS)
+        return
+    if message.chat.type != "private":
+        await message.answer("📊 Запросите события в личном чате с ботом.")
+        return
+    try:
+        start, end = _parse_export_dates(message.text, datetime.now(UTC).date())
+    except ValueError:
+        await message.answer(
+            "Укажите /events [ГГГГ-ММ-ДД [ГГГГ-ММ-ДД]], максимум 7 дней (UTC)."
+        )
+        return
+    logger.info(f"(A) {db_user.tg_user_id} - События {start}—{end}")
+    if not await admin_service.send_events_to_admin(
+        message.bot, db_user.tg_user_id, start, end
+    ):
+        await message.answer(
+            "📊 Событий за этот период нет или их не удалось отправить."
+        )
 
 
 @router.message(Command("full_sync"))
@@ -386,28 +470,12 @@ async def cmd_full_sync(message: Message, db_user):
     status_message = await message.answer("🔄 <b>Запускаю полную синхронизацию...</b>")
 
     try:
-        # 1. Синхронизация дисциплин
-        logger.info(f"(A) {db_user.tg_user_id} - /full_sync: синхронизация дисциплин")
-        subjects_result = await data_syncer.sync_subjects()
-        subjects_updated = subjects_result.get("updated", 0)
-        subjects_created = subjects_result.get("created", 0)
-
-        await safe_edit_message(
-            status_message,
-            "🔄 <b>Дисциплины синхронизированы, синхронизирую дедлайны...</b>",
-        )
-
-        # 2. Синхронизация дедлайнов
-        logger.info(f"(A) {db_user.tg_user_id} - /full_sync: синхронизация дедлайнов")
+        logger.info(f"(A) {db_user.tg_user_id} - /full_sync")
         sync_result = await data_syncer.sync_data()
-        deadlines_success = (
-            bool(sync_result.get("success"))
-            if isinstance(sync_result, dict)
-            else bool(sync_result)
-        )
+        deadlines_success = bool(sync_result.get("success"))
 
         # Отправка мгновенных уведомлений об изменениях
-        if deadlines_success and isinstance(sync_result, dict):
+        if deadlines_success:
             changes = sync_result.get("changes", [])
             if changes:
                 try:
@@ -426,14 +494,15 @@ async def cmd_full_sync(message: Message, db_user):
         if deadlines_success:
             text = (
                 "✅ <b>Полная синхронизация завершена</b>\n\n"
-                f"📚 <b>Дисциплины:</b> обновлено {subjects_updated}, создано {subjects_created}\n"
-                f"📝 <b>Дедлайны:</b> синхронизированы"
+                f"📝 <b>Задания:</b> создано {sync_result.get('created', 0)}, "
+                f"обновлено {sync_result.get('updated', 0)}, "
+                f"удалено {sync_result.get('deleted', 0)}"
             )
         else:
             text = (
                 "⚠️ <b>Синхронизация завершена частично</b>\n\n"
-                f"📚 <b>Дисциплины:</b> обновлено {subjects_updated}, создано {subjects_created}\n"
-                f"📝 <b>Дедлайны:</b> ошибка синхронизации"
+                f"Ошибок: {len(sync_result.get('errors', []))}. "
+                "Проверьте отчёт и серверный журнал."
             )
 
         await safe_edit_message(status_message, text)
@@ -468,6 +537,11 @@ async def cmd_broadcast(event: Message | CallbackQuery, db_user, state: FSMConte
     if not is_admin(db_user.tg_user_id):
         await message.answer(ERROR_NO_ADMIN_RIGHTS)
         return
+    if message.chat.type != "private":
+        await message.answer(
+            "📢 Рассылку можно подготовить только в личном чате с ботом."
+        )
+        return
 
     try:
         # Получаем количество пользователей для рассылки
@@ -476,7 +550,11 @@ async def cmd_broadcast(event: Message | CallbackQuery, db_user, state: FSMConte
         text = ADMIN_BROADCAST_CONFIRM.format(user_count=user_count)
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="❌ Отмена", callback_data="admin_cancel_broadcast", style=ButtonStyle.DANGER)
+        builder.button(
+            text="❌ Отмена",
+            callback_data="admin_cancel_broadcast",
+            style=ButtonStyle.DANGER,
+        )
 
         await state.set_state(BroadcastStates.waiting_message)
         await message.answer(text, reply_markup=builder.as_markup())
@@ -495,21 +573,52 @@ async def process_broadcast_message(message: Message, db_user, state: FSMContext
         return
 
     try:
-        # Сохраняем сообщение для рассылки
+        if message.media_group_id:
+            await message.answer("Отправьте один файл или видео за раз, без альбома.")
+            return
+        kind = _broadcast_types.get(
+            getattr(message.content_type, "value", message.content_type)
+        )
+        if kind is None:
+            await message.answer(
+                "Поддерживаются текст, фото, видео, документ, анимация, аудио и голосовое сообщение."
+            )
+            return
+
+        # A real copy is the preview and verifies that Telegram accepts the
+        # source message before the admin can confirm a large broadcast.
+        await message.bot.copy_message(
+            chat_id=message.chat.id,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
         await state.update_data(
-            broadcast_text=message.html_text, broadcast_entities=message.entities
+            source_chat_id=message.chat.id,
+            source_message_id=message.message_id,
         )
 
         user_count = await admin_service.get_users_count()
 
-        message_preview = f"{message.html_text[:500]}{'...' if len(message.html_text) > 500 else ''}"
+        content = message.text or message.caption or kind
+        message_preview = escape(content[:300])
+        if len(content) > 300:
+            message_preview += "…"
+        message_preview = f"{kind}: {message_preview}"
         text = ADMIN_BROADCAST_PREVIEW.format(
             user_count=user_count, message_preview=message_preview
         )
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="✅ Отправить", callback_data="admin_confirm_broadcast", style=ButtonStyle.SUCCESS)
-        builder.button(text="❌ Отмена", callback_data="admin_cancel_broadcast", style=ButtonStyle.DANGER)
+        builder.button(
+            text="✅ Отправить",
+            callback_data="admin_confirm_broadcast",
+            style=ButtonStyle.SUCCESS,
+        )
+        builder.button(
+            text="❌ Отмена",
+            callback_data="admin_cancel_broadcast",
+            style=ButtonStyle.DANGER,
+        )
         builder.adjust(2)
 
         await state.set_state(BroadcastStates.confirming_broadcast)
@@ -530,23 +639,32 @@ async def callback_confirm_broadcast(
         await callback.answer("❌ Нет прав доступа", show_alert=True)
         return
 
-    await callback.answer("Запускаю рассылку...")
-
     try:
+        if await state.get_state() != BroadcastStates.confirming_broadcast.state:
+            await callback.answer("Рассылка уже запущена или отменена.")
+            return
+        if db_user.tg_user_id in _active_broadcast_admins:
+            await callback.answer("Рассылка уже выполняется.")
+            return
         data = await state.get_data()
-        broadcast_text = data.get("broadcast_text")
-        broadcast_entities = data.get("broadcast_entities")
+        source_chat_id = data.get("source_chat_id")
+        source_message_id = data.get("source_message_id")
 
-        if not broadcast_text:
-            await safe_edit_message(callback.message, "❌ Сообщение для рассылки не найдено.")
+        if not source_chat_id or not source_message_id:
+            await callback.answer("Сообщение для рассылки не найдено.")
+            await safe_edit_message(
+                callback.message, "❌ Сообщение для рассылки не найдено."
+            )
             await state.clear()
             return
 
-        # Запускаем рассылку
+        _active_broadcast_admins.add(db_user.tg_user_id)
+        await state.set_state(BroadcastStates.sending)
+        await callback.answer("Запускаю рассылку...")
         result = await admin_service.send_broadcast(
-            broadcast_text,
             callback.bot,
-            broadcast_entities=broadcast_entities,
+            source_chat_id=source_chat_id,
+            source_message_id=source_message_id,
         )
 
         success_count = result.get("success", 0)
@@ -581,6 +699,8 @@ async def callback_confirm_broadcast(
         logger.error(f"(A) {db_user.tg_user_id} - выполнение рассылки: {e}")
         await safe_edit_message(callback.message, ERROR_BROADCAST_EXECUTE)
         await state.clear()
+    finally:
+        _active_broadcast_admins.discard(db_user.tg_user_id)
 
 
 @router.callback_query(F.data == "admin_cancel_broadcast")
@@ -588,7 +708,9 @@ async def callback_cancel_broadcast(
     callback: CallbackQuery, db_user, state: FSMContext
 ):
     """Отмена рассылки"""
-    await callback.answer()
+    if await state.get_state() == BroadcastStates.sending.state:
+        await callback.answer("Рассылка уже выполняется.")
+        return
     await state.clear()
     # Просто возвращаемся в админ-панель без сообщения об отмене
     await callback_admin_panel(callback, db_user)
@@ -614,7 +736,7 @@ async def callback_admin_panel(callback: CallbackQuery, db_user):
     builder.button(text="🔄 Sync - Дисциплины", callback_data="admin_sync_subjects")
 
     builder.row()
-    builder.button(text="📢 Broadcast", callback_data="admin_broadcast")
+    builder.button(text="📢 Рассылка", callback_data="admin_broadcast")
     builder.button(text="💬 Управление чатами", callback_data="admin_chat_management")
 
     builder.row()
@@ -643,26 +765,46 @@ async def callback_admin_logs(callback: CallbackQuery, db_user):
     if not is_admin(db_user.tg_user_id):
         await callback.answer("❌ Нет прав доступа", show_alert=True)
         return
+    if callback.message.chat.type != "private":
+        await callback.answer("Запросите логи в личном чате с ботом.", show_alert=True)
+        return
 
     await callback.answer("Подготавливаю логи...")
 
     try:
-        # Отправляем логи (файлы отправляются отдельными сообщениями)
         success = await admin_service.send_logs_to_admin(
             callback.bot, db_user.tg_user_id
         )
 
-        # Не редактируем сообщение, так как логи отправляются отдельно
-        # Просто показываем уведомление
-        if success:
-            await callback.answer("✅ Логи отправлены", show_alert=True)
-        else:
-            await callback.answer("❌ Логи не найдены", show_alert=True)
+        if not success:
+            await callback.message.answer(
+                "❌ Не удалось отправить логи. Проверьте серверный журнал."
+            )
 
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
         logger.error(f"(A) {user_id} - отправка логов: {e}")
-        await callback.answer(f"❌ Ошибка: {e!s}", show_alert=True)
+        await callback.message.answer("❌ Не удалось отправить логи.")
+
+
+@router.callback_query(F.data == "admin_events")
+async def callback_admin_events(callback: CallbackQuery, db_user):
+    if not is_admin(db_user.tg_user_id):
+        await callback.answer("❌ Нет прав доступа", show_alert=True)
+        return
+    if callback.message.chat.type != "private":
+        await callback.answer(
+            "Запросите события в личном чате с ботом.", show_alert=True
+        )
+        return
+    await callback.answer("Подготавливаю события за сегодня (UTC)...")
+    today = datetime.now(UTC).date()
+    if not await admin_service.send_events_to_admin(
+        callback.bot, db_user.tg_user_id, today, today
+    ):
+        await callback.message.answer(
+            "📊 Событий за сегодня нет или их не удалось отправить."
+        )
 
 
 @router.callback_query(F.data == "admin_refresh_stats")
@@ -699,6 +841,12 @@ async def callback_admin_sync_subjects(callback: CallbackQuery, db_user):
     try:
         await callback.answer("Запускаю синхронизацию дисциплин...")
         result = await data_syncer.sync_subjects()
+        if not result.get("success"):
+            await safe_edit_message(
+                callback.message,
+                "❌ Дисциплины не синхронизированы. Проверьте структуру листа и журнал.",
+            )
+            return
         updated = result.get("updated", 0)
         created = result.get("created", 0)
         text = (
@@ -707,11 +855,15 @@ async def callback_admin_sync_subjects(callback: CallbackQuery, db_user):
         )
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад к админ-панели", callback_data="admin_panel")
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
         logger.error(f"(A) {user_id} - синхронизация дисциплин: {e}")
-        await safe_edit_message(callback.message, "❌ Ошибка при синхронизации дисциплин", parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, "❌ Ошибка при синхронизации дисциплин", parse_mode="HTML"
+        )
 
 
 @router.message(Command("chat_stats"))
@@ -742,7 +894,11 @@ async def cmd_chat_stats(message: Message, db_user):
             text += "📋 <b>Список чатов:</b>\n"
             for chat_group in chat_groups[:10]:  # Показываем первые 10
                 status_emoji = "✅" if chat_group.is_active else "❌"
-                topic_info = f" (топик {chat_group.topic_id})" if chat_group.topic_id else " (общий чат)"
+                topic_info = (
+                    f" (топик {chat_group.topic_id})"
+                    if chat_group.topic_id
+                    else " (общий чат)"
+                )
                 text += f"{status_emoji} {chat_group.subject.name}{topic_info}\n"
 
             if len(chat_groups) > 10:
@@ -795,7 +951,9 @@ async def callback_admin_chat_management(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="admin_panel")
         builder.adjust(1)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
@@ -849,7 +1007,9 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
 
                     # Показываем название чата если есть
                     chat_title = (
-                        chat_group.chat_group.chat_title if chat_group.chat_group else None
+                        chat_group.chat_group.chat_title
+                        if chat_group.chat_group
+                        else None
                     ) or "Название недоступно"
 
                     # Показываем топик если есть
@@ -864,7 +1024,9 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
                 text += "\n"
 
                 if len(text) > 3500:
-                    text += "...\n<i>(Список обрезан для предотвращения переполнения)</i>"
+                    text += (
+                        "...\n<i>(Список обрезан для предотвращения переполнения)</i>"
+                    )
                     break
 
             # Добавляем краткую статистику
@@ -879,7 +1041,9 @@ async def callback_admin_chat_list(callback: CallbackQuery, db_user):
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="admin_chat_management")
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
@@ -916,11 +1080,16 @@ async def callback_admin_chat_toggle_confirm(callback: CallbackQuery, db_user):
         )
 
         builder = InlineKeyboardBuilder()
-        builder.button(text=f"✅ {action_text.title()}", callback_data=f"admin_chat_toggle_all_{new_status}")
+        builder.button(
+            text=f"✅ {action_text.title()}",
+            callback_data=f"admin_chat_toggle_all_{new_status}",
+        )
         builder.button(text="❌ Отмена", callback_data="admin_chat_management")
         builder.adjust(1)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
@@ -955,7 +1124,10 @@ async def cmd_chat_toggle_all(message: Message, db_user):
         )
 
         builder = InlineKeyboardBuilder()
-        builder.button(text=f"✅ {action_text.title()}", callback_data=f"admin_chat_toggle_all_{new_status}")
+        builder.button(
+            text=f"✅ {action_text.title()}",
+            callback_data=f"admin_chat_toggle_all_{new_status}",
+        )
         builder.button(text="❌ Отмена", callback_data="admin_panel")
         builder.adjust(1)
 
@@ -1000,7 +1172,12 @@ async def callback_chat_toggle_all(callback: CallbackQuery, db_user):
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="admin_chat_management")
 
-        await safe_edit_message(callback.message, result_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message,
+            result_text,
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
 
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0

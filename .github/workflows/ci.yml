@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: hse_bot_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hse_bot_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ALEMBIC_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hse_bot_test
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/hse_bot_test
+      POSTGRES_DB: hse_bot_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.21"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: uv sync --frozen --dev
+      - run: uv lock --check
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: bash -n scripts/deploy.sh scripts/backup-db.sh
+      - run: uv run pytest
+      - run: uv build --wheel --out-dir /tmp/hse-bot-wheel
+      - run: python -c 'import glob, zipfile; p = glob.glob("/tmp/hse-bot-wheel/*.whl")[0]; assert "main.py" in zipfile.ZipFile(p).namelist()'
+      - run: uv run alembic upgrade head --sql > /dev/null
+      - run: uv run alembic upgrade head
+      - run: uv run alembic check
+      - run: docker build --tag hse-bot-ci .

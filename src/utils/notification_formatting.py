@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytz
 
+
 DATE_FMT_SHORT = "%d.%m.%y %H:%M"
 DATE_FMT_WITH_WORD = "%d.%m.%y в %H:%M"
 
@@ -95,4 +96,3 @@ def format_duration(seconds: float) -> str:
     if secs == 0:
         return f"{minutes} мин."
     return f"{minutes} мин. {secs} сек."
-

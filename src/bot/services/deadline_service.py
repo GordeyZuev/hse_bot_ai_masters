@@ -32,7 +32,11 @@ class DeadlineService:
                 end_date = now + timedelta(days=days)
 
                 # Дедлайны по подписанным предметам
-                tus = select(TaskUserStatus.deadline_id).where(TaskUserStatus.user_id == user_id).subquery()
+                tus = (
+                    select(TaskUserStatus.deadline_id)
+                    .where(TaskUserStatus.user_id == user_id)
+                    .subquery()
+                )
 
                 stmt = (
                     select(Task, Subject, tus.c.deadline_id)
@@ -42,16 +46,19 @@ class DeadlineService:
                     .where(
                         and_(
                             Subscription.user_id == user_id,
+                            Task.is_archived.is_(False),
+                            Subject.is_active,
+                            Subject.is_archived.is_(False),
                             or_(
                                 and_(
                                     Task.soft_deadline_ts.isnot(None),
                                     Task.soft_deadline_ts >= now,
-                                    Task.soft_deadline_ts <= end_date,
+                                    or_(days >= 500, Task.soft_deadline_ts <= end_date),
                                 ),
                                 and_(
                                     Task.hard_deadline_ts.isnot(None),
                                     Task.hard_deadline_ts >= now,
-                                    Task.hard_deadline_ts <= end_date,
+                                    or_(days >= 500, Task.hard_deadline_ts <= end_date),
                                 ),
                             ),
                         )
@@ -116,13 +123,15 @@ class DeadlineService:
                         )
 
                 # Сортируем: сначала невыполненные, затем по времени ближайшего дедлайна
-                deadlines_data.sort(key=lambda x: (x.get("is_done", False), x["nearest_deadline"]))
+                deadlines_data.sort(
+                    key=lambda x: (x.get("is_done", False), x["nearest_deadline"])
+                )
 
                 return deadlines_data
 
             except Exception as e:
                 logger.error(f"Ошибка получения дедлайнов пользователя {user_id}: {e}")
-                return []
+                raise
 
     async def get_all_upcoming_deadlines(self, days: int = 7) -> list[dict[str, Any]]:
         """Получить все предстоящие дедлайны (для уведомлений)"""
@@ -135,6 +144,9 @@ class DeadlineService:
                     select(Task, Subject)
                     .join(Subject)
                     .where(
+                        Task.is_archived.is_(False),
+                        Subject.is_active,
+                        Subject.is_archived.is_(False),
                         or_(
                             and_(
                                 Task.soft_deadline_ts.isnot(None),
@@ -146,7 +158,7 @@ class DeadlineService:
                                 Task.hard_deadline_ts >= now,
                                 Task.hard_deadline_ts <= end_date,
                             ),
-                        )
+                        ),
                     )
                 )
 
@@ -207,7 +219,9 @@ class DeadlineService:
 
         now = datetime.now(UTC)
         if deadline.soft_deadline_ts:
-            soft_date = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name=user_tz_name)
+            soft_date = format_deadline_tg_time(
+                deadline.soft_deadline_ts, tz_name=user_tz_name
+            )
 
             if deadline.soft_deadline_ts >= now:
                 message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date}\n"
@@ -215,7 +229,9 @@ class DeadlineService:
                 message += f"🟡 <b>Мягкий дедлайн:</b> {soft_date} <i>(прошел)</i>\n"
 
         if deadline.hard_deadline_ts:
-            hard_date = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name=user_tz_name)
+            hard_date = format_deadline_tg_time(
+                deadline.hard_deadline_ts, tz_name=user_tz_name
+            )
 
             if deadline.hard_deadline_ts >= now:
                 message += f"🔴 <b>Жесткий дедлайн:</b> {hard_date}\n"
@@ -230,9 +246,13 @@ class DeadlineService:
             deadline_name = "мягкого" if deadline_type == "soft" else "жесткого"
             icon = "🟡" if deadline_type == "soft" else "🔴"
             if remain == "(сегодня!)":
-                message += f"\n{icon} <b>{deadline_name.capitalize()} дедлайн сегодня!</b>"
+                message += (
+                    f"\n{icon} <b>{deadline_name.capitalize()} дедлайн сегодня!</b>"
+                )
             else:
-                message += f"\n{icon} <b>До {deadline_name} дедлайна:</b> {remain.strip('()')}"
+                message += (
+                    f"\n{icon} <b>До {deadline_name} дедлайна:</b> {remain.strip('()')}"
+                )
 
         # Ссылка на источник
         if deadline.source_link and deadline.source_link.strip():
@@ -280,7 +300,9 @@ class DeadlineService:
             # Ближайший дедлайн (tg-time + fallback в TZ пользователя)
             if data.get("nearest_deadline"):
                 now = datetime.now(UTC)
-                date_str = format_deadline_tg_time(data["nearest_deadline"], tz_name=user_tz_name)
+                date_str = format_deadline_tg_time(
+                    data["nearest_deadline"], tz_name=user_tz_name
+                )
 
                 # Выбираем цвет в зависимости от типа дедлайна
                 deadline_type_icon = "🟡" if data["deadline_type"] == "soft" else "🔴"

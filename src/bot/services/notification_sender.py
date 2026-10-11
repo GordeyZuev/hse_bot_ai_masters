@@ -1,12 +1,16 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
+from html import escape
 from typing import Any
 
 import pytz
 from aiogram import Bot
 from aiogram.enums import ButtonStyle
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import and_, or_, select
 
+from src.bot.services.rate_limiter import telegram_rate_limiter
 from src.core.database import db_manager
 from src.core.models import (
     Subject,
@@ -28,6 +32,32 @@ logger = get_logger()
 
 class NotificationSender:
     """Сервис для отправки уведомлений о дедлайнах"""
+
+    async def _send_immediate_message(
+        self, bot: Bot, user_id: int, message: str, keyboard: InlineKeyboardMarkup
+    ) -> bool:
+        """Throttle update notifications and isolate one recipient's failures."""
+        for attempt in range(2):
+            try:
+                await telegram_rate_limiter.acquire()
+                return await safe_send_message(
+                    bot,
+                    chat_id=user_id,
+                    text=message,
+                    user_id=user_id,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                    reply_markup=keyboard,
+                )
+            except TelegramRetryAfter as exc:
+                if attempt == 0:
+                    await asyncio.sleep(exc.retry_after + 1)
+                    continue
+                logger.warning(f"(U) {user_id} - Повторный RetryAfter: {exc}")
+            except Exception:
+                logger.exception(f"(U) {user_id} - Не удалось отправить обновление ДЗ")
+                break
+        return False
 
     async def send_task_notifications(self, bot: Bot) -> dict[str, int]:
         """Отправить уведомления о приближающихся дедлайнах"""
@@ -132,14 +162,12 @@ class NotificationSender:
             try:
                 stmt = (
                     select(User, UserNotificationSettings)
-                    .join(UserNotificationSettings, User.tg_user_id == UserNotificationSettings.user_id)
-                    .join(Subscription)
-                    .where(
-                        and_(
-                            UserNotificationSettings.is_active,
-                            User.is_active
-                        )
+                    .join(
+                        UserNotificationSettings,
+                        User.tg_user_id == UserNotificationSettings.user_id,
                     )
+                    .join(Subscription)
+                    .where(and_(UserNotificationSettings.is_active, User.is_active))
                     .distinct()
                 )
 
@@ -243,7 +271,6 @@ class NotificationSender:
                 )
                 return []
 
-
     async def _send_notification_to_user(
         self,
         bot: Bot,
@@ -268,7 +295,9 @@ class NotificationSender:
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY
+                        text="📅 Дедлайны",
+                        callback_data="quick_deadlines",
+                        style=ButtonStyle.PRIMARY,
                     )
                 ]
             ]
@@ -300,24 +329,33 @@ class NotificationSender:
         unit_text = {"days": "дн.", "hours": "ч."}.get(offset_unit, offset_unit)
 
         message = "🔔 <b>Напоминание о дедлайне</b>\n\n"
-        message += f"📚 <b>Предмет:</b> {subject.name}\n"
+        message += f"📚 <b>Предмет:</b> {escape(subject.name)}\n"
 
         if deadline.source_link:
-            message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+            message += (
+                f"📝 <b>Задание:</b> <a href='{escape(deadline.source_link, quote=True)}'>"
+                f"{escape(deadline.hw_name or 'Без названия')}</a>\n"
+            )
         else:
-            message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
+            message += (
+                f"📝 <b>Задание:</b> {escape(deadline.hw_name or 'Без названия')}\n"
+            )
 
         user_tz_name = getattr(user, "timezone", "") or "Europe/Moscow"
         if deadline.soft_deadline_ts:
-            soft_date = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name=user_tz_name)
+            soft_date = format_deadline_tg_time(
+                deadline.soft_deadline_ts, tz_name=user_tz_name
+            )
             message += f"🟡 <b>Дедлайн:</b> {soft_date} (Осталось {offset_value} {unit_text})\n"
 
         if deadline.hard_deadline_ts:
-            hard_date = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name=user_tz_name)
+            hard_date = format_deadline_tg_time(
+                deadline.hard_deadline_ts, tz_name=user_tz_name
+            )
             message += f"🔴 <b>Дедлайн:</b> {hard_date} (Осталось {offset_value} {unit_text})\n"
 
         if deadline.note:
-            message += f"\n💬 <i>{deadline.note}</i>"
+            message += f"\n💬 <i>{escape(deadline.note)}</i>"
 
         return message
 
@@ -341,10 +379,12 @@ class NotificationSender:
                     return 0
 
                 user_ids = [user.tg_user_id for user in users]
-                done_stmt = select(TaskUserStatus.user_id, TaskUserStatus.deadline_id).where(
+                done_stmt = select(
+                    TaskUserStatus.user_id, TaskUserStatus.deadline_id
+                ).where(
                     and_(
                         TaskUserStatus.user_id.in_(user_ids),
-                        TaskUserStatus.deadline_id == deadline.id
+                        TaskUserStatus.deadline_id == deadline.id,
                     )
                 )
                 done_res = await session.execute(done_stmt)
@@ -357,7 +397,7 @@ class NotificationSender:
                 settings_dict = {s.user_id: s for s in settings_res.scalars().all()}
 
             action_text = "Дедлайн обновлён"
-            subject_name = subject.name if subject else "Предмет"
+            subject_name = escape(subject.name) if subject else "Предмет"
             soft = deadline.soft_deadline_ts
             hard = deadline.hard_deadline_ts
 
@@ -376,10 +416,15 @@ class NotificationSender:
                 message = f"📌 <b>{action_text}</b>\n\n"
                 message += f"📚 <b>Предмет:</b> {subject_name}\n"
                 if deadline.source_link:
-                    message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                    message += (
+                        f"📝 <b>Задание:</b> <a href='{escape(deadline.source_link, quote=True)}'>"
+                        f"{escape(deadline.hw_name or 'Без названия')}</a>\n"
+                    )
                 else:
-                    message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
-                user_tz_name = (user.timezone or "Europe/Moscow") if user else "Europe/Moscow"
+                    message += f"📝 <b>Задание:</b> {escape(deadline.hw_name or 'Без названия')}\n"
+                user_tz_name = (
+                    (user.timezone or "Europe/Moscow") if user else "Europe/Moscow"
+                )
                 if soft:
                     soft_str = format_deadline_tg_time(soft, tz_name=user_tz_name)
                     message += f"🟡 {soft_str}\n"
@@ -387,26 +432,22 @@ class NotificationSender:
                     hard_str = format_deadline_tg_time(hard, tz_name=user_tz_name)
                     message += f"🔴 {hard_str}\n"
                 if deadline.note:
-                    message += f"\n💬 <i>{deadline.note}</i>"
+                    message += f"\n💬 <i>{escape(deadline.note)}</i>"
 
                 keyboard = InlineKeyboardMarkup(
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY
+                                text="📅 Дедлайны",
+                                callback_data="quick_deadlines",
+                                style=ButtonStyle.PRIMARY,
                             )
                         ]
                     ]
                 )
 
-                success = await safe_send_message(
-                    bot,
-                    chat_id=user.tg_user_id,
-                    text=message,
-                    user_id=user.tg_user_id,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                    reply_markup=keyboard,
+                success = await self._send_immediate_message(
+                    bot, user.tg_user_id, message, keyboard
                 )
 
                 if success:
@@ -463,10 +504,12 @@ class NotificationSender:
             # Загружаем информацию о выполненных заданиях для всех пользователей одним запросом
             deadline_ids = [d.id for d in deadlines]
             async with db_manager.async_session() as session:
-                done_stmt = select(TaskUserStatus.user_id, TaskUserStatus.deadline_id).where(
+                done_stmt = select(
+                    TaskUserStatus.user_id, TaskUserStatus.deadline_id
+                ).where(
                     and_(
                         TaskUserStatus.user_id.in_(list(user_to_subjects.keys())),
-                        TaskUserStatus.deadline_id.in_(deadline_ids)
+                        TaskUserStatus.deadline_id.in_(deadline_ids),
                     )
                 )
                 done_res = await session.execute(done_stmt)
@@ -484,11 +527,13 @@ class NotificationSender:
                         # Пропускаем выполненные задания
                         if (uid, d.id) in done_tasks:
                             continue
-                        user_entries.setdefault(uid, []).append({
-                            "deadline": d,
-                            "subject": subjects.get(sid),
-                            "change_info": change_info
-                        })
+                        user_entries.setdefault(uid, []).append(
+                            {
+                                "deadline": d,
+                                "subject": subjects.get(sid),
+                                "change_info": change_info,
+                            }
+                        )
 
             # Загружаем пользователей и их настройки единым запросом
             user_ids = list(user_entries.keys())
@@ -533,20 +578,16 @@ class NotificationSender:
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY
+                                text="📅 Дедлайны",
+                                callback_data="quick_deadlines",
+                                style=ButtonStyle.PRIMARY,
                             )
                         ]
                     ]
                 )
 
-                success = await safe_send_message(
-                    bot,
-                    chat_id=user.tg_user_id,
-                    text=message,
-                    user_id=user.tg_user_id,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                    reply_markup=keyboard,
+                success = await self._send_immediate_message(
+                    bot, user.tg_user_id, message, keyboard
                 )
 
                 if success:
@@ -579,13 +620,19 @@ class NotificationSender:
         # Новые дедлайны
         if new_deadlines:
             message_parts.append(f"✨ <b>Новые дедлайны ({len(new_deadlines)})</b>\n")
-            message_parts.append(self._format_deadline_list(new_deadlines, user_tz, is_new=True))
+            message_parts.append(
+                self._format_deadline_list(new_deadlines, user_tz, is_new=True)
+            )
             message_parts.append("")
 
         # Обновленные дедлайны
         if updated_deadlines:
-            message_parts.append(f"📌 <b>Обновлены дедлайны ({len(updated_deadlines)})</b>\n")
-            message_parts.append(self._format_deadline_list(updated_deadlines, user_tz, is_new=False))
+            message_parts.append(
+                f"📌 <b>Обновлены дедлайны ({len(updated_deadlines)})</b>\n"
+            )
+            message_parts.append(
+                self._format_deadline_list(updated_deadlines, user_tz, is_new=False)
+            )
             message_parts.append("")
 
         return "\n".join(message_parts).strip()
@@ -594,6 +641,7 @@ class NotificationSender:
         self, entries: list[dict[str, Any]], user_tz, is_new: bool = False
     ) -> str:
         """Форматировать список дедлайнов с информацией об изменениях."""
+
         # Сортируем по ближайшему времени дедлайна (soft/hard, что доступно)
         def deadline_key(e):
             d: Task = e["deadline"]
@@ -625,12 +673,16 @@ class NotificationSender:
 
             user_tz_name = user_tz.zone if user_tz else "Europe/Moscow"
             if d.soft_deadline_ts:
-                soft_str = format_deadline_tg_time(d.soft_deadline_ts, tz_name=user_tz_name)
+                soft_str = format_deadline_tg_time(
+                    d.soft_deadline_ts, tz_name=user_tz_name
+                )
 
                 if not is_new and change_info.get("soft_deadline_changed", False):
                     old_soft = change_info.get("old_soft_deadline_ts")
                     if old_soft:
-                        old_soft_str = format_deadline_datetime_with_time_word(old_soft, user_tz.zone)
+                        old_soft_str = format_deadline_datetime_with_time_word(
+                            old_soft, user_tz.zone
+                        )
                         lines.append(f"• 🟡 {soft_str} (<s>{old_soft_str}</s>)")
                     else:
                         lines.append(f"• 🟡 {soft_str} <i>(добавлен)</i>")
@@ -638,12 +690,16 @@ class NotificationSender:
                     lines.append(f"• 🟡 {soft_str}")
 
             if d.hard_deadline_ts:
-                hard_str = format_deadline_tg_time(d.hard_deadline_ts, tz_name=user_tz_name)
+                hard_str = format_deadline_tg_time(
+                    d.hard_deadline_ts, tz_name=user_tz_name
+                )
 
                 if not is_new and change_info.get("hard_deadline_changed", False):
                     old_hard = change_info.get("old_hard_deadline_ts")
                     if old_hard:
-                        old_hard_str = format_deadline_datetime_with_time_word(old_hard, user_tz.zone)
+                        old_hard_str = format_deadline_datetime_with_time_word(
+                            old_hard, user_tz.zone
+                        )
                         lines.append(f"• 🔴 {hard_str} (<s>{old_hard_str}</s>)")
                     else:
                         lines.append(f"• 🔴 {hard_str} <i>(добавлен)</i>")
@@ -676,21 +732,26 @@ class NotificationSender:
             if i > 1:
                 message += "\n"
 
-            message += f"<b>{i}. {subject.name}</b>\n"
+            message += f"<b>{i}. {escape(subject.name)}</b>\n"
 
             if deadline.source_link:
                 message += (
-                    f"• 📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                    f"• 📝 <a href='{escape(deadline.source_link, quote=True)}'>"
+                    f"{escape(deadline.hw_name or 'Без названия')}</a>\n"
                 )
             else:
-                message += f"• 📝 {deadline.hw_name}\n"
+                message += f"• 📝 {escape(deadline.hw_name or 'Без названия')}\n"
 
             user_tz_name = user_tz.zone
             if deadline.soft_deadline_ts:
-                date_str = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name=user_tz_name)
+                date_str = format_deadline_tg_time(
+                    deadline.soft_deadline_ts, tz_name=user_tz_name
+                )
                 message += f"• 🟡 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
             elif deadline.hard_deadline_ts:
-                date_str = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name=user_tz_name)
+                date_str = format_deadline_tg_time(
+                    deadline.hard_deadline_ts, tz_name=user_tz_name
+                )
                 message += f"• 🔴 <b>Дедлайн:</b> {date_str} (Осталось {offset_value} {unit_text})\n"
 
         return message
@@ -705,7 +766,9 @@ class NotificationSender:
         # NOTE: Этот метод больше не используется, так как отправка уведомлений
         # теперь происходит через ScheduledNotificationSender, который работает
         # с предрассчитанными ScheduledNotification.
-        logger.debug(f"Уведомления отправлены пользователю {user_id} для {len(deadlines_data)} дедлайнов")
+        logger.debug(
+            f"Уведомления отправлены пользователю {user_id} для {len(deadlines_data)} дедлайнов"
+        )
 
 
 notification_sender = NotificationSender()

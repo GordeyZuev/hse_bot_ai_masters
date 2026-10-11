@@ -117,7 +117,11 @@ def get_timezone_from_location_with_city(
 # -------- Sleep time checking --------
 
 
-def is_sleep_time(sleep_start: time | None, sleep_end: time | None, user_tz_name: str = "Europe/Moscow") -> bool:
+def is_sleep_time(
+    sleep_start: time | None,
+    sleep_end: time | None,
+    user_tz_name: str = "Europe/Moscow",
+) -> bool:
     """Проверить, попадает ли текущее время пользователя в диапазон сна.
 
     Args:

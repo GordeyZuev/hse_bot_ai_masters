@@ -1,5 +1,6 @@
 import asyncio
 import atexit
+import os
 from datetime import UTC, datetime
 
 import pytz
@@ -8,8 +9,10 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from src.bot.services.log_export import cleanup_old_log_files
 from src.bot.services.notification_sender import notification_sender
 from src.bot.services.scheduled_notification_sender import scheduled_notification_sender
+from src.bot.services.user_action_events import cleanup_user_action_events
 from src.core.database import db_manager
 from src.core.sync.data_syncer import data_syncer
 from src.utils import get_logger
@@ -27,6 +30,7 @@ class HSEScheduler:
             job_defaults={
                 "misfire_grace_time": 900,  # 15 минут допуска для выполнений после просрочки
                 "coalesce": True,  # объединять пропущенные срабатывания в одно
+                "max_instances": 1,
             },
         )
         self.bot = bot
@@ -68,9 +72,13 @@ class HSEScheduler:
                                 self.bot, changes
                             )
                     except Exception as e:
-                        logger.warning(f"[SYSTEM] Ошибка групповой мгновенной отправки: {e}")
+                        logger.warning(
+                            f"[SYSTEM] Ошибка групповой мгновенной отправки: {e}"
+                        )
             else:
-                logger.error(f"[SYSTEM] Синхронизация завершилась с ошибкой за {duration:.2f}с")
+                logger.error(
+                    f"[SYSTEM] Синхронизация завершилась с ошибкой за {duration:.2f}с"
+                )
 
         except Exception as e:
             logger.error(f"[SYSTEM] Ошибка синхронизации: {e}")
@@ -86,16 +94,21 @@ class HSEScheduler:
             start_time = datetime.now(UTC)
 
             # Существующая логика для пользователей
-            user_result = await scheduled_notification_sender.send_scheduled_notifications(
-                self.bot
+            user_result = (
+                await scheduled_notification_sender.send_scheduled_notifications(
+                    self.bot
+                )
             )
 
             # Новая логика для чатов
             from src.bot.services.chat_notification_sender import (
                 chat_notification_sender,
             )
-            chat_result = await chat_notification_sender.send_scheduled_chat_notifications(
-                self.bot
+
+            chat_result = (
+                await chat_notification_sender.send_scheduled_chat_notifications(
+                    self.bot
+                )
             )
 
             duration = (datetime.now(UTC) - start_time).total_seconds()
@@ -125,6 +138,20 @@ class HSEScheduler:
             if deleted_count > 0:
                 logger.info(f"[SYSTEM] Удалено {deleted_count} уведомлений")
 
+            event_count = await cleanup_user_action_events(
+                days_old=int(os.getenv("EVENT_RETENTION_DAYS", "365"))
+            )
+            if event_count > 0:
+                logger.info(
+                    f"[SYSTEM] Удалено {event_count} старых событий пользователей"
+                )
+
+            log_count = await asyncio.to_thread(
+                cleanup_old_log_files, int(os.getenv("LOG_RETENTION_DAYS", "30"))
+            )
+            if log_count:
+                logger.info(f"[SYSTEM] Удалено {log_count} старых файлов логов")
+
             logger.info("[SYSTEM] Очистка завершена")
 
         except Exception as e:
@@ -150,7 +177,9 @@ class HSEScheduler:
     def add_notification_job(self, interval_minutes: int = 15):
         """Добавить задачу отправки уведомлений каждые N минут на минуте кратной N (UTC)."""
         if not self.bot:
-            logger.warning("[SYSTEM] Бот не установлен, задача уведомлений не добавлена")
+            logger.warning(
+                "[SYSTEM] Бот не установлен, задача уведомлений не добавлена"
+            )
             return
         self.scheduler.add_job(
             self.notification_job,
@@ -183,6 +212,7 @@ class HSEScheduler:
             id="immediate_sync",
             name="Немедленная синхронизация",
             replace_existing=True,
+            max_instances=1,
         )
         logger.info("[SYSTEM] Добавлена задача немедленной синхронизации")
 
@@ -204,7 +234,9 @@ class HSEScheduler:
                     f"[SYSTEM] Задача запланирована: id={job.id}, name={job.name}, trigger={job.trigger}, next_run_time={job.next_run_time}"
                 )
         except Exception as e:
-            logger.warning(f"[SYSTEM] Не удалось получить список задач планировщика: {e}")
+            logger.warning(
+                f"[SYSTEM] Не удалось получить список задач планировщика: {e}"
+            )
 
     def stop(self):
         """Остановка планировщика"""

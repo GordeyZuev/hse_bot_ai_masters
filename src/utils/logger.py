@@ -1,19 +1,27 @@
 # logger.py
 import os
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 from loguru import logger
 
 
-def get_week_monday() -> str:
-    """Вычислить дату понедельника текущей недели в формате YYYY-MM-DD"""
-    now = datetime.now(UTC)
-    days_since_monday = now.weekday()  # 0=понедельник, 6=воскресенье
-    monday = now - timedelta(days=days_since_monday)
-    return monday.strftime("%Y-%m-%d")
+MAX_LOG_FILE_BYTES = 10 * 1024 * 1024
+
+
+def secure_opener(path: str, flags: int) -> int:
+    return os.open(path, flags, 0o600)
+
+
+def rotate_log(message, file) -> bool:
+    """Start a new file on a local calendar day or at the size limit."""
+    day = message.record["time"].strftime("%Y-%m-%d")
+    return (
+        day not in Path(file.name).name
+        or file.tell() + len(message.encode("utf-8")) > MAX_LOG_FILE_BYTES
+    )
 
 
 load_dotenv(Path(__file__).parent.parent / "config" / ".env")
@@ -24,28 +32,15 @@ def setup_logging(
     log_dir: Path = Path("logs"),
     console_output: bool = True,
 ) -> None:
-    log_dir.mkdir(exist_ok=True)
+    log_dir.mkdir(mode=0o700, exist_ok=True)
     current_utc_time = datetime.now(UTC)
-
-    # Вычисляем понедельник текущей недели для имени файла
-    week_monday = get_week_monday()
+    retention = f"{int(os.getenv('LOG_RETENTION_DAYS', '30'))} days"
 
     log_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
         "<level>{level: <5}</level> | "
         "<cyan>{module}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
         "<level>{message}</level>"
-    )
-
-    json_format = (
-        '{{"timestamp": "{time:YYYY-MM-DD HH:mm:ss.SSS}", '
-        '"level": "{level}", '
-        '"module": "{module}", '
-        '"function": "{function}", '
-        '"line": {line}, '
-        '"process": {process}, '
-        '"thread": {thread}, '
-        '"message": "{message}"}}'
     )
 
     logger.remove()
@@ -56,50 +51,58 @@ def setup_logging(
             level=log_level,
             format=log_format,
             colorize=True,
-            backtrace=True,
-            diagnose=True,
-            filter=lambda record: record["level"].name in ["INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"],
+            backtrace=False,
+            diagnose=False,
+            filter=lambda record: (
+                record["level"].name
+                in ["INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
+            ),
         )
 
     try:
-        # Основные логи с недельной ротацией (имя файла - дата понедельника)
-        # При ротации каждый понедельник loguru создаст новый файл с этим именем
         logger.add(
-            log_dir / f"app_week_{week_monday}.log",
+            log_dir / "app_{time:YYYY-MM-DD}.log",
             level=log_level,
             format=log_format,
-            rotation="1 week",
-            retention="1 month",
+            rotation=rotate_log,
+            retention=retention,
             compression="zip",
             encoding="utf-8",
+            opener=secure_opener,
             enqueue=True,
             catch=True,
+            backtrace=False,
+            diagnose=False,
         )
 
-        # JSON логи с недельной ротацией
         logger.add(
-            log_dir / f"app_json_week_{week_monday}.log",
+            log_dir / "app_jsonl_{time:YYYY-MM-DD}.log",
             level=log_level,
-            format=json_format,
-            rotation="1 week",
-            retention="1 month",
+            serialize=True,
+            rotation=rotate_log,
+            retention=retention,
             compression="zip",
             encoding="utf-8",
+            opener=secure_opener,
             enqueue=True,
             catch=True,
+            backtrace=False,
+            diagnose=False,
         )
 
-        # Логи ошибок с месячной ротацией
         logger.add(
-            log_dir / "errors_{time:YYYY-MM}.log",
+            log_dir / "errors_{time:YYYY-MM-DD}.log",
             level="ERROR",
             format=log_format,
-            rotation="1 month",
-            retention="1 month",
+            rotation=rotate_log,
+            retention=retention,
             compression="zip",
             encoding="utf-8",
+            opener=secure_opener,
             enqueue=True,
             catch=True,
+            backtrace=False,
+            diagnose=False,
         )
     except Exception as e:
         print(f"Ошибка настройки логирования: {e}")
@@ -108,8 +111,8 @@ def setup_logging(
     logger.info("Логгер успешно настроен")
     logger.info(f"Директория логов: {log_dir.absolute()}")
     logger.info(f"UTC время: {current_utc_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    logger.info("Ротация: обычные логи - 1 неделя, ошибки - 1 месяц")
-    logger.info(f"Текущий файл лога: app_week_{week_monday}.log")
+    logger.info(f"Ротация: 10 MiB на файл, хранение архивов {retention}")
+    logger.info(f"Дата запуска: {current_utc_time.date()}")
 
 
 def get_logger() -> logger:

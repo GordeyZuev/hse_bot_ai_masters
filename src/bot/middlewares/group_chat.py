@@ -23,7 +23,11 @@ class GroupChatMiddleware(BaseMiddleware):
         try:
             return await handler(event, data)
         except Exception as e:
-            chat = event.chat if hasattr(event, "chat") else (event.message.chat if hasattr(event, "message") else None)
+            chat = (
+                event.chat
+                if hasattr(event, "chat")
+                else (event.message.chat if hasattr(event, "message") else None)
+            )
             if chat and chat.type in ["group", "supergroup"]:
                 # Перехватываем ошибку закрытого топика (штатная ситуация)
                 err_str = str(e).lower()
@@ -36,14 +40,18 @@ class GroupChatMiddleware(BaseMiddleware):
             # Пробрасываем ошибки дальше
             raise
 
-    async def resolve_topic_title(self, message: Message, chat_id: int, topic_id: int | None) -> str | None:
+    async def resolve_topic_title(
+        self, message: Message, chat_id: int, topic_id: int | None
+    ) -> str | None:
         """Получить название топика из сообщения или через API"""
         try:
             # Пытаемся взять из reply_to_message.forum_topic_created
             rtc = getattr(message, "reply_to_message", None)
             ftc = getattr(rtc, "forum_topic_created", None) if rtc else None
             if ftc:
-                title_from_message = getattr(ftc, "name", None) or getattr(ftc, "title", None)
+                title_from_message = getattr(ftc, "name", None) or getattr(
+                    ftc, "title", None
+                )
                 if title_from_message:
                     return title_from_message
         except Exception:
@@ -51,7 +59,9 @@ class GroupChatMiddleware(BaseMiddleware):
 
         try:
             if topic_id:
-                return await chat_service.get_topic_title(message.bot, chat_id, topic_id)
+                return await chat_service.get_topic_title(
+                    message.bot, chat_id, topic_id
+                )
         except Exception:
             pass
 
@@ -79,8 +89,11 @@ class GroupChatMiddleware(BaseMiddleware):
 
             bot = message.bot
             await bot.send_message(chat_id=chat_id, text=notice, parse_mode="HTML")
-            logger.debug(f"Отправлено уведомление о закрытом топике в чат {chat_id}, топик {topic_id}")
+            logger.debug(
+                f"Отправлено уведомление о закрытом топике в чат {chat_id}, топик {topic_id}"
+            )
         except Exception as e:
             # Ошибка при обработке TOPIC_CLOSED - штатная ситуация, не логируем как ошибку
-            logger.warning(f"Не удалось отправить уведомление о закрытом топике в чат {chat_id}: {e}")
-
+            logger.warning(
+                f"Не удалось отправить уведомление о закрытом топике в чат {chat_id}: {e}"
+            )

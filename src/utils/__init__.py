@@ -1,4 +1,4 @@
-from .logger import get_logger, get_week_monday, setup_logging
+from .logger import get_logger, setup_logging
 from .notification import apply_sleep_mode
 
 
@@ -6,17 +6,20 @@ from .notification import apply_sleep_mode
 def _lazy_import_safe_edit_message():
     """Ленивый импорт safe_edit_message"""
     from src.bot.middlewares.private_chat import safe_edit_message
+
     return safe_edit_message
 
 
 def _lazy_import_safe_send_message():
     """Ленивый импорт safe_send_message"""
     from src.bot.middlewares.private_chat import safe_send_message
+
     return safe_send_message
 
 
 class _LazyFunction:
     """Прокси для ленивой загрузки функций, имитирует оригинальную функцию"""
+
     def __init__(self, loader):
         self._loader = loader
         self._func = None
@@ -44,7 +47,6 @@ safe_send_message = _LazyFunction(_lazy_import_safe_send_message)
 __all__ = [
     "apply_sleep_mode",
     "get_logger",
-    "get_week_monday",
     "safe_edit_message",
     "safe_send_message",
     "setup_logging",

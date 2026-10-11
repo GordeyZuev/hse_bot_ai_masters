@@ -1,3 +1,4 @@
+import os
 import re
 
 from aiogram import F, Router
@@ -45,10 +46,16 @@ class SettingsStates(StatesGroup):
 
 @router.message(and_f(Command("settings"), F.chat.type == "private"))
 @router.callback_query(F.data == "quick_settings")
-async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContext):  # noqa: ARG001
+async def cmd_settings(
+    event: Message | CallbackQuery,
+    db_user,
+    state: FSMContext,  # noqa: ARG001
+    answer_callback: bool = True,
+):
     """Обработчик команды /settings"""
     if isinstance(event, CallbackQuery):
-        await event.answer()
+        if answer_callback:
+            await event.answer()
         message = event.message
         edit_mode = True
     else:
@@ -70,7 +77,11 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
             text += f"Уведомления о дедлайнах {deadline_status}\n"
 
             # Уведомления об обновлениях
-            update_status = "✅ Включены" if settings.enable_deadline_update_notifications else "❌ Отключены"
+            update_status = (
+                "✅ Включены"
+                if settings.enable_deadline_update_notifications
+                else "❌ Отключены"
+            )
             text += f"Уведомления об обновлениях {update_status}\n\n"
 
             unit1_text = {"days": "дн.", "hours": "ч."}.get(
@@ -90,6 +101,17 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
                 text += f"⏰ Режим сна: {sleep_start_str} - {sleep_end_str}\n"
             else:
                 text += "⏰ Режим сна: не настроен\n"
+            rich_available = os.getenv("RICH_MESSAGES_ENABLED", "false").lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+            display_label = (
+                "Экспериментальный Rich"
+                if rich_available and settings.display_mode == "rich"
+                else "Стандартный"
+            )
+            text += f"🎨 Вид дедлайнов: {display_label}\n"
         else:
             text += "<i>Настройки уведомлений не заданы</i>\n"
 
@@ -106,6 +128,21 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
         # Вторая строка: Часовой пояс и Режим сна
         builder.button(text="🌍 Часовой пояс", callback_data="choose_timezone")
         builder.button(text="⏰ Режим сна", callback_data="sleep_settings")
+        if settings and os.getenv("RICH_MESSAGES_ENABLED", "false").lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            next_mode = "compact" if settings.display_mode == "rich" else "rich"
+            builder.button(
+                text=(
+                    "🎨 Стандартный вид"
+                    if next_mode == "compact"
+                    else "🧪 Попробовать Rich"
+                ),
+                callback_data="toggle_display_mode",
+                style=ButtonStyle.PRIMARY,
+            )
 
         if settings:
             if settings.is_active:
@@ -137,7 +174,7 @@ async def cmd_settings(event: Message | CallbackQuery, db_user, state: FSMContex
 
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
 
-        builder.adjust(2, 2, 1, 1, 1)
+        builder.adjust(2, 2, 1, 1, 1, 1)
 
         if edit_mode:
             await safe_edit_message(message, text, reply_markup=builder.as_markup())
@@ -162,7 +199,9 @@ async def callback_choose_timezone(callback: CallbackQuery, db_user, state: FSMC
         )
         builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
         builder.adjust(1, 1)
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup()
+        )
     except Exception as e:
         logger.error(f"Ошибка запуска выбора часового пояса: {e}")
         await callback.answer("Ошибка", show_alert=True)
@@ -170,7 +209,9 @@ async def callback_choose_timezone(callback: CallbackQuery, db_user, state: FSMC
 
 @router.callback_query(F.data == "request_location")
 async def callback_request_location(
-    callback: CallbackQuery, db_user, state: FSMContext  # noqa: ARG001
+    callback: CallbackQuery,
+    db_user,  # noqa: ARG001
+    state: FSMContext,
 ):
     """Запрос местоположения для определения часового пояса"""
     await callback.answer()
@@ -179,7 +220,9 @@ async def callback_request_location(
         text = TIMEZONE_REQUEST_LOCATION_TEXT
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Назад", callback_data="choose_timezone")
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup()
+        )
     except Exception as e:
         logger.error(f"Ошибка запроса местоположения: {e}")
         await callback.answer("Ошибка", show_alert=True)
@@ -207,6 +250,7 @@ async def process_location(message: Message, db_user, state: FSMContext):
         )
 
         if updated:
+            logger.info(f"(U) {db_user.tg_user_id} - Часовой пояс обновлён")
             from src.utils.time import format_offset_from_moscow_label
 
             msk_label = format_offset_from_moscow_label(timezone_name)
@@ -232,7 +276,9 @@ async def process_location(message: Message, db_user, state: FSMContext):
 
 @router.callback_query(F.data.startswith("setup_notification_"))
 async def callback_setup_notification(
-    callback: CallbackQuery, db_user, state: FSMContext  # noqa: ARG001
+    callback: CallbackQuery,
+    db_user,  # noqa: ARG001
+    state: FSMContext,
 ):
     """Обработчик настройки уведомления"""
     await callback.answer()
@@ -268,7 +314,9 @@ async def callback_setup_notification(
 
         await state.update_data(notification_number=notification_number)
         await state.set_state(SettingsStates.choosing_notification)
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup()
+        )
 
     except (ValueError, IndexError):
         await callback.answer("Ошибка настройки уведомления", show_alert=True)
@@ -296,7 +344,7 @@ async def callback_set_notification(
                 f"Уведомление настроено: за {offset_value} {unit_text}", show_alert=True
             )
             await state.clear()
-            await cmd_settings(callback, db_user, state)
+            await cmd_settings(callback, db_user, state, answer_callback=False)
         else:
             await callback.answer(message_text, show_alert=True)
 
@@ -307,7 +355,6 @@ async def callback_set_notification(
 @router.callback_query(F.data == "enable_notifications")
 async def callback_enable_notifications(callback: CallbackQuery, db_user):
     """Обработчик включения всех уведомлений"""
-    await callback.answer()
 
     try:
         success, message_text = await notification_service.toggle_notifications(
@@ -317,7 +364,7 @@ async def callback_enable_notifications(callback: CallbackQuery, db_user):
         await callback.answer(message_text, show_alert=True)
 
         if success:
-            await cmd_settings(callback, db_user, None)
+            await cmd_settings(callback, db_user, None, answer_callback=False)
 
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
@@ -328,7 +375,6 @@ async def callback_enable_notifications(callback: CallbackQuery, db_user):
 @router.callback_query(F.data == "disable_notifications")
 async def callback_disable_notifications(callback: CallbackQuery, db_user):
     """Обработчик отключения всех уведомлений"""
-    await callback.answer()
 
     try:
         success, message_text = await notification_service.toggle_notifications(
@@ -338,7 +384,7 @@ async def callback_disable_notifications(callback: CallbackQuery, db_user):
         await callback.answer(message_text, show_alert=True)
 
         if success:
-            await cmd_settings(callback, db_user, None)
+            await cmd_settings(callback, db_user, None, answer_callback=False)
 
     except Exception as e:
         logger.error(f"Ошибка отключения уведомлений: {e}")
@@ -352,12 +398,14 @@ async def callback_back_to_settings(
     """Возврат к настройкам"""
     await callback.answer()
     await state.clear()
-    await cmd_settings(callback, db_user, state)
+    await cmd_settings(callback, db_user, state, answer_callback=False)
 
 
 @router.callback_query(F.data.startswith("custom_notification_"))
 async def callback_custom_notification(
-    callback: CallbackQuery, db_user, state: FSMContext  # noqa: ARG001
+    callback: CallbackQuery,
+    db_user,  # noqa: ARG001
+    state: FSMContext,
 ):
     """Обработчик кастомного уведомления"""
     await callback.answer()
@@ -365,7 +413,9 @@ async def callback_custom_notification(
     try:
         notification_number = int(callback.data.split("_")[-1])
 
-        text, buttons = build_custom_offset_prompt(notification_number, "back_to_settings")
+        text, buttons = build_custom_offset_prompt(
+            notification_number, "back_to_settings"
+        )
 
         builder = InlineKeyboardBuilder()
         for btn_text, cb_data in buttons:
@@ -373,7 +423,9 @@ async def callback_custom_notification(
 
         await state.update_data(notification_number=notification_number)
         await state.set_state(SettingsStates.setting_offset)
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup()
+        )
 
     except (ValueError, IndexError):
         await callback.answer("Ошибка настройки", show_alert=True)
@@ -456,11 +508,17 @@ async def callback_sleep_settings(callback: CallbackQuery, db_user):
         builder = InlineKeyboardBuilder()
         builder.button(text="⚙️ Настроить", callback_data="setup_sleep_time")
         if settings and settings.sleep_start_time and settings.sleep_end_time:
-            builder.button(text="🗑️ Сбросить", callback_data="clear_sleep_time", style=ButtonStyle.DANGER)
+            builder.button(
+                text="🗑️ Сбросить",
+                callback_data="clear_sleep_time",
+                style=ButtonStyle.DANGER,
+            )
         builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
         builder.adjust(2, 1)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup()
+        )
     except Exception as e:
         logger.error(f"Ошибка открытия настроек сна: {e}")
         await callback.answer("Ошибка", show_alert=True)
@@ -468,7 +526,9 @@ async def callback_sleep_settings(callback: CallbackQuery, db_user):
 
 @router.callback_query(F.data == "setup_sleep_time")
 async def callback_setup_sleep_time(
-    callback: CallbackQuery, db_user, state: FSMContext  # noqa: ARG001
+    callback: CallbackQuery,
+    db_user,  # noqa: ARG001
+    state: FSMContext,
 ):
     """Обработчик начала настройки времени сна"""
     await callback.answer()
@@ -477,7 +537,9 @@ async def callback_setup_sleep_time(
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 К режиму сна", callback_data="sleep_settings")
         await state.set_state(SettingsStates.setting_sleep_time)
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup()
+        )
     except Exception as e:
         logger.error(f"Ошибка настройки времени сна: {e}")
         await callback.answer("Ошибка", show_alert=True)
@@ -511,6 +573,7 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
                 return
 
             from datetime import time
+
             sleep_start = time(start_hour, start_minute)
             sleep_end = time(end_hour, end_minute)
 
@@ -537,7 +600,11 @@ async def process_sleep_time(message: Message, db_user, state: FSMContext):
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="⚙️ Настроить", callback_data="setup_sleep_time")
-                builder.button(text="🗑️ Сбросить", callback_data="clear_sleep_time", style=ButtonStyle.DANGER)
+                builder.button(
+                    text="🗑️ Сбросить",
+                    callback_data="clear_sleep_time",
+                    style=ButtonStyle.DANGER,
+                )
                 builder.button(text="🔙 К настройкам", callback_data="back_to_settings")
                 builder.adjust(2, 1)
 
@@ -572,10 +639,35 @@ async def callback_clear_sleep_time(callback: CallbackQuery, db_user):
         await callback.answer("Ошибка сброса времени сна", show_alert=True)
 
 
+@router.callback_query(F.data == "toggle_display_mode")
+async def callback_toggle_display_mode(callback: CallbackQuery, db_user):
+    """Switch between Rich and compact interactive screens."""
+    if os.getenv("RICH_MESSAGES_ENABLED", "false").lower() not in {"1", "true", "yes"}:
+        await callback.answer(
+            "Экспериментальный вид сейчас недоступен", show_alert=True
+        )
+        return
+    try:
+        settings = await notification_service.get_user_notification_settings(
+            db_user.tg_user_id
+        )
+        next_mode = "compact" if settings.display_mode == "rich" else "rich"
+        await db_manager.update_user_notification_settings(
+            db_user.tg_user_id,
+            {"display_mode": next_mode},
+            audit_details={"setting": "display_mode", "value": next_mode},
+        )
+        logger.info(f"(U) {db_user.tg_user_id} - Режим интерфейса: {next_mode}")
+        await callback.answer(f"Интерфейс: {next_mode.title()}")
+        await cmd_settings(callback, db_user, None, answer_callback=False)
+    except Exception as e:
+        logger.error(f"Ошибка переключения интерфейса: {e}")
+        await callback.answer("Не удалось изменить интерфейс", show_alert=True)
+
+
 @router.callback_query(F.data == "toggle_update_notifications")
 async def callback_toggle_update_notifications(callback: CallbackQuery, db_user):
     """Обработчик переключения уведомлений об обновлениях"""
-    await callback.answer()
     try:
         settings = await notification_service.get_user_notification_settings(
             db_user.tg_user_id
@@ -585,14 +677,17 @@ async def callback_toggle_update_notifications(callback: CallbackQuery, db_user)
             return
 
         new_value = not settings.enable_deadline_update_notifications
-        success, message_text = await notification_service.toggle_deadline_update_notifications(
+        (
+            success,
+            message_text,
+        ) = await notification_service.toggle_deadline_update_notifications(
             db_user.tg_user_id, new_value
         )
 
         await callback.answer(message_text, show_alert=True)
 
         if success:
-            await cmd_settings(callback, db_user, None)
+            await cmd_settings(callback, db_user, None, answer_callback=False)
 
     except Exception as e:
         logger.error(f"Ошибка переключения уведомлений об обновлениях: {e}")

@@ -1,19 +1,27 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from html import escape
 from typing import Any
 
 import pytz
 from aiogram import Bot
 from aiogram.enums import ButtonStyle
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
+from src.bot.services.rate_limiter import telegram_rate_limiter
 from src.core.database import db_manager
 from src.core.models import ScheduledNotification, Subject, Task
 from src.utils import get_logger, safe_send_message
+from src.utils.telegram_text import SAFE_MESSAGE_LENGTH, MessageTooLongError
 
 
 logger = get_logger()
+
+
+def _preview(value: str, limit: int) -> str:
+    return value if len(value) <= limit else f"{value[: limit - 1]}…"
 
 
 class ScheduledNotificationSender:
@@ -23,43 +31,50 @@ class ScheduledNotificationSender:
         pass
 
     async def send_scheduled_notifications(self, bot: Bot) -> dict[str, int]:
-        """Отправить все запланированные уведомления"""
+        """Drain due notifications without limiting a whole cron run to 100 rows."""
         stats = {"sent": 0, "failed": 0, "skipped": 0, "total_processed": 0}
 
         try:
             logger.info("[SYSTEM] Проверка уведомлений")
-
-            # Получаем уведомления для отправки (в течение ближайших 5 минут)
-            notifications = await db_manager.get_scheduled_notifications_for_delivery(
-                time_window_minutes=5
-            )
-
-            if not notifications:
-                logger.info("[SYSTEM] Нет уведомлений")
-                return stats
-
-            logger.info(f"[SYSTEM] Найдено {len(notifications)} уведомлений")
-
-            # Группируем уведомления по пользователям
-            user_notifications = self._group_notifications_by_user(notifications)
-
-            # Обрабатываем пользователей батчами для лучшей производительности
-            batch_size = 10
-            user_items = list(user_notifications.items())
-
-            for i in range(0, len(user_items), batch_size):
-                batch = user_items[i : i + batch_size]
-
-                # Обрабатываем батч параллельно
-                tasks = []
-                for user_id, user_notifs in batch:
-                    task = self._process_user_notifications(
-                        bot, user_id, user_notifs, stats
+            deadline = asyncio.get_running_loop().time() + 120
+            while True:
+                notifications = (
+                    await db_manager.get_scheduled_notifications_for_delivery(
+                        time_window_minutes=5
                     )
-                    tasks.append(task)
+                )
+                if not notifications:
+                    break
 
-                # Ждем завершения всех задач в батче
-                await asyncio.gather(*tasks, return_exceptions=True)
+                user_notifications = self._group_notifications_by_user(notifications)
+                user_items = list(user_notifications.items())
+                for i in range(0, len(user_items), 10):
+                    batch = user_items[i : i + 10]
+                    results = await asyncio.gather(
+                        *(
+                            self._process_user_notifications(
+                                bot, user_id, user_notifs, stats
+                            )
+                            for user_id, user_notifs in batch
+                        ),
+                        return_exceptions=True,
+                    )
+                    for error in results:
+                        if isinstance(error, BaseException):
+                            logger.error(f"Ошибка обработки пачки напоминаний: {error}")
+                if asyncio.get_running_loop().time() >= deadline:
+                    logger.warning(
+                        "[SYSTEM] Достигнут лимит времени отправки; остаток очереди "
+                        "будет обработан следующим запуском"
+                    )
+                    break
+
+            logger.info(
+                "[SYSTEM] Напоминания: sent={} failed={} processed={}",
+                stats["sent"],
+                stats["failed"],
+                stats["total_processed"],
+            )
 
             return stats
 
@@ -89,32 +104,65 @@ class ScheduledNotificationSender:
         stats: dict[str, int],
     ):
         """Обработать уведомления для одного пользователя"""
-        try:
-            success = await self._send_notifications_to_user(bot, user_id, user_notifs)
-
-            if success:
-                stats["sent"] += len(user_notifs)
-                # Обновляем статус уведомлений на 'sent'
-                for notification in user_notifs:
-                    await db_manager.update_notification_status(notification.id, "sent")
-            else:
-                stats["failed"] += len(user_notifs)
-                # Обновляем статус уведомлений на 'failed'
-                for notification in user_notifs:
-                    await db_manager.update_notification_status(
-                        notification.id, "failed"
+        pending = [user_notifs]
+        sent_messages = 0
+        while pending:
+            group = pending.pop(0)
+            if sent_messages:
+                await asyncio.sleep(1)  # Telegram's per-chat broadcast limit.
+            try:
+                success = await self._send_notifications_to_user(bot, user_id, group)
+                sent_messages += 1
+                if success:
+                    stats["sent"] += len(group)
+                    await db_manager.update_notification_statuses(
+                        [notification.id for notification in group], "sent"
                     )
-
-            stats["total_processed"] += len(user_notifs)
-
-        except Exception as e:
-            logger.error(f"Ошибка отправки уведомлений пользователю {user_id}: {e}")
-            stats["failed"] += len(user_notifs)
-            stats["total_processed"] += len(user_notifs)
-
-            # Отмечаем уведомления как неудачные
-            for notification in user_notifs:
-                await db_manager.update_notification_status(notification.id, "failed")
+                else:
+                    stats["failed"] += len(group)
+                    await db_manager.update_notification_statuses(
+                        [notification.id for notification in group],
+                        "dead",
+                        "Telegram rejected the message",
+                    )
+                stats["total_processed"] += len(group)
+            except MessageTooLongError:
+                if len(group) == 1:
+                    logger.error(f"Уведомление {group[0].id} длиннее лимита Telegram")
+                    stats["failed"] += 1
+                    stats["total_processed"] += 1
+                    await db_manager.update_notification_statuses(
+                        [group[0].id], "dead", "Message exceeds Telegram limit"
+                    )
+                    continue
+                middle = len(group) // 2
+                pending[:0] = [group[:middle], group[middle:]]
+            except TelegramRetryAfter as e:
+                logger.warning(f"Telegram RetryAfter для {user_id}: {e.retry_after}с")
+                stats["failed"] += len(group)
+                stats["total_processed"] += len(group)
+                await db_manager.update_notification_statuses(
+                    [notification.id for notification in group],
+                    "retry",
+                    str(e),
+                    retry_after_seconds=int(e.retry_after) + 1,
+                )
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомлений пользователю {user_id}: {e}")
+                stats["failed"] += len(group)
+                stats["total_processed"] += len(group)
+                dead_ids = [n.id for n in group if n.attempt_count >= 5]
+                retry_ids = [n.id for n in group if n.attempt_count < 5]
+                await db_manager.update_notification_statuses(dead_ids, "dead", str(e))
+                await db_manager.update_notification_statuses(
+                    retry_ids,
+                    "retry",
+                    str(e),
+                    retry_after_seconds=min(
+                        3600,
+                        60 * 2 ** max(max(n.attempt_count for n in group) - 1, 0),
+                    ),
+                )
 
     async def _send_notifications_to_user(
         self, bot: Bot, user_id: int, notifications: list[ScheduledNotification]
@@ -127,11 +175,7 @@ class ScheduledNotificationSender:
         deadline_ids = [notification.deadline_id for notification in notifications]
 
         async with db_manager.async_session() as session:
-            stmt = (
-                select(Task, Subject)
-                .join(Subject)
-                .where(Task.id.in_(deadline_ids))
-            )
+            stmt = select(Task, Subject).join(Subject).where(Task.id.in_(deadline_ids))
             result = await session.execute(stmt)
             deadline_subjects = result.all()
 
@@ -168,11 +212,10 @@ class ScheduledNotificationSender:
 
         # Получаем настройки уведомлений для проверки времени сна
         from src.bot.services.notification_service import notification_service
+
         await notification_service.get_user_notification_settings(user_id)
 
-        message = await self._format_notifications_message(
-            notification_data, user_tz
-        )
+        message = await self._format_notifications_message(notification_data, user_tz)
 
         # Проверяем задержку по UTC
         now_utc = datetime.now(UTC)
@@ -185,18 +228,24 @@ class ScheduledNotificationSender:
         if is_delayed:
             message = "⚠️ <i>Отправлено с задержкой (>30 мин)</i>\n\n" + message
 
+        if len(message) > SAFE_MESSAGE_LENGTH:
+            raise MessageTooLongError("Notification text exceeds safe Telegram limit")
+
         # Клавиатура для быстрого перехода к дедлайнам
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY
+                        text="📅 Дедлайны",
+                        callback_data="quick_deadlines",
+                        style=ButtonStyle.PRIMARY,
                     )
                 ]
             ]
         )
 
         # Отправляем сообщение
+        await telegram_rate_limiter.acquire()
         return await safe_send_message(
             bot,
             chat_id=user_id,
@@ -240,18 +289,22 @@ class ScheduledNotificationSender:
         time_left_str = format_time_remaining(deadline_ts, now).strip("()")
 
         message = "⏰ <b>Напоминание о дедлайне</b>\n\n"
-        message += f"📚 <b>Предмет:</b> {subject.name}\n"
+        message += f"📚 <b>Предмет:</b> {escape(_preview(subject.name, 120))}\n"
 
         if deadline.hw_name:
-            if deadline.source_link:
-                message += f"📝 <b>Задание:</b> <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+            task_name = escape(_preview(deadline.hw_name, 160))
+            if deadline.source_link and len(deadline.source_link) <= 1024:
+                message += (
+                    f"📝 <b>Задание:</b> <a href='{escape(deadline.source_link, quote=True)}'>"
+                    f"{task_name}</a>\n"
+                )
             else:
-                message += f"📝 <b>Задание:</b> {deadline.hw_name}\n"
+                message += f"📝 <b>Задание:</b> {task_name}\n"
 
         message += f"{deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
 
         if deadline.note:
-            message += f"\n💬 <i>{deadline.note}</i>"
+            message += f"\n💬 <i>{escape(_preview(deadline.note, 900))}</i>"
 
         return message
 
@@ -289,15 +342,17 @@ class ScheduledNotificationSender:
             if i > 1:
                 message += "\n"
 
-            message += f"<b>{i}. {subject.name}</b>\n"
+            message += f"<b>{i}. {escape(_preview(subject.name, 120))}</b>\n"
 
             if deadline.hw_name:
-                if deadline.source_link:
+                task_name = escape(_preview(deadline.hw_name, 160))
+                if deadline.source_link and len(deadline.source_link) <= 1024:
                     message += (
-                        f"• 📝 <a href='{deadline.source_link}'>{deadline.hw_name}</a>\n"
+                        f"• 📝 <a href='{escape(deadline.source_link, quote=True)}'>"
+                        f"{task_name}</a>\n"
                     )
                 else:
-                    message += f"• 📝 {deadline.hw_name}\n"
+                    message += f"• 📝 {task_name}\n"
 
             message += f"• {deadline_type_icon} <b>Дедлайн:</b> {deadline_str} (Осталось {time_left_str})\n"
 

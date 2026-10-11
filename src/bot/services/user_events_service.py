@@ -28,7 +28,9 @@ async def handle_user_chat_member_update(update: ChatMemberUpdated):
         old_status = update.old_chat_member.status
         new_status = update.new_chat_member.status
 
-        logger.debug(f"Статус бота в личном чате с пользователем {user_id}: {old_status} → {new_status}")
+        logger.debug(
+            f"Статус бота в личном чате с пользователем {user_id}: {old_status} → {new_status}"
+        )
 
         # Пользователь заблокировал бота
         if old_status in ["member"] and new_status in ["kicked", "left"]:
@@ -50,9 +52,13 @@ async def handle_user_blocked_bot(user_id: int):
         cancelled_count = await cancel_user_notifications(user_id)
 
         if success:
-            logger.info(f"(U) {user_id} - Заблокировал бота. Отменено уведомлений: {cancelled_count}")
+            logger.info(
+                f"(U) {user_id} - Заблокировал бота. Отменено уведомлений: {cancelled_count}"
+            )
         else:
-            logger.info(f"(U) {user_id} - Заблокировал бота (не найден в БД). Отменено уведомлений: {cancelled_count}")
+            logger.info(
+                f"(U) {user_id} - Заблокировал бота (не найден в БД). Отменено уведомлений: {cancelled_count}"
+            )
 
     except Exception as e:
         logger.error(f"(U) {user_id} - Ошибка блокировки: {e}")
@@ -140,7 +146,9 @@ async def cancel_user_notifications(user_id: int) -> int:
                 update(ScheduledNotification)
                 .where(
                     ScheduledNotification.user_id == user_id,
-                    ScheduledNotification.status.in_(["scheduled", "failed"])
+                    ScheduledNotification.status.in_(
+                        ["scheduled", "processing", "retry"]
+                    ),
                 )
                 .values(status="cancelled")
             )
@@ -149,7 +157,9 @@ async def cancel_user_notifications(user_id: int) -> int:
             await session.commit()
 
             if cancelled_count > 0:
-                logger.info(f"Отменено {cancelled_count} уведомлений для пользователя {user_id}")
+                logger.info(
+                    f"Отменено {cancelled_count} уведомлений для пользователя {user_id}"
+                )
             return cancelled_count
 
     except Exception as e:

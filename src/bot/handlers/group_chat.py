@@ -9,8 +9,8 @@
 - Callback обработчики для интерактивных кнопок
 """
 
-
 import contextlib
+from html import escape
 
 from aiogram import F, Router
 from aiogram.enums import ButtonStyle
@@ -18,7 +18,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, and_f
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, EphemeralMessageParameters, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from src.bot.services.chat_notification_scheduler_service import (
@@ -48,12 +48,20 @@ from src.utils.notification_text import build_custom_offset_prompt, parse_offset
 
 logger = get_logger()
 router = Router()
+
+
 # Утилита безопасной отправки сообщения: если топик закрыт, шлем в общий чат
-async def _safe_send(message: Message, text: str, reply_markup=None, edit: bool = False):
+async def _safe_send(
+    message: Message, text: str, reply_markup=None, edit: bool = False
+):
     try:
         if edit:
-            return await message.edit_text(text.strip(), reply_markup=reply_markup, parse_mode="HTML")
-        return await message.answer(text.strip(), reply_markup=reply_markup, parse_mode="HTML")
+            return await message.edit_text(
+                text.strip(), reply_markup=reply_markup, parse_mode="HTML"
+            )
+        return await message.answer(
+            text.strip(), reply_markup=reply_markup, parse_mode="HTML"
+        )
     except TelegramBadRequest as e:
         err_str = str(e).lower()
         if "topic_closed" in err_str:
@@ -69,8 +77,11 @@ async def _safe_send(message: Message, text: str, reply_markup=None, edit: bool 
             return None
         raise
 
+
 # Унифицированное получение отображаемого названия топика
-async def _resolve_topic_title(message: Message, chat_id: int, topic_id: int | None) -> str | None:
+async def _resolve_topic_title(
+    message: Message, chat_id: int, topic_id: int | None
+) -> str | None:
     """Вернуть название темы (при наличии) по данным сообщения/чата.
 
     1) Пытаемся взять message.reply_to_message.forum_topic_created.name|title
@@ -81,7 +92,9 @@ async def _resolve_topic_title(message: Message, chat_id: int, topic_id: int | N
         rtc = getattr(message, "reply_to_message", None)
         ftc = getattr(rtc, "forum_topic_created", None) if rtc else None
         if ftc:
-            title_from_message = getattr(ftc, "name", None) or getattr(ftc, "title", None)
+            title_from_message = getattr(ftc, "name", None) or getattr(
+                ftc, "title", None
+            )
             if title_from_message:
                 return title_from_message
     except Exception:
@@ -94,6 +107,7 @@ async def _resolve_topic_title(message: Message, chat_id: int, topic_id: int | N
         pass
 
     return None
+
 
 @router.callback_query(F.data == "chat_set_topic_here")
 async def callback_chat_set_topic_here(callback: CallbackQuery, db_user):
@@ -116,11 +130,15 @@ async def callback_chat_set_topic_here(callback: CallbackQuery, db_user):
         topic_title = None
         if topic_id is not None:
             # 1) из контекста сообщения
-            topic_title = await _resolve_topic_title(callback.message, chat_id, topic_id)
+            topic_title = await _resolve_topic_title(
+                callback.message, chat_id, topic_id
+            )
             # 2) если не нашли — через API
             if not topic_title:
                 try:
-                    topic_title = await chat_service.get_topic_title(callback.bot, chat_id, topic_id)
+                    topic_title = await chat_service.get_topic_title(
+                        callback.bot, chat_id, topic_id
+                    )
                 except Exception:
                     topic_title = None
 
@@ -136,8 +154,11 @@ async def callback_chat_set_topic_here(callback: CallbackQuery, db_user):
         if success:
             # Показываем подтверждение и кнопку «Назад (в настройки)»
             from aiogram.utils.keyboard import InlineKeyboardBuilder
+
             builder = InlineKeyboardBuilder()
-            builder.button(text="🔙 Назад (в настройки)", callback_data="chat_settings_from_start")
+            builder.button(
+                text="🔙 Назад (в настройки)", callback_data="chat_settings_from_start"
+            )
             builder.adjust(1)
 
             bound_label = (
@@ -172,15 +193,14 @@ async def callback_chat_set_topic_here(callback: CallbackQuery, db_user):
         await callback.message.answer("Произошла ошибка при привязке топика")
 
 
-
-
-
 # ============================================================================
 # FSM СОСТОЯНИЯ
 # ============================================================================
 
+
 class ChatSetupStates(StatesGroup):
     """Состояния для процесса настройки бота"""
+
     waiting_subject_selection = State()
     waiting_time_settings = State()
     waiting_reminder1_selection = State()
@@ -190,11 +210,13 @@ class ChatSetupStates(StatesGroup):
 
 class ChatSwitchModeStates(StatesGroup):
     """Состояния для подтверждения переключения режима"""
+
     confirming_switch = State()
 
 
 class ChatSettingsStates(StatesGroup):
     """Состояния для редактирования настроек бота"""
+
     waiting_reminder1_offset = State()
     waiting_reminder1_unit = State()
     waiting_reminder2_offset = State()
@@ -206,10 +228,12 @@ class ChatSettingsStates(StatesGroup):
 # СПРАВКА ДЛЯ ЧАТОВ
 # ============================================================================
 
-async def send_chat_help_message(message: Message, edit_mode: bool = False):
+
+async def send_chat_help_message(
+    message: Message, edit_mode: bool = False, ephemeral: bool = False
+):
     """Отправка сообщения со справкой для групповых чатов"""
     try:
-
         text = GROUP_CHAT_HELP_TEXT
 
         builder = InlineKeyboardBuilder()
@@ -225,9 +249,20 @@ async def send_chat_help_message(message: Message, edit_mode: bool = False):
         builder.adjust(1)
 
         if edit_mode:
-            await message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.edit_text(
+                text, reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
         else:
-            await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.answer(
+                text,
+                reply_markup=builder.as_markup(),
+                parse_mode="HTML",
+                ephemeral_message_parameters=(
+                    EphemeralMessageParameters(receiver_user_id=message.from_user.id)
+                    if ephemeral and message.from_user
+                    else None
+                ),
+            )
     except Exception:
         raise
 
@@ -248,9 +283,13 @@ async def show_chat_setup_interface(message: Message, edit_mode: bool = False):
         builder.adjust(1)
 
         if edit_mode:
-            await message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.edit_text(
+                text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
         else:
-            await message.answer(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.answer(
+                text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
 
     except Exception as e:
         chat_id = message.chat.id
@@ -259,7 +298,9 @@ async def show_chat_setup_interface(message: Message, edit_mode: bool = False):
             await message.answer("Произошла ошибка при настройке бота")
 
 
-async def show_chat_multi_mode_overview(message: Message, chat, edit_mode: bool = False):
+async def show_chat_multi_mode_overview(
+    message: Message, chat, edit_mode: bool = False
+):
     """Показать обзор всех топиков в multi-mode из общего чата"""
     try:
         chat_id = message.chat.id
@@ -285,7 +326,9 @@ async def show_chat_multi_mode_overview(message: Message, chat, edit_mode: bool 
                 return "дн." if u == "days" else ("ч." if u == "hours" else u)
 
             for idx, topic in enumerate(topics, 1):
-                topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                topic_display = topic.topic_title or (
+                    f"ID {topic.topic_id}" if topic.topic_id else "Общий чат"
+                )
                 status = "✅ Активен" if topic.is_active else "❌ Отключен"
                 text += f"<b>{idx}. Топик «{topic_display}»</b>\n"
                 text += f"   📚 {topic.subject.name}\n"
@@ -298,18 +341,24 @@ async def show_chat_multi_mode_overview(message: Message, chat, edit_mode: bool 
         builder = InlineKeyboardBuilder()
 
         # Кнопки для управления
-        builder.button(text="⚙️ Дополнительные настройки", callback_data="chat_advanced_settings")
+        builder.button(
+            text="⚙️ Дополнительные настройки", callback_data="chat_advanced_settings"
+        )
         builder.button(text="🔙 Назад", callback_data="back_to_start")
         builder.adjust(1)
 
         if edit_mode:
             try:
-                await message.edit_text(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+                await message.edit_text(
+                    text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML"
+                )
             except TelegramBadRequest as e:
                 if "message is not modified" not in str(e):
                     raise
         else:
-            await message.answer(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.answer(
+                text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
 
     except Exception as e:
         logger.error(f"(C) {message.chat.id} - показ обзора multi-mode: {e}")
@@ -317,7 +366,9 @@ async def show_chat_multi_mode_overview(message: Message, chat, edit_mode: bool 
             await message.answer("Произошла ошибка при отображении настроек")
 
 
-async def show_chat_settings_interface(message: Message, chat_topic, edit_mode: bool = False):
+async def show_chat_settings_interface(
+    message: Message, chat_topic, edit_mode: bool = False
+):
     """Показать интерфейс управления настройками бота (когда бот настроен)"""
     try:
         chat_id = message.chat.id
@@ -341,13 +392,23 @@ async def show_chat_settings_interface(message: Message, chat_topic, edit_mode: 
         if chat_topic.topic_id:
             # В настройках сначала выводим сохранённое имя (если есть), затем пытаемся получить по API
             topic_title_saved = getattr(chat_topic, "topic_title", None)
-            topic_title_api = None if topic_title_saved else await chat_service.get_topic_title(message.bot, chat_id, chat_topic.topic_id)
-            topic_display = (topic_title_saved or topic_title_api) or f"ID {chat_topic.topic_id}"
+            topic_title_api = (
+                None
+                if topic_title_saved
+                else await chat_service.get_topic_title(
+                    message.bot, chat_id, chat_topic.topic_id
+                )
+            )
+            topic_display = (
+                topic_title_saved or topic_title_api
+            ) or f"ID {chat_topic.topic_id}"
             text += f"• <b>Топик:</b> «{topic_display}»\n"
         else:
             text += "• <b>Топик:</b> Общий чат\n"
         try:
-            can_manage_topics = await chat_service.bot_can_manage_topics(message.bot, chat_id)
+            can_manage_topics = await chat_service.bot_can_manage_topics(
+                message.bot, chat_id
+            )
             status_topics = "✅ есть" if can_manage_topics else "❌ нет"
             text += f"• <b>Управление темами:</b> {status_topics}\n"
         except Exception:
@@ -356,12 +417,8 @@ async def show_chat_settings_interface(message: Message, chat_topic, edit_mode: 
 
         # Секция: Уведомления
         text += "\n<b>🔔 Уведомления</b>:\n"
-        text += (
-            f"• <b>Первое:</b> за {chat_topic.reminder1_offset} {unit_label(chat_topic.reminder1_unit)}\n"
-        )
-        text += (
-            f"• <b>Второе:</b> за {chat_topic.reminder2_offset} {unit_label(chat_topic.reminder2_unit)}\n"
-        )
+        text += f"• <b>Первое:</b> за {chat_topic.reminder1_offset} {unit_label(chat_topic.reminder1_unit)}\n"
+        text += f"• <b>Второе:</b> за {chat_topic.reminder2_offset} {unit_label(chat_topic.reminder2_unit)}\n"
 
         # Секция: Статистика
         text += "\n<b>📊 Статистика</b>:\n"
@@ -385,7 +442,7 @@ async def show_chat_settings_interface(message: Message, chat_topic, edit_mode: 
                 scheduled_result = await session.execute(
                     select(func.count(ChatScheduledNotification.id)).where(
                         ChatScheduledNotification.chat_topic_id == chat_topic.id,
-                        ChatScheduledNotification.status == "scheduled"
+                        ChatScheduledNotification.status == "scheduled",
                     )
                 )
                 scheduled_notifications = scheduled_result.scalar() or 0
@@ -396,32 +453,53 @@ async def show_chat_settings_interface(message: Message, chat_topic, edit_mode: 
         except Exception as e:
             logger.error(f"(C) {chat_id} - получение статистики уведомлений: {e}")
 
-
         builder = InlineKeyboardBuilder()
-        builder.button(text="📚 Изменить дисциплину", callback_data="chat_change_subject")
-        builder.button(text="⚙️ Настроить уведомления", callback_data="chat_edit_settings")
+        builder.button(
+            text="📚 Изменить дисциплину", callback_data="chat_change_subject"
+        )
+        builder.button(
+            text="⚙️ Настроить уведомления", callback_data="chat_edit_settings"
+        )
         # Добавляем переключатель уведомлений в общий раздел
         if chat_topic.is_active:
-            builder.button(text="🔕 Отключить уведомления", callback_data="chat_toggle_active", style=ButtonStyle.DANGER)
+            builder.button(
+                text="🔕 Отключить уведомления",
+                callback_data="chat_toggle_active",
+                style=ButtonStyle.DANGER,
+            )
         else:
-            builder.button(text="🔔 Включить уведомления", callback_data="chat_toggle_active", style=ButtonStyle.SUCCESS)
+            builder.button(
+                text="🔔 Включить уведомления",
+                callback_data="chat_toggle_active",
+                style=ButtonStyle.SUCCESS,
+            )
 
         # Управление топиком (только в single-mode)
         if chat.mode == "single":
-            builder.button(text="📍 Привязать к этому топику", callback_data="chat_set_topic_here")
+            builder.button(
+                text="📍 Привязать к этому топику", callback_data="chat_set_topic_here"
+            )
 
         # Кнопка смены режима
         if chat.mode == "single":
-            builder.button(text="🔄 Переключить чат в Multi-mode", callback_data="chat_switch_mode_multi")
+            builder.button(
+                text="🔄 Переключить чат в Multi-mode",
+                callback_data="chat_switch_mode_multi",
+            )
         else:
-            builder.button(text="🔄 Переключить чат в Single-mode", callback_data="chat_switch_mode_single")
+            builder.button(
+                text="🔄 Переключить чат в Single-mode",
+                callback_data="chat_switch_mode_single",
+            )
 
         builder.button(text="🔙 Назад", callback_data="back_to_start")
         builder.adjust(1)
 
         if edit_mode:
             try:
-                await message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+                await message.edit_text(
+                    text, reply_markup=builder.as_markup(), parse_mode="HTML"
+                )
             except TelegramBadRequest as e:
                 err = str(e)
                 # Если содержимое такое же, просто ничего не делаем
@@ -438,7 +516,9 @@ async def show_chat_settings_interface(message: Message, chat_topic, edit_mode: 
                 else:
                     raise
         else:
-            await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.answer(
+                text, reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - показ интерфейса настроек бота: {e}")
@@ -468,11 +548,15 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
                 if chat_topic:
                     text = GROUP_START_CONFIGURED_TEXT.format(
                         subject_name=chat_topic.subject.name,
-                        status=("✅ Активен" if chat_topic.is_active else "❌ Отключен"),
+                        status=(
+                            "✅ Активен" if chat_topic.is_active else "❌ Отключен"
+                        ),
                     )
                     builder = InlineKeyboardBuilder()
                     builder.button(text="ℹ️ Информация", callback_data="chat_info")
-                    builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                    builder.button(
+                        text="⚙️ Настройка", callback_data="chat_settings_from_start"
+                    )
                     builder.button(text="❓ Помощь", callback_data="quick_help")
                     builder.adjust(1)
                 else:
@@ -480,7 +564,9 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
                     text = "📚 Этот топик еще не настроен на дисциплину.\n\n"
                     text += "Попросите администратора нажать «Настроить»."
                     builder = InlineKeyboardBuilder()
-                    builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                    builder.button(
+                        text="⚙️ Настроить", callback_data="chat_setup_from_start"
+                    )
                     builder.button(text="❓ Помощь", callback_data="quick_help")
                     builder.adjust(1)
             else:
@@ -489,19 +575,27 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
                 if topics:
                     text = "📚 <b>Настроенные топики:</b>\n\n"
                     for topic in topics:
-                        topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                        topic_display = topic.topic_title or (
+                            f"ID {topic.topic_id}" if topic.topic_id else "Общий чат"
+                        )
                         status = "✅" if topic.is_active else "❌"
-                        text += f"{status} <b>{topic_display}</b> — {topic.subject.name}\n"
+                        text += (
+                            f"{status} <b>{topic_display}</b> — {topic.subject.name}\n"
+                        )
 
                     builder = InlineKeyboardBuilder()
-                    builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                    builder.button(
+                        text="⚙️ Настройка", callback_data="chat_settings_from_start"
+                    )
                     builder.button(text="❓ Помощь", callback_data="quick_help")
                     builder.adjust(1)
                 else:
                     text = "📚 Чат в multi-mode, но топики не настроены.\n\n"
                     text += "Настройте топики через /setup_discipline в каждом топике."
                     builder = InlineKeyboardBuilder()
-                    builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                    builder.button(
+                        text="⚙️ Настроить", callback_data="chat_setup_from_start"
+                    )
                     builder.button(text="❓ Помощь", callback_data="quick_help")
                     builder.adjust(1)
         else:
@@ -516,13 +610,17 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="ℹ️ Информация", callback_data="chat_info")
-                builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                builder.button(
+                    text="⚙️ Настройка", callback_data="chat_settings_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
             else:
                 text = GROUP_START_UNCONFIGURED_TEXT
                 builder = InlineKeyboardBuilder()
-                builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                builder.button(
+                    text="⚙️ Настроить", callback_data="chat_setup_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
     else:
@@ -540,7 +638,10 @@ async def handle_start_in_group(message: Message, db_user, user_name: str):
         except Exception:
             is_admin = False
         if not is_admin:
-            text = text.strip() + "\n\n❗️ Настраивать бота может только администратор этого чата."
+            text = (
+                text.strip()
+                + "\n\n❗️ Настраивать бота может только администратор этого чата."
+            )
 
     # Используем _safe_send для автоматической обработки TOPIC_CLOSED
     await _safe_send(message, text.strip(), reply_markup=builder.as_markup())
@@ -557,13 +658,21 @@ async def cmd_chat_help(message: Message, db_user):
 
     # Разрешаем только администраторам чата
     if not await chat_service.is_chat_admin(message.bot, chat_id, user_id):
-        await message.answer(f"<b>{ERROR_NO_PERMISSION}</b>", parse_mode="HTML")
+        await message.answer(
+            f"<b>{ERROR_NO_PERMISSION}</b>",
+            parse_mode="HTML",
+            ephemeral_message_parameters=EphemeralMessageParameters(
+                receiver_user_id=user_id
+            ),
+        )
         return
 
-    await send_chat_help_message(message)
+    await send_chat_help_message(message, ephemeral=True)
 
 
-@router.message(and_f(Command("setup_discipline"), F.chat.type.in_(["group", "supergroup"])))
+@router.message(
+    and_f(Command("setup_discipline"), F.chat.type.in_(["group", "supergroup"]))
+)
 async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
     """Команда настройки чата на предмет
 
@@ -599,11 +708,15 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
         existing_topic = await chat_service.get_chat_topic(chat_id, topic_id)
         if existing_topic:
             subject_name = existing_topic.subject.name
-            topic_info = f" (топик {existing_topic.topic_id})" if existing_topic.topic_id else " (общий чат)"
+            topic_info = (
+                f" (топик {existing_topic.topic_id})"
+                if existing_topic.topic_id
+                else " (общий чат)"
+            )
             await message.answer(
                 f"ℹ️ Этот топик уже настроен на предмет: <b>«{subject_name}»</b>{topic_info}\n\n"
                 f"Используйте /chat_settings для изменения настроек",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
             return
 
@@ -617,7 +730,10 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
             if subject_name_search:
                 stmt = (
                     select(Subject)
-                    .where(Subject.is_active, Subject.name.ilike(f"%{subject_name_search}%"))
+                    .where(
+                        Subject.is_active,
+                        Subject.name.ilike(f"%{subject_name_search}%"),
+                    )
                     .order_by(Subject.name)
                 )
                 result = await session.execute(stmt)
@@ -632,10 +748,14 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
 
                     topic_title = None
                     if topic_id is not None:
-                        topic_title = await _resolve_topic_title(message, chat_id, topic_id)
+                        topic_title = await _resolve_topic_title(
+                            message, chat_id, topic_id
+                        )
                         if not topic_title:
                             try:
-                                topic_title = await chat_service.get_topic_title(message.bot, chat_id, topic_id)
+                                topic_title = await chat_service.get_topic_title(
+                                    message.bot, chat_id, topic_id
+                                )
                             except Exception:
                                 topic_title = None
 
@@ -644,7 +764,7 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                     if mode == "multi" and topic_id is None:
                         await message.answer(
                             "❌ В multi-mode нельзя настраивать общий чат. Вызовите команду в топике.",
-                            parse_mode="HTML"
+                            parse_mode="HTML",
                         )
                         return
 
@@ -673,11 +793,13 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                                     topic_title=topic_title,
                                     topic_id_set=True,
                                 )
-                        topic_info = f" (топик {topic_id})" if topic_id else " (общий чат)"
+                        topic_info = (
+                            f" (топик {topic_id})" if topic_id else " (общий чат)"
+                        )
                         await message.answer(
                             f"✅ Бот настроен на предмет <b>«{subject.name}»</b>{topic_info}!\n\n"
                             f"Используйте /chat_settings для изменения настроек.",
-                            parse_mode="HTML"
+                            parse_mode="HTML",
                         )
                     else:
                         await message.answer(message_text, parse_mode="HTML")
@@ -701,7 +823,9 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
                         f"❌ Предмет по запросу «{subject_name_search}» не найден.\n\n"
                         "📚 <b>Доступные предметы:</b>\n\n"
                     )
-                    stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
+                    stmt = (
+                        select(Subject).where(Subject.is_active).order_by(Subject.name)
+                    )
                     result = await session.execute(stmt)
                     subjects = list(result.scalars().all())
             else:
@@ -728,21 +852,25 @@ async def cmd_setup_discipline(message: Message, db_user, state: FSMContext):
             for subject in subjects:
                 builder.button(
                     text=f"📖 {subject.name}",
-                    callback_data=f"chat_setup_subject_{subject.id}"
+                    callback_data=f"chat_setup_subject_{subject.id}",
                 )
 
             builder.button(text="❌ Отмена", callback_data="chat_setup_cancel")
             builder.adjust(1)
 
             await state.set_state(ChatSetupStates.waiting_subject_selection)
-            await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.answer(
+                text, reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - настройка дисциплины: {e}")
         await message.answer("Произошла ошибка при настройке бота")
 
 
-@router.message(and_f(Command("chat_settings"), F.chat.type.in_(["group", "supergroup"])))
+@router.message(
+    and_f(Command("chat_settings"), F.chat.type.in_(["group", "supergroup"]))
+)
 async def cmd_chat_settings(message: Message, db_user):
     """Команда показа настроек бота"""
 
@@ -797,7 +925,9 @@ async def cmd_chat_settings(message: Message, db_user):
         await message.answer("Произошла ошибка при получении настроек бота")
 
 
-@router.message(and_f(Command("disable_chat"), F.chat.type.in_(["group", "supergroup"])))
+@router.message(
+    and_f(Command("disable_chat"), F.chat.type.in_(["group", "supergroup"]))
+)
 async def cmd_disable_chat(message: Message, db_user):
     """Команда отключения уведомлений в чате"""
 
@@ -808,7 +938,9 @@ async def cmd_disable_chat(message: Message, db_user):
     logger.info(f"(C) {chat_id} - /disable_chat user=@{username or f'ID{user_id}'}")
 
     try:
-        success, message_text = await chat_service.toggle_chat_active(chat_id, user_id, message.bot)
+        success, message_text = await chat_service.toggle_chat_active(
+            chat_id, user_id, message.bot
+        )
         await message.answer(message_text)
 
     except Exception as e:
@@ -820,8 +952,11 @@ async def cmd_disable_chat(message: Message, db_user):
 # CALLBACK ОБРАБОТЧИКИ ДЛЯ НАСТРОЙКИ ЧАТА
 # ============================================================================
 
+
 @router.callback_query(F.data.startswith("chat_setup_subject_"))
-async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_setup_chat_subject(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Обработчик выбора предмета для настройки бота"""
     try:
         subject_id = int(callback.data.split("_")[-1])
@@ -829,7 +964,9 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - setup_chat_subject_{subject_id} user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - setup_chat_subject_{subject_id} user=@{username or f'ID{user_id}'}"
+        )
 
         # Только админы
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -852,7 +989,7 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
             await safe_edit_message(
                 callback.message,
                 "❌ В multi-mode нельзя настраивать общий чат. Вызовите команду в топике.",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
             return
 
@@ -861,18 +998,26 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
             mode = chat.mode if chat else None
 
         if mode is None:
-            await safe_edit_message(callback.message, "❌ Сначала выберите режим работы бота", parse_mode="HTML")
+            await safe_edit_message(
+                callback.message,
+                "❌ Сначала выберите режим работы бота",
+                parse_mode="HTML",
+            )
             return
 
         # Попробуем сразу определить и сохранить человекочитаемое название топика
         topic_title = None
         if topic_id is not None:
             # 1) из контекста сообщения
-            topic_title = await _resolve_topic_title(callback.message, chat_id, topic_id)
+            topic_title = await _resolve_topic_title(
+                callback.message, chat_id, topic_id
+            )
             # 2) если не нашли — через API
             if not topic_title:
                 try:
-                    topic_title = await chat_service.get_topic_title(callback.bot, chat_id, topic_id)
+                    topic_title = await chat_service.get_topic_title(
+                        callback.bot, chat_id, topic_id
+                    )
                 except Exception:
                     topic_title = None
 
@@ -912,9 +1057,13 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
                 chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
 
             if chat_topic:
-                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+                await show_chat_settings_interface(
+                    callback.message, chat_topic, edit_mode=True
+                )
             else:
-                await safe_edit_message(callback.message, "✅ Чат настроен!", parse_mode="HTML")
+                await safe_edit_message(
+                    callback.message, "✅ Чат настроен!", parse_mode="HTML"
+                )
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
@@ -926,7 +1075,9 @@ async def callback_setup_chat_subject(callback: CallbackQuery, db_user, state: F
 
 
 @router.callback_query(F.data == "chat_setup_cancel")
-async def callback_setup_chat_cancel(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_setup_chat_cancel(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Отмена настройки бота: сразу возвращаем в главное меню"""
     try:
         chat_id = callback.message.chat.id
@@ -947,7 +1098,9 @@ async def callback_setup_chat_cancel(callback: CallbackQuery, db_user, state: FS
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - отмена настройки: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при отмене настройки")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при отмене настройки"
+        )
 
 
 @router.callback_query(F.data == "chat_setup_reminder1")
@@ -970,31 +1123,34 @@ async def callback_setup_reminder1(callback: CallbackQuery, db_user, state: FSMC
         # Добавляем варианты дней
         for days in [1, 3, 7, 14, 30]:
             builder.button(
-                text=f"{days} дней",
-                callback_data=f"chat_setup_reminder1_{days}_days"
+                text=f"{days} дней", callback_data=f"chat_setup_reminder1_{days}_days"
             )
 
         # Добавляем варианты часов
         for hours in [6, 12, 24]:
             builder.button(
                 text=f"{hours} часов",
-                callback_data=f"chat_setup_reminder1_{hours}_hours"
+                callback_data=f"chat_setup_reminder1_{hours}_hours",
             )
 
-        builder.button(
-            text="✏️ Свой вариант",
-            callback_data="chat_custom_reminder_1"
-        )
+        builder.button(text="✏️ Свой вариант", callback_data="chat_custom_reminder_1")
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(2)
 
-        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message,
+            text.strip(),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
         await state.set_state(ChatSetupStates.waiting_reminder1_selection)
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - настройка первого напоминания: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при настройке напоминания"
+        )
 
 
 @router.callback_query(F.data == "chat_setup_reminder2")
@@ -1017,31 +1173,34 @@ async def callback_setup_reminder2(callback: CallbackQuery, db_user, state: FSMC
         # Добавляем варианты дней
         for days in [1, 2, 3, 7]:
             builder.button(
-                text=f"{days} дней",
-                callback_data=f"chat_setup_reminder2_{days}_days"
+                text=f"{days} дней", callback_data=f"chat_setup_reminder2_{days}_days"
             )
 
         # Добавляем варианты часов
         for hours in [6, 12, 24]:
             builder.button(
                 text=f"{hours} часов",
-                callback_data=f"chat_setup_reminder2_{hours}_hours"
+                callback_data=f"chat_setup_reminder2_{hours}_hours",
             )
 
-        builder.button(
-            text="✏️ Свой вариант",
-            callback_data="chat_custom_reminder_2"
-        )
+        builder.button(text="✏️ Свой вариант", callback_data="chat_custom_reminder_2")
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(2)
 
-        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message,
+            text.strip(),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
         await state.set_state(ChatSetupStates.waiting_reminder2_selection)
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - настройка второго напоминания: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при настройке напоминания"
+        )
 
 
 @router.callback_query(F.data == "chat_setup_finish")
@@ -1077,7 +1236,11 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
 
         # Настраиваем чат
         success, message_text = await chat_service.setup_chat_group(
-            callback.bot, chat_id, subject_id, user_id, topic_id,
+            callback.bot,
+            chat_id,
+            subject_id,
+            user_id,
+            topic_id,
             reminder1_offset=reminder1_offset,
             reminder1_unit=reminder1_unit,
             reminder2_offset=reminder2_offset,
@@ -1089,10 +1252,14 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
             # Если привязали к топику — сохраним человекочитаемое имя топика
             if topic_id is not None:
                 try:
-                    topic_title = await _resolve_topic_title(callback.message, chat_id, topic_id)
+                    topic_title = await _resolve_topic_title(
+                        callback.message, chat_id, topic_id
+                    )
                     if not topic_title:
                         try:
-                            topic_title = await chat_service.get_topic_title(callback.bot, chat_id, topic_id)
+                            topic_title = await chat_service.get_topic_title(
+                                callback.bot, chat_id, topic_id
+                            )
                         except Exception:
                             topic_title = None
                     if topic_title:
@@ -1126,11 +1293,17 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
 
             # Предлагаем удалить сообщение
             builder = InlineKeyboardBuilder()
-            builder.button(text="🗑️ Удалить сообщение", callback_data="chat_delete_message", style=ButtonStyle.DANGER)
+            builder.button(
+                text="🗑️ Удалить сообщение",
+                callback_data="chat_delete_message",
+                style=ButtonStyle.DANGER,
+            )
             builder.button(text="🔙 Назад", callback_data="back_to_start")
             builder.adjust(1)
 
-            await callback.message.edit_text(message_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await callback.message.edit_text(
+                message_text, reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
@@ -1138,11 +1311,15 @@ async def callback_setup_finish(callback: CallbackQuery, db_user, state: FSMCont
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - завершение настройки: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при завершении настройки")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при завершении настройки"
+        )
 
 
 @router.callback_query(F.data.startswith("chat_setup_reminder1_"))
-async def callback_set_reminder1_value(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_set_reminder1_value(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Установка значения первого напоминания"""
     try:
         # Парсим данные
@@ -1173,23 +1350,40 @@ async def callback_set_reminder1_value(callback: CallbackQuery, db_user, state: 
         )
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
-        builder.button(text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2")
-        builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish", style=ButtonStyle.SUCCESS)
+        builder.button(
+            text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1"
+        )
+        builder.button(
+            text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2"
+        )
+        builder.button(
+            text="✅ Завершить настройку",
+            callback_data="chat_setup_finish",
+            style=ButtonStyle.SUCCESS,
+        )
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(1)
 
-        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message,
+            text.strip(),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
         await state.set_state(ChatSetupStates.waiting_time_settings)
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - установка первого напоминания: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при настройке напоминания"
+        )
 
 
 @router.callback_query(F.data.startswith("chat_setup_reminder2_"))
-async def callback_set_reminder2_value(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_set_reminder2_value(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Установка значения второго напоминания"""
     try:
         # Парсим данные
@@ -1220,19 +1414,34 @@ async def callback_set_reminder2_value(callback: CallbackQuery, db_user, state: 
         )
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
-        builder.button(text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2")
-        builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish", style=ButtonStyle.SUCCESS)
+        builder.button(
+            text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1"
+        )
+        builder.button(
+            text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2"
+        )
+        builder.button(
+            text="✅ Завершить настройку",
+            callback_data="chat_setup_finish",
+            style=ButtonStyle.SUCCESS,
+        )
         builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
         builder.adjust(1)
 
-        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message,
+            text.strip(),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
         await state.set_state(ChatSetupStates.waiting_time_settings)
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - установка второго напоминания: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при настройке напоминания")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при настройке напоминания"
+        )
 
 
 @router.callback_query(F.data == "chat_delete_message")
@@ -1271,8 +1480,7 @@ async def _show_subject_selection(
     builder = InlineKeyboardBuilder()
     for subject in subjects:
         builder.button(
-            text=f"📖 {subject.name}",
-            callback_data=f"chat_setup_subject_{subject.id}"
+            text=f"📖 {subject.name}", callback_data=f"chat_setup_subject_{subject.id}"
         )
 
     builder.button(text="❌ Отмена", callback_data="chat_setup_cancel")
@@ -1280,20 +1488,28 @@ async def _show_subject_selection(
 
     await state.set_state(ChatSetupStates.waiting_subject_selection)
     if edit_mode:
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
     else:
-        await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await callback.message.answer(
+            text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
 
 @router.callback_query(F.data == "chat_setup_from_start")
-async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_setup_from_start(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Обработчик кнопки настройки бота из /start"""
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - setup_from_start user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - setup_from_start user=@{username or f'ID{user_id}'}"
+        )
 
         # Проверяем права админа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -1309,7 +1525,9 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
             mode = chat.mode
             # В multi-mode из общего чата показываем обзор топиков
             if mode == "multi" and topic_id is None:
-                await show_chat_multi_mode_overview(callback.message, chat, edit_mode=True)
+                await show_chat_multi_mode_overview(
+                    callback.message, chat, edit_mode=True
+                )
                 return
 
             # В multi-mode из топика или single-mode - настраиваем топик
@@ -1318,22 +1536,29 @@ async def callback_setup_from_start(callback: CallbackQuery, db_user, state: FSM
             # Получаем список доступных предметов
             async with db_manager.async_session() as session:
                 from sqlalchemy import select
+
                 stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
                 result = await session.execute(stmt)
                 subjects = list(result.scalars().all())
 
             if not subjects:
-                await safe_edit_message(callback.message, "❌ Нет доступных предметов для настройки")
+                await safe_edit_message(
+                    callback.message, "❌ Нет доступных предметов для настройки"
+                )
                 return
 
-            await _show_subject_selection(callback, subjects, state, mode, edit_mode=True)
+            await _show_subject_selection(
+                callback, subjects, state, mode, edit_mode=True
+            )
         else:
             # Чат не существует - показываем выбор режима
             await state.clear()
             await show_chat_setup_interface(callback.message, edit_mode=True)
 
     except Exception as e:
-        logger.error(f"(C) {callback.message.chat.id} - настройка из стартового меню: {e}")
+        logger.error(
+            f"(C) {callback.message.chat.id} - настройка из стартового меню: {e}"
+        )
         await safe_edit_message(callback.message, "Произошла ошибка при настройке бота")
 
 
@@ -1346,7 +1571,9 @@ async def callback_setup_mode(callback: CallbackQuery, db_user, state: FSMContex
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - setup_mode_{mode} user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - setup_mode_{mode} user=@{username or f'ID{user_id}'}"
+        )
 
         # Проверяем права админа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -1375,6 +1602,7 @@ async def callback_setup_mode(callback: CallbackQuery, db_user, state: FSMContex
                 # Создаем чат с выбранным режимом
                 async with db_manager.async_session() as session:
                     from src.core.models import ChatGroup
+
                     chat_group = ChatGroup(
                         chat_id=chat_id,
                         mode=mode,
@@ -1395,7 +1623,12 @@ async def callback_setup_mode(callback: CallbackQuery, db_user, state: FSMContex
                 builder.button(text="🔙 Назад", callback_data="back_to_start")
                 builder.adjust(1)
 
-                await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+                await safe_edit_message(
+                    callback.message,
+                    text,
+                    reply_markup=builder.as_markup(),
+                    parse_mode="HTML",
+                )
                 await state.clear()
                 return
             except Exception as e:
@@ -1403,19 +1636,22 @@ async def callback_setup_mode(callback: CallbackQuery, db_user, state: FSMContex
                 await safe_edit_message(
                     callback.message,
                     "❌ Произошла ошибка при установке режима. Попробуйте ещё раз.",
-                    parse_mode="HTML"
+                    parse_mode="HTML",
                 )
                 return
 
         # Получаем список доступных предметов
         async with db_manager.async_session() as session:
             from sqlalchemy import select
+
             stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
             result = await session.execute(stmt)
             subjects = list(result.scalars().all())
 
         if not subjects:
-            await safe_edit_message(callback.message, "❌ Нет доступных предметов для настройки")
+            await safe_edit_message(
+                callback.message, "❌ Нет доступных предметов для настройки"
+            )
             return
 
         await _show_subject_selection(callback, subjects, state, mode, edit_mode=True)
@@ -1426,14 +1662,18 @@ async def callback_setup_mode(callback: CallbackQuery, db_user, state: FSMContex
 
 
 @router.callback_query(F.data == "chat_settings_from_start")
-async def callback_settings_from_start(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_settings_from_start(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Обработчик кнопки настроек бота из /start"""
     try:
         chat_id = callback.message.chat.id
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - settings_from_start user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - settings_from_start user=@{username or f'ID{user_id}'}"
+        )
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -1469,26 +1709,37 @@ async def callback_settings_from_start(callback: CallbackQuery, db_user, state: 
         if not chat_topic:
             # Топик не настроен - показываем выбор дисциплины
             # В single-mode topic_id не важен, в multi-mode используем topic_id из сообщения
-            await state.update_data(mode=chat.mode, topic_id=topic_id if chat.mode == "multi" else None)
+            await state.update_data(
+                mode=chat.mode, topic_id=topic_id if chat.mode == "multi" else None
+            )
 
             async with db_manager.async_session() as session:
                 from sqlalchemy import select
+
                 stmt = select(Subject).where(Subject.is_active).order_by(Subject.name)
                 result = await session.execute(stmt)
                 subjects = list(result.scalars().all())
 
             if not subjects:
-                await safe_edit_message(callback.message, "❌ Нет доступных предметов для настройки")
+                await safe_edit_message(
+                    callback.message, "❌ Нет доступных предметов для настройки"
+                )
                 return
 
-            await _show_subject_selection(callback, subjects, state, chat.mode, edit_mode=True)
+            await _show_subject_selection(
+                callback, subjects, state, chat.mode, edit_mode=True
+            )
         else:
             # Топик настроен - показываем интерфейс управления настройками
-            await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+            await show_chat_settings_interface(
+                callback.message, chat_topic, edit_mode=True
+            )
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - настройки из стартового меню: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при получении настроек бота")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при получении настроек бота"
+        )
 
 
 @router.callback_query(F.data == "back_to_start")
@@ -1525,19 +1776,25 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
             if topics:
                 text = "📚 <b>Настроенные топики:</b>\n\n"
                 for topic in topics:
-                    topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                    topic_display = topic.topic_title or (
+                        f"ID {topic.topic_id}" if topic.topic_id else "Общий чат"
+                    )
                     status = "✅" if topic.is_active else "❌"
                     text += f"{status} <b>{topic_display}</b> — {topic.subject.name}\n"
 
                 builder = InlineKeyboardBuilder()
-                builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                builder.button(
+                    text="⚙️ Настройка", callback_data="chat_settings_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
             else:
                 text = "📚 Чат в multi-mode, но топики не настроены.\n\n"
                 text += "Настройте топики через /setup_discipline в каждом топике."
                 builder = InlineKeyboardBuilder()
-                builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                builder.button(
+                    text="⚙️ Настроить", callback_data="chat_setup_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
         elif chat.mode == "single":
@@ -1552,7 +1809,9 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="ℹ️ Информация", callback_data="chat_info")
-                builder.button(text="⚙️ Настройка", callback_data="chat_settings_from_start")
+                builder.button(
+                    text="⚙️ Настройка", callback_data="chat_settings_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
             else:
@@ -1560,7 +1819,9 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
                 text = GROUP_START_UNCONFIGURED_TEXT
 
                 builder = InlineKeyboardBuilder()
-                builder.button(text="⚙️ Настроить", callback_data="chat_setup_from_start")
+                builder.button(
+                    text="⚙️ Настроить", callback_data="chat_setup_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
         else:
@@ -1575,7 +1836,9 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
 
                 builder = InlineKeyboardBuilder()
                 builder.button(text="ℹ️ Информация", callback_data="chat_info")
-                builder.button(text="⚙️ Настройка топика", callback_data="chat_settings_from_start")
+                builder.button(
+                    text="⚙️ Настройка топика", callback_data="chat_settings_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
             else:
@@ -1583,15 +1846,24 @@ async def callback_back_to_start(callback: CallbackQuery, db_user):
                 text = GROUP_START_UNCONFIGURED_TEXT
 
                 builder = InlineKeyboardBuilder()
-                builder.button(text="⚙️ Настроить топик", callback_data="chat_setup_from_start")
+                builder.button(
+                    text="⚙️ Настроить топик", callback_data="chat_setup_from_start"
+                )
                 builder.button(text="❓ Помощь", callback_data="quick_help")
                 builder.adjust(1)
 
-        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message,
+            text.strip(),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - возврат к стартовому меню: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при возврате к главному меню")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при возврате к главному меню"
+        )
 
 
 @router.callback_query(F.data == "chat_change_subject")
@@ -1602,7 +1874,9 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - change_subject user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - change_subject user=@{username or f'ID{user_id}'}"
+        )
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -1638,12 +1912,7 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
             current_subject_id = chat_topic.subject_id
             stmt = (
                 select(Subject)
-                .where(
-                    and_(
-                        Subject.is_active,
-                        Subject.id != current_subject_id
-                    )
-                )
+                .where(and_(Subject.is_active, Subject.id != current_subject_id))
                 .order_by(Subject.name)
             )
             result = await session.execute(stmt)
@@ -1656,7 +1925,7 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
         for subject in subjects:
             builder.button(
                 text=f"📖 {subject.name}",
-                callback_data=f"chat_change_subject_{subject.id}"
+                callback_data=f"chat_change_subject_{subject.id}",
             )
 
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
@@ -1664,16 +1933,25 @@ async def callback_change_subject(callback: CallbackQuery, db_user, state: FSMCo
 
         # В single-mode topic_id не важен, в multi-mode используем topic_id из сообщения
         await state.update_data(topic_id=topic_id if chat.mode == "multi" else None)
-        await safe_edit_message(callback.message, text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message,
+            text.strip(),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
         await state.set_state(ChatSetupStates.waiting_subject_selection)
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - смена предмета: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при смене дисциплины")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при смене дисциплины"
+        )
 
 
 @router.callback_query(F.data.startswith("chat_change_subject_"))
-async def callback_change_subject_selected(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_change_subject_selected(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Обработчик выбора новой дисциплины"""
     try:
         subject_id = int(callback.data.split("_")[-1])
@@ -1687,7 +1965,9 @@ async def callback_change_subject_selected(callback: CallbackQuery, db_user, sta
         await callback.answer()
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - change_subject_{subject_id} user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - change_subject_{subject_id} user=@{username or f'ID{user_id}'}"
+        )
 
         # Получаем новую дисциплину
         await db_manager.get_subject_by_id(subject_id)
@@ -1719,22 +1999,25 @@ async def callback_change_subject_selected(callback: CallbackQuery, db_user, sta
 
             if chat_topic:
                 # Показываем обновленный интерфейс настроек
-                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+                await show_chat_settings_interface(
+                    callback.message, chat_topic, edit_mode=True
+                )
 
-                # Показываем уведомление о перепланировании
-                if rescheduled_count > 0:
-                    await callback.answer(f"✅ Дисциплина изменена. Перепланировано {rescheduled_count} уведомлений", show_alert=False)
-                else:
-                    await callback.answer("✅ Дисциплина изменена", show_alert=False)
+                logger.info(
+                    f"(C) {chat_id} - дисциплина изменена, перепланировано "
+                    f"{rescheduled_count} уведомлений"
+                )
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
-            await callback.answer(message_text, show_alert=True)
 
         await state.clear()
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - выбор нового предмета: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при смене дисциплины")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при смене дисциплины"
+        )
+
 
 @router.callback_query(F.data.startswith("chat_edit_settings"))
 async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
@@ -1784,12 +2067,16 @@ async def callback_edit_chat_settings(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(1)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - редактирование настроек: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при редактировании настроек"
+        )
 
 
 @router.callback_query(F.data.startswith("chat_edit_reminder1"))
@@ -1838,30 +2125,31 @@ async def callback_edit_reminder1(callback: CallbackQuery, db_user):
         # Варианты для дней
         for days in [1, 3, 7, 14]:
             builder.button(
-                text=f"{days} дней",
-                callback_data=f"chat_set_reminder1_{days}_days"
+                text=f"{days} дней", callback_data=f"chat_set_reminder1_{days}_days"
             )
 
         # Варианты для часов
         for hours in [1, 6, 12, 24]:
             builder.button(
-                text=f"{hours} часов",
-                callback_data=f"chat_set_reminder1_{hours}_hours"
+                text=f"{hours} часов", callback_data=f"chat_set_reminder1_{hours}_hours"
             )
 
         builder.button(
-            text="✏️ Свой вариант",
-            callback_data="chat_edit_custom_reminder_1"
+            text="✏️ Свой вариант", callback_data="chat_edit_custom_reminder_1"
         )
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(2)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - редактирование первого напоминания: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при редактировании настроек"
+        )
 
 
 @router.callback_query(F.data.startswith("chat_set_reminder1_"))
@@ -1888,10 +2176,12 @@ async def callback_set_reminder1(callback: CallbackQuery, db_user):
 
         # Обновляем настройки
         success, message_text = await chat_service.update_chat_settings(
-            chat_id, user_id, callback.bot,
+            chat_id,
+            user_id,
+            callback.bot,
             topic_id=topic_id,
             reminder1_offset=offset,
-            reminder1_unit=unit
+            reminder1_unit=unit,
         )
 
         if success:
@@ -1904,7 +2194,9 @@ async def callback_set_reminder1(callback: CallbackQuery, db_user):
                 chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
 
             if chat_topic:
-                rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_topic)
+                rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(
+                    chat_topic
+                )
             else:
                 rescheduled_count = 0
 
@@ -1918,14 +2210,18 @@ async def callback_set_reminder1(callback: CallbackQuery, db_user):
                 chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
 
             if chat_topic:
-                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+                await show_chat_settings_interface(
+                    callback.message, chat_topic, edit_mode=True
+                )
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - изменение первого напоминания: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при изменении настроек"
+        )
 
 
 @router.callback_query(F.data.startswith("chat_edit_reminder2"))
@@ -1974,30 +2270,31 @@ async def callback_edit_reminder2(callback: CallbackQuery, db_user):
         # Варианты для дней
         for days in [1, 2, 3, 7]:
             builder.button(
-                text=f"{days} дней",
-                callback_data=f"chat_set_reminder2_{days}_days"
+                text=f"{days} дней", callback_data=f"chat_set_reminder2_{days}_days"
             )
 
         # Варианты для часов
         for hours in [1, 6, 12, 24]:
             builder.button(
-                text=f"{hours} часов",
-                callback_data=f"chat_set_reminder2_{hours}_hours"
+                text=f"{hours} часов", callback_data=f"chat_set_reminder2_{hours}_hours"
             )
 
         builder.button(
-            text="✏️ Свой вариант",
-            callback_data="chat_edit_custom_reminder_2"
+            text="✏️ Свой вариант", callback_data="chat_edit_custom_reminder_2"
         )
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(2)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - редактирование второго напоминания: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при редактировании настроек")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при редактировании настроек"
+        )
 
 
 @router.callback_query(F.data.startswith("chat_set_reminder2_"))
@@ -2034,10 +2331,12 @@ async def callback_set_reminder2(callback: CallbackQuery, db_user):
 
         # Обновляем настройки
         success, message_text = await chat_service.update_chat_settings(
-            chat_id, user_id, callback.bot,
+            chat_id,
+            user_id,
+            callback.bot,
             topic_id=topic_id,
             reminder2_offset=offset,
-            reminder2_unit=unit
+            reminder2_unit=unit,
         )
 
         if success:
@@ -2049,7 +2348,9 @@ async def callback_set_reminder2(callback: CallbackQuery, db_user):
                 chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
 
             if chat_topic:
-                rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_topic)
+                rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(
+                    chat_topic
+                )
             else:
                 rescheduled_count = 0
 
@@ -2063,14 +2364,18 @@ async def callback_set_reminder2(callback: CallbackQuery, db_user):
                 chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
 
             if chat_topic:
-                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+                await show_chat_settings_interface(
+                    callback.message, chat_topic, edit_mode=True
+                )
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
 
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - изменение второго напоминания: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при изменении настроек"
+        )
 
 
 @router.callback_query(F.data == "chat_toggle_active")
@@ -2094,7 +2399,9 @@ async def callback_toggle_chat_active(callback: CallbackQuery, db_user):
         topic_id = await chat_service.get_topic_id_from_message(callback.message)
 
         # Переключаем активность топика
-        success, message_text = await chat_service.toggle_chat_active(chat_id, user_id, callback.bot, topic_id)
+        success, message_text = await chat_service.toggle_chat_active(
+            chat_id, user_id, callback.bot, topic_id
+        )
 
         if success:
             # Получаем обновленный топик с учетом режима
@@ -2118,27 +2425,31 @@ async def callback_toggle_chat_active(callback: CallbackQuery, db_user):
                         from sqlalchemy import update
 
                         from src.core.models import ChatScheduledNotification
+
                         async with db_manager.async_session() as session:
                             await session.execute(
                                 update(ChatScheduledNotification)
                                 .where(
-                                    ChatScheduledNotification.chat_topic_id == chat_topic.id,
-                                    ChatScheduledNotification.status == "scheduled"
+                                    ChatScheduledNotification.chat_topic_id
+                                    == chat_topic.id,
+                                    ChatScheduledNotification.status == "scheduled",
                                 )
                                 .values(status="cancelled")
                             )
                             await session.commit()
 
                 # Обновляем интерфейс настроек
-                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
-                await callback.answer(message_text, show_alert=False)
+                await show_chat_settings_interface(
+                    callback.message, chat_topic, edit_mode=True
+                )
         else:
             await safe_edit_message(callback.message, message_text, parse_mode="HTML")
-            await callback.answer(message_text, show_alert=True)
 
     except Exception as e:
         logger.error(f"(C) {chat_id} - переключение активности: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при изменении настроек")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при изменении настроек"
+        )
 
 
 @router.callback_query(F.data == "chat_advanced_settings")
@@ -2149,7 +2460,9 @@ async def callback_advanced_settings(callback: CallbackQuery, db_user):
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - advanced_settings user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - advanced_settings user=@{username or f'ID{user_id}'}"
+        )
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -2182,7 +2495,9 @@ async def callback_advanced_settings(callback: CallbackQuery, db_user):
             if topics:
                 text += "• Будут удалены настройки для топиков:\n"
                 for topic in topics:
-                    topic_display = topic.topic_title or (f"ID {topic.topic_id}" if topic.topic_id else "Общий чат")
+                    topic_display = topic.topic_title or (
+                        f"ID {topic.topic_id}" if topic.topic_id else "Общий чат"
+                    )
                     text += f"  - {topic_display} ({topic.subject.name})\n"
                 text += "• Нужно будет настроить чат заново\n"
             new_mode = "single"
@@ -2193,11 +2508,15 @@ async def callback_advanced_settings(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="chat_settings_from_start")
         builder.adjust(1)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except Exception as e:
         logger.error(f"(C) {callback.message.chat.id} - дополнительные настройки: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при открытии дополнительных настроек")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при открытии дополнительных настроек"
+        )
 
 
 @router.callback_query(F.data.startswith("chat_switch_mode_"))
@@ -2209,7 +2528,9 @@ async def callback_switch_mode(callback: CallbackQuery, db_user, state: FSMConte
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - switch_mode_{new_mode} user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - switch_mode_{new_mode} user=@{username or f'ID{user_id}'}"
+        )
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -2250,7 +2571,9 @@ async def callback_switch_mode(callback: CallbackQuery, db_user, state: FSMConte
 
         # Создаем кнопки подтверждения/отмены
         builder = InlineKeyboardBuilder()
-        builder.button(text="✅ Подтвердить", callback_data=f"chat_confirm_switch_mode_{new_mode}")
+        builder.button(
+            text="✅ Подтвердить", callback_data=f"chat_confirm_switch_mode_{new_mode}"
+        )
         builder.button(text="❌ Отмена", callback_data="chat_cancel_switch_mode")
         builder.adjust(1)
 
@@ -2258,15 +2581,21 @@ async def callback_switch_mode(callback: CallbackQuery, db_user, state: FSMConte
         await state.set_state(ChatSwitchModeStates.confirming_switch)
         await state.update_data(new_mode=new_mode, chat_id=chat_id)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except Exception as e:
-        logger.error(f"(C) {callback.message.chat.id} - показ подтверждения переключения режима: {e}")
+        logger.error(
+            f"(C) {callback.message.chat.id} - показ подтверждения переключения режима: {e}"
+        )
         await callback.answer("Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("chat_confirm_switch_mode_"))
-async def callback_confirm_switch_mode(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_confirm_switch_mode(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Подтверждение и выполнение переключения режима"""
     try:
         new_mode = callback.data.split("_")[-1]  # 'single' или 'multi'
@@ -2274,7 +2603,9 @@ async def callback_confirm_switch_mode(callback: CallbackQuery, db_user, state: 
         user_id = callback.from_user.id
         username = callback.from_user.username
 
-        logger.info(f"(C) {chat_id} - confirm_switch_mode_{new_mode} user=@{username or f'ID{user_id}'}")
+        logger.info(
+            f"(C) {chat_id} - confirm_switch_mode_{new_mode} user=@{username or f'ID{user_id}'}"
+        )
 
         # Проверяем права доступа
         if not await chat_service.is_chat_admin(callback.bot, chat_id, user_id):
@@ -2285,7 +2616,9 @@ async def callback_confirm_switch_mode(callback: CallbackQuery, db_user, state: 
         await callback.answer("Переключаю режим...")
 
         # Переключаем режим
-        success, message_text = await chat_service.switch_chat_mode(chat_id, new_mode, user_id, callback.bot)
+        success, message_text = await chat_service.switch_chat_mode(
+            chat_id, new_mode, user_id, callback.bot
+        )
 
         if success:
             # Определяем название режима
@@ -2293,28 +2626,40 @@ async def callback_confirm_switch_mode(callback: CallbackQuery, db_user, state: 
 
             # Формируем текст успешного переключения
             from src.bot.texts import CHAT_SWITCH_MODE_SUCCESS
+
             text = CHAT_SWITCH_MODE_SUCCESS.format(mode_name=mode_name)
 
             # Создаем кнопки
             builder = InlineKeyboardBuilder()
-            builder.button(text="⚙️ Настройки бота", callback_data="chat_settings_from_start")
+            builder.button(
+                text="⚙️ Настройки бота", callback_data="chat_settings_from_start"
+            )
             builder.button(text="❓ Помощь", callback_data="quick_help")
             builder.adjust(1)
 
-            await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await safe_edit_message(
+                callback.message,
+                text,
+                reply_markup=builder.as_markup(),
+                parse_mode="HTML",
+            )
         else:
             await safe_edit_message(callback.message, f"❌ {message_text}")
 
         await state.clear()
 
     except Exception as e:
-        logger.error(f"(C) {callback.message.chat.id} - подтверждение переключения режима: {e}")
+        logger.error(
+            f"(C) {callback.message.chat.id} - подтверждение переключения режима: {e}"
+        )
         await callback.answer("Произошла ошибка", show_alert=True)
         await state.clear()
 
 
 @router.callback_query(F.data == "chat_cancel_switch_mode")
-async def callback_cancel_switch_mode(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_cancel_switch_mode(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Отмена переключения режима"""
     await callback.answer()
     await state.clear()
@@ -2334,21 +2679,35 @@ async def callback_cancel_switch_mode(callback: CallbackQuery, db_user, state: F
             if chat.mode == "single":
                 chat_topic = topics[0] if topics else None
             else:
-                topic_id = await chat_service.get_topic_id_from_message(callback.message)
-                chat_topic = await chat_service.get_chat_topic(chat_id, topic_id) if topic_id else None
+                topic_id = await chat_service.get_topic_id_from_message(
+                    callback.message
+                )
+                chat_topic = (
+                    await chat_service.get_chat_topic(chat_id, topic_id)
+                    if topic_id
+                    else None
+                )
 
             if chat_topic:
-                await show_chat_settings_interface(callback.message, chat_topic, edit_mode=True)
+                await show_chat_settings_interface(
+                    callback.message, chat_topic, edit_mode=True
+                )
             else:
                 # Топик не настроен - показываем обзор или настройки
                 if chat.mode == "multi" and topic_id is None:
-                    await show_chat_multi_mode_overview(callback.message, chat, edit_mode=True)
+                    await show_chat_multi_mode_overview(
+                        callback.message, chat, edit_mode=True
+                    )
                 else:
-                    await show_chat_settings_interface(callback.message, None, edit_mode=True)
+                    await show_chat_settings_interface(
+                        callback.message, None, edit_mode=True
+                    )
 
 
 @router.callback_query(F.data.startswith("chat_custom_reminder_"))
-async def callback_custom_reminder_setup(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_custom_reminder_setup(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Обработчик кастомного времени в настройке бота"""
     await callback.answer()
 
@@ -2362,7 +2721,9 @@ async def callback_custom_reminder_setup(callback: CallbackQuery, db_user, state
 
         reminder_number = int(callback.data.split("_")[-1])
 
-        text, buttons = build_custom_offset_prompt(reminder_number, f"chat_setup_reminder{reminder_number}")
+        text, buttons = build_custom_offset_prompt(
+            reminder_number, f"chat_setup_reminder{reminder_number}"
+        )
 
         builder = InlineKeyboardBuilder()
         for btn_text, cb_data in buttons:
@@ -2370,7 +2731,9 @@ async def callback_custom_reminder_setup(callback: CallbackQuery, db_user, state
 
         await state.update_data(reminder_number=reminder_number, is_setup=True)
         await state.set_state(ChatSetupStates.waiting_custom_reminder)
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except (ValueError, IndexError) as e:
         chat_id = callback.message.chat.id
@@ -2379,7 +2742,9 @@ async def callback_custom_reminder_setup(callback: CallbackQuery, db_user, state
 
 
 @router.callback_query(F.data.startswith("chat_edit_custom_reminder_"))
-async def callback_custom_reminder_edit(callback: CallbackQuery, db_user, state: FSMContext):
+async def callback_custom_reminder_edit(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """Обработчик кастомного времени при редактировании настроек"""
     await callback.answer()
 
@@ -2393,7 +2758,9 @@ async def callback_custom_reminder_edit(callback: CallbackQuery, db_user, state:
 
         reminder_number = int(callback.data.split("_")[-1])
 
-        text, buttons = build_custom_offset_prompt(reminder_number, f"chat_edit_reminder{reminder_number}")
+        text, buttons = build_custom_offset_prompt(
+            reminder_number, f"chat_edit_reminder{reminder_number}"
+        )
 
         builder = InlineKeyboardBuilder()
         for btn_text, cb_data in buttons:
@@ -2401,7 +2768,9 @@ async def callback_custom_reminder_edit(callback: CallbackQuery, db_user, state:
 
         await state.update_data(reminder_number=reminder_number, is_setup=False)
         await state.set_state(ChatSettingsStates.waiting_custom_reminder)
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML"
+        )
 
     except (ValueError, IndexError) as e:
         chat_id = callback.message.chat.id
@@ -2458,11 +2827,17 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
         if is_setup:
             # Настройка бота - сохраняем в состояние
             if reminder_number == 1:
-                await state.update_data(reminder1_offset=offset_value, reminder1_unit=offset_unit)
+                await state.update_data(
+                    reminder1_offset=offset_value, reminder1_unit=offset_unit
+                )
             else:
-                await state.update_data(reminder2_offset=offset_value, reminder2_unit=offset_unit)
+                await state.update_data(
+                    reminder2_offset=offset_value, reminder2_unit=offset_unit
+                )
             unit_text = {"days": "дн.", "hours": "ч."}.get(offset_unit, offset_unit)
-            await message.answer(f"✅ Уведомление настроено: за {offset_value} {unit_text}")
+            await message.answer(
+                f"✅ Уведомление настроено: за {offset_value} {unit_text}"
+            )
 
             # Возвращаемся к интерфейсу настройки времени
             data = await state.get_data()
@@ -2475,19 +2850,31 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
             reminder2_unit = data.get("reminder2_unit", "days")
 
             text = (
-                TIME_SETTINGS_SELECTED_SUBJECT_TEMPLATE.format(subject_name=subject.name)
+                TIME_SETTINGS_SELECTED_SUBJECT_TEMPLATE.format(
+                    subject_name=subject.name
+                )
                 + f"• Первое напоминание: за {reminder1_offset} {reminder1_unit}\n"
                 + f"• Второе напоминание: за {reminder2_offset} {reminder2_unit}\n"
             )
 
             builder = InlineKeyboardBuilder()
-            builder.button(text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1")
-            builder.button(text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2")
-            builder.button(text="✅ Завершить настройку", callback_data="chat_setup_finish", style=ButtonStyle.SUCCESS)
+            builder.button(
+                text="1️⃣ Первое напоминание", callback_data="chat_setup_reminder1"
+            )
+            builder.button(
+                text="2️⃣ Второе напоминание", callback_data="chat_setup_reminder2"
+            )
+            builder.button(
+                text="✅ Завершить настройку",
+                callback_data="chat_setup_finish",
+                style=ButtonStyle.SUCCESS,
+            )
             builder.button(text="🔙 Назад", callback_data="chat_setup_from_start")
             builder.adjust(1)
 
-            await message.answer(text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML")
+            await message.answer(
+                text.strip(), reply_markup=builder.as_markup(), parse_mode="HTML"
+            )
             await state.set_state(ChatSetupStates.waiting_time_settings)
         else:
             # Редактирование настроек - обновляем сразу
@@ -2507,17 +2894,21 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
 
             if reminder_number == 1:
                 success, message_text = await chat_service.update_chat_settings(
-                    chat_id, user_id, message.bot,
+                    chat_id,
+                    user_id,
+                    message.bot,
                     topic_id=topic_id,
                     reminder1_offset=offset_value,
-                    reminder1_unit=offset_unit
+                    reminder1_unit=offset_unit,
                 )
             else:
                 success, message_text = await chat_service.update_chat_settings(
-                    chat_id, user_id, message.bot,
+                    chat_id,
+                    user_id,
+                    message.bot,
                     topic_id=topic_id,
                     reminder2_offset=offset_value,
-                    reminder2_unit=offset_unit
+                    reminder2_unit=offset_unit,
                 )
 
             if success:
@@ -2529,7 +2920,9 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
                     chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
 
                 if chat_topic:
-                    rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_topic)
+                    rescheduled_count = await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(
+                        chat_topic
+                    )
                 else:
                     rescheduled_count = 0
 
@@ -2547,7 +2940,9 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
                     chat_topic = await chat_service.get_chat_topic(chat_id, topic_id)
 
                 if chat_topic:
-                    await show_chat_settings_interface(message, chat_topic, edit_mode=False)
+                    await show_chat_settings_interface(
+                        message, chat_topic, edit_mode=False
+                    )
             else:
                 await message.answer(f"❌ {message_text}")
 
@@ -2560,14 +2955,14 @@ async def process_custom_reminder(message: Message, db_user, state: FSMContext):
         await state.clear()
 
 
-
 def register_group_chat_handlers(dp):
     """Регистрация обработчиков для групповых чатов"""
     dp.include_router(router)
 
 
-
-async def _compose_start_info_text(chat_id: int, topic_id: int | None = None) -> str | None:
+async def _compose_start_info_text(
+    chat_id: int, topic_id: int | None = None
+) -> str | None:
     """Собирает HTML-текст со ссылками по предмету (без дедлайнов) для чата."""
     # Получаем чат для определения режима
     chat = await chat_service.get_chat(chat_id)
@@ -2589,13 +2984,14 @@ async def _compose_start_info_text(chat_id: int, topic_id: int | None = None) ->
 
     subject = chat_topic.subject
     lines: list[str] = []
-    lines.append(f"🔹 <b>{subject.name}</b>\n\n")
-    if getattr(subject, "wiki_url", None):
-        lines.append(f'• <a href="{subject.wiki_url}">ФКН Wiki</a>\n')
-    if getattr(subject, "vk_playlist_url", None):
-        lines.append(f'• <a href="{subject.vk_playlist_url}">VK Video</a>\n')
-    if getattr(subject, "yt_playlist_url", None):
-        lines.append(f'• <a href="{subject.yt_playlist_url}">YouTube</a>\n')
+    lines.append(f"🔹 <b>{escape(subject.name)}</b>\n\n")
+    for label, url in (
+        ("LEAP", getattr(subject, "leap_url", None)),
+        ("YouTube", getattr(subject, "youtube_url", None)),
+        ("Яндекс Диск", getattr(subject, "yandex_disk_url", None)),
+    ):
+        if url:
+            lines.append(f'• <a href="{escape(url, quote=True)}">{label}</a>\n')
     # lines.append("\n<i>P.S. Воспользуйтесь /info для быстрого получения дедлайнов в чате</i>")
 
     return "".join(lines).strip()
@@ -2624,21 +3020,23 @@ async def _compose_info_text(chat_id: int, topic_id: int | None = None) -> str |
     subject = chat_topic.subject
     lines: list[str] = []
     lines.append("<b>Информация о предмете:</b>\n\n")
-    lines.append(f"🔹 <b>{subject.name}</b>")
+    lines.append(f"🔹 <b>{escape(subject.name)}</b>")
 
     # Добавляем ссылки, если они есть
-    if getattr(subject, "wiki_url", None):
-        lines.append(f'\n• <a href="{subject.wiki_url}">ФКН Wiki</a>')
-    if getattr(subject, "vk_playlist_url", None):
-        lines.append(f'\n• <a href="{subject.vk_playlist_url}">VK Video</a>')
-    if getattr(subject, "yt_playlist_url", None):
-        lines.append(f'\n• <a href="{subject.yt_playlist_url}">YouTube</a>')
+    for label, url in (
+        ("LEAP", getattr(subject, "leap_url", None)),
+        ("YouTube", getattr(subject, "youtube_url", None)),
+        ("Яндекс Диск", getattr(subject, "yandex_disk_url", None)),
+    ):
+        if url:
+            lines.append(f'\n• <a href="{escape(url, quote=True)}">{label}</a>')
 
     lines.append("\n\n<b>Актуальные дедлайны:</b>\n")
 
     from datetime import UTC, datetime
 
     from sqlalchemy import and_, or_, select
+
     async with db_manager.async_session() as session:
         now = datetime.now(UTC)
         stmt = (
@@ -2646,13 +3044,22 @@ async def _compose_info_text(chat_id: int, topic_id: int | None = None) -> str |
             .where(
                 and_(
                     Task.subject_id == subject.id,
+                    Task.is_archived.is_(False),
                     or_(
-                        and_(Task.soft_deadline_ts.isnot(None), Task.soft_deadline_ts >= now),
-                        and_(Task.hard_deadline_ts.isnot(None), Task.hard_deadline_ts >= now),
+                        and_(
+                            Task.soft_deadline_ts.isnot(None),
+                            Task.soft_deadline_ts >= now,
+                        ),
+                        and_(
+                            Task.hard_deadline_ts.isnot(None),
+                            Task.hard_deadline_ts >= now,
+                        ),
                     ),
                 )
             )
-            .order_by(Task.soft_deadline_ts.nulls_last(), Task.hard_deadline_ts.nulls_last())
+            .order_by(
+                Task.soft_deadline_ts.nulls_last(), Task.hard_deadline_ts.nulls_last()
+            )
         )
         result = await session.execute(stmt)
         tasks = list(result.scalars().all())
@@ -2685,6 +3092,7 @@ async def _compose_info_text(chat_id: int, topic_id: int | None = None) -> str |
 
     # Добавляем надпись в конце сообщения
     from src.bot.texts import CHAT_DEADLINE_FOOTER
+
     lines.append(CHAT_DEADLINE_FOOTER)
 
     return "".join(lines).strip()
@@ -2705,9 +3113,7 @@ async def cmd_chat_start_info(message: Message, db_user):
 
         text = await _compose_start_info_text(chat_id, topic_id)
         if text is None:
-            await message.answer(
-                CHAT_NOT_CONFIGURED
-            )
+            await message.answer(CHAT_NOT_CONFIGURED)
             return
         await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
     except Exception:
@@ -2729,9 +3135,7 @@ async def cmd_chat_info(message: Message, db_user):
 
         text = await _compose_info_text(chat_id, topic_id)
         if text is None:
-            await message.answer(
-                CHAT_NOT_CONFIGURED
-            )
+            await message.answer(CHAT_NOT_CONFIGURED)
             return
         await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
     except Exception:
@@ -2749,12 +3153,11 @@ async def callback_chat_info(callback: CallbackQuery, db_user):
 
         text = await _compose_info_text(chat_id, topic_id)
         if text is None:
-            await safe_edit_message(
-                callback.message,
-                CHAT_NOT_CONFIGURED
-            )
+            await safe_edit_message(callback.message, CHAT_NOT_CONFIGURED)
             return
-        await safe_edit_message(callback.message, text, parse_mode="HTML", disable_web_page_preview=True)
+        await safe_edit_message(
+            callback.message, text, parse_mode="HTML", disable_web_page_preview=True
+        )
     except Exception as e:
         chat_id = callback.message.chat.id
         logger.error(f"(C) {chat_id} - информация о чате: {e}")

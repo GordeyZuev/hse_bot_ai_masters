@@ -27,6 +27,21 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
+# Old installations can retain these unused preference columns from an
+# unrelated pre-1.1.4 migration. Keep their data instead of dropping it just
+# to satisfy autogenerate; never ignore any other schema differences.
+LEGACY_COLUMNS = {
+    ("user_notification_settings", "deadline_display_mode"),
+    ("chat_group_topics", "deadline_display_mode"),
+}
+
+
+def include_object(object_, name, type_, reflected, compare_to):
+    if type_ == "column" and reflected and compare_to is None:
+        return (object_.table.name, name) not in LEGACY_COLUMNS
+    return True
+
+
 # Override sqlalchemy.url with ALEMBIC_DATABASE_URL or DATABASE_URL from environment if available
 # Use ALEMBIC_DATABASE_URL for migrations (as postgres user) if available
 database_url = os.getenv("ALEMBIC_DATABASE_URL") or os.getenv("DATABASE_URL")
@@ -57,6 +72,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -79,7 +95,11 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+        )
 
         with context.begin_transaction():
             context.run_migrations()

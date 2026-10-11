@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    ARRAY,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -7,12 +8,14 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     Text,
     Time,
     UniqueConstraint,
+    text,
 )
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
 
@@ -34,13 +37,21 @@ class Subject(Base):
     )
     is_active = Column(Boolean, default=True)
 
+    # Canonical Google Sheets representation. Legacy link/module columns are kept
+    # temporarily so an existing installation can be migrated without downtime.
+    modules = Column(ARRAY(SmallInteger), nullable=False, default=list)
+    leap_url = Column(Text)
+    youtube_url = Column(Text)
+    yandex_disk_url = Column(Text)
+    is_archived = Column(Boolean, nullable=False, default=False)
+    archived_at = Column(DateTime(timezone=True))
+    last_synced_at = Column(DateTime(timezone=True))
+
     wiki_url = Column(Text)
     vk_playlist_url = Column(Text)
     yt_playlist_url = Column(Text)
 
-    tasks = relationship(
-        "Task", back_populates="subject", cascade="all, delete-orphan"
-    )
+    tasks = relationship("Task", back_populates="subject", cascade="all, delete-orphan")
     subscriptions = relationship(
         "Subscription", back_populates="subject", cascade="all, delete-orphan"
     )
@@ -50,6 +61,13 @@ class Subject(Base):
 
     __table_args__ = (
         UniqueConstraint("name", "year", name="unique_subject"),
+        Index(
+            "uq_subjects_sheet_subject_id_not_null",
+            "sheet_subject_id",
+            unique=True,
+            postgresql_where=sheet_subject_id.isnot(None),
+        ),
+        Index("idx_subjects_active_archived", "is_active", "is_archived"),
     )
 
 
@@ -66,6 +84,10 @@ class Task(Base):
     hard_deadline_ts = Column(DateTime(timezone=True))
     note = Column(Text)
     sheet_row_id = Column(Integer, unique=True)
+    source_sheet = Column(Text)
+    is_archived = Column(Boolean, nullable=False, default=False)
+    archived_at = Column(DateTime(timezone=True))
+    last_synced_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -81,6 +103,7 @@ class Task(Base):
         Index("idx_tasks_subject_id", "subject_id"),
         Index("idx_tasks_soft_ts", "soft_deadline_ts"),
         Index("idx_tasks_hard_ts", "hard_deadline_ts"),
+        Index("idx_tasks_source_archived", "source_sheet", "is_archived"),
     )
 
 
@@ -112,6 +135,35 @@ class User(Base):
     )
 
 
+class UserActionEvent(Base):
+    """Small, privacy-conscious product event stream for historical analytics."""
+
+    __tablename__ = "user_action_events"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    event_name = Column(Text, nullable=False)
+    surface = Column(Text)
+    chat_id = Column(BigInteger)
+    message_id = Column(BigInteger)
+    outcome = Column(Text)
+    subject_id = Column(Integer)
+    task_id = Column(Integer)
+    details = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    occurred_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_user_action_events_user_time", "user_id", "occurred_at"),
+        Index("ix_user_action_events_name_time", "event_name", "occurred_at"),
+        Index("ix_user_action_events_chat_time", "chat_id", "occurred_at"),
+        Index("ix_user_action_events_occurred_at", "occurred_at"),
+    )
+
+
 class UserNotificationSettings(Base):
     __tablename__ = "user_notification_settings"
 
@@ -131,6 +183,9 @@ class UserNotificationSettings(Base):
     enable_deadline_update_notifications = Column(Boolean, nullable=False, default=True)
     sleep_start_time = Column(Time, nullable=True)
     sleep_end_time = Column(Time, nullable=True)
+    display_mode = Column(
+        Text, nullable=False, default="compact", server_default="compact"
+    )
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_modified = Column(
@@ -148,6 +203,9 @@ class UserNotificationSettings(Base):
         ),
         CheckConstraint(
             "reminder2_unit IN ('days', 'hours')", name="check_reminder2_unit_valid"
+        ),
+        CheckConstraint(
+            "display_mode IN ('rich', 'compact')", name="check_display_mode_valid"
         ),
     )
 
@@ -190,6 +248,11 @@ class ScheduledNotification(Base):
     planned_delivery_time = Column(DateTime(timezone=True), nullable=False)
 
     status = Column(Text, nullable=False, default="scheduled")
+    attempt_count = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime(timezone=True))
+    claimed_at = Column(DateTime(timezone=True))
+    sent_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -212,7 +275,7 @@ class ScheduledNotification(Base):
         Index("idx_sched_notif_deadline", "deadline_id"),
         Index("idx_sched_notif_delivery_time", "planned_delivery_time"),
         CheckConstraint(
-            "status IN ('scheduled', 'sent', 'cancelled', 'failed')",
+            "status IN ('scheduled', 'processing', 'retry', 'sent', 'cancelled', 'dead')",
             name="check_status_valid",
         ),
         CheckConstraint(
@@ -226,6 +289,7 @@ class ScheduledNotification(Base):
 
 class ChatGroup(Base):
     """Основная таблица чатов (метаданные)"""
+
     __tablename__ = "chat_groups"
 
     chat_id = Column(BigInteger, primary_key=True)
@@ -241,25 +305,26 @@ class ChatGroup(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "chat_type IN ('group', 'supergroup')",
-            name="check_chat_type_valid"
+            "chat_type IN ('group', 'supergroup')", name="check_chat_type_valid"
         ),
-        CheckConstraint(
-            "mode IN ('single', 'multi')",
-            name="check_chat_mode_valid"
-        ),
+        CheckConstraint("mode IN ('single', 'multi')", name="check_chat_mode_valid"),
     )
 
 
 class ChatTopic(Base):
     """Таблица топиков чатов (настройки для каждого топика)"""
+
     __tablename__ = "chat_group_topics"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     chat_id = Column(
-        BigInteger, ForeignKey("chat_groups.chat_id", ondelete="CASCADE"), nullable=False
+        BigInteger,
+        ForeignKey("chat_groups.chat_id", ondelete="CASCADE"),
+        nullable=False,
     )
-    topic_id = Column(BigInteger, nullable=True)  # None = общий чат (только в single-mode), число = топик
+    topic_id = Column(
+        BigInteger, nullable=True
+    )  # None = общий чат (только в single-mode), число = топик
     topic_title = Column(Text, nullable=True)  # Отображаемое имя топика (кеш)
     subject_id = Column(
         Integer, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False
@@ -278,18 +343,26 @@ class ChatTopic(Base):
     chat_group = relationship("ChatGroup", back_populates="topics")
     subject = relationship("Subject", back_populates="chat_topics")
     notifications = relationship(
-        "ChatScheduledNotification", back_populates="chat_topic", cascade="all, delete-orphan"
+        "ChatScheduledNotification",
+        back_populates="chat_topic",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
         UniqueConstraint("chat_id", "topic_id", name="unique_chat_topic"),
+        Index(
+            "uq_chat_group_topics_single_mode",
+            "chat_id",
+            unique=True,
+            postgresql_where=topic_id.is_(None),
+        ),
         CheckConstraint(
             "reminder1_unit IN ('days', 'hours')",
-            name="check_topic_reminder1_unit_valid"
+            name="check_topic_reminder1_unit_valid",
         ),
         CheckConstraint(
             "reminder2_unit IN ('days', 'hours')",
-            name="check_topic_reminder2_unit_valid"
+            name="check_topic_reminder2_unit_valid",
         ),
         CheckConstraint("reminder1_offset >= 0", name="check_topic_reminder1_positive"),
         CheckConstraint("reminder2_offset >= 0", name="check_topic_reminder2_positive"),
@@ -304,10 +377,12 @@ class ChatScheduledNotification(Base):
         Integer, ForeignKey("chat_group_topics.id", ondelete="CASCADE"), nullable=False
     )
     chat_id = Column(
-        BigInteger, nullable=False  # Для удобства группировки, не FK
+        BigInteger,
+        nullable=False,  # Для удобства группировки, не FK
     )
     topic_id = Column(
-        BigInteger, nullable=True  # Для удобства, не FK
+        BigInteger,
+        nullable=True,  # Для удобства, не FK
     )
     deadline_id = Column(
         Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
@@ -320,6 +395,11 @@ class ChatScheduledNotification(Base):
     planned_delivery_time = Column(DateTime(timezone=True), nullable=False)
 
     status = Column(Text, nullable=False, default="scheduled")
+    attempt_count = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime(timezone=True))
+    claimed_at = Column(DateTime(timezone=True))
+    sent_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
@@ -342,16 +422,14 @@ class ChatScheduledNotification(Base):
         Index("idx_chat_sched_notif_deadline", "deadline_id"),
         Index("idx_chat_sched_notif_delivery_time", "planned_delivery_time"),
         CheckConstraint(
-            "status IN ('scheduled', 'sent', 'cancelled', 'failed')",
+            "status IN ('scheduled', 'processing', 'retry', 'sent', 'cancelled', 'dead')",
             name="check_chat_status_valid",
         ),
         CheckConstraint(
-            "notification_number IN (1, 2)",
-            name="check_chat_notif_number_valid"
+            "notification_number IN (1, 2)", name="check_chat_notif_number_valid"
         ),
         CheckConstraint(
-            "deadline_type IN ('soft', 'hard')",
-            name="check_chat_deadline_type_valid"
+            "deadline_type IN ('soft', 'hard')", name="check_chat_deadline_type_valid"
         ),
     )
 
@@ -366,6 +444,4 @@ class TaskUserStatus(Base):
         Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True
     )
 
-    __table_args__ = (
-        Index("ix_tus_deadline_id", "deadline_id"),
-    )
+    __table_args__ = (Index("ix_tus_deadline_id", "deadline_id"),)

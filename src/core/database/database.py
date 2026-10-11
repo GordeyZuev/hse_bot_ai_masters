@@ -1,11 +1,13 @@
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import asyncpg
 from dotenv import load_dotenv
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import and_, delete, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.core.models import (
@@ -14,6 +16,7 @@ from src.core.models import (
     Subject,
     Task,
     User,
+    UserActionEvent,
     UserNotificationSettings,
 )
 from src.utils import get_logger
@@ -135,12 +138,83 @@ class DatabaseManager:
                 await self.create_engine()
 
             tables_exist = await self.check_tables_exist()
+            is_production = os.getenv("ENVIRONMENT", "development") == "production"
 
             if not tables_exist:
-                logger.warning("Таблицы отсутствуют, восстанавливаем структуру БД...")
-                await self.initialize(recreate_tables=True)
-            else:
+                if is_production:
+                    raise RuntimeError(
+                        "Схема БД отсутствует: сначала выполните alembic upgrade head"
+                    )
+                logger.warning("Таблицы отсутствуют, создаём dev-схему БД...")
                 await self.initialize()
+            else:
+                await self.verify_schema_version()
+                self.initialized = True
+                logger.info("Схема БД соответствует миграциям")
+
+    async def verify_schema_version(self) -> None:
+        """Reject a stamped or outdated schema before polling and jobs start."""
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        root = Path(__file__).resolve().parents[3]
+        expected = ScriptDirectory.from_config(
+            Config(str(root / "alembic.ini"))
+        ).get_current_head()
+        required = {
+            "subjects": {
+                "modules",
+                "leap_url",
+                "youtube_url",
+                "yandex_disk_url",
+                "is_archived",
+            },
+            "tasks": {"source_sheet", "is_archived"},
+            "user_notification_settings": {"display_mode"},
+            "scheduled_notifications": {"attempt_count", "next_attempt_at"},
+            "chat_scheduled_notifications": {"attempt_count", "next_attempt_at"},
+            "user_action_events": {
+                "user_id",
+                "event_name",
+                "occurred_at",
+                "chat_id",
+                "message_id",
+                "outcome",
+            },
+        }
+        async with self.engine.connect() as connection:
+            has_version = await connection.scalar(
+                text("SELECT to_regclass('alembic_version')")
+            )
+            current = (
+                await connection.scalar(text("SELECT version_num FROM alembic_version"))
+                if has_version
+                else None
+            )
+            columns = (
+                await connection.execute(
+                    text(
+                        "SELECT table_name, column_name FROM information_schema.columns "
+                        "WHERE table_schema = current_schema()"
+                    )
+                )
+            ).all()
+        existing: dict[str, set[str]] = {}
+        for table, column in columns:
+            existing.setdefault(table, set()).add(column)
+        missing = [
+            f"{table}.{column}"
+            for table, names in required.items()
+            for column in sorted(names - existing.get(table, set()))
+        ]
+        if current != expected or missing:
+            details = f"ревизия {current or 'нет'} (нужна {expected})"
+            if missing:
+                details += f"; отсутствуют поля: {', '.join(missing)}"
+            raise RuntimeError(
+                "Схема БД несовместима с кодом: "
+                f"{details}. Выполните 'uv run python main.py migrate' перед запуском бота."
+            )
 
     async def check_tables_exist(self):
         """Проверяет наличие основных таблиц"""
@@ -260,13 +334,13 @@ class DatabaseManager:
                 deadline = result.scalar_one_or_none()
 
                 change_info = {
-                        "is_new": False,
-                        "deadline_changed": False,
-                        "soft_deadline_changed": False,
-                        "hard_deadline_changed": False,
-                        "old_soft_deadline_ts": None,
-                        "old_hard_deadline_ts": None,
-                    }
+                    "is_new": False,
+                    "deadline_changed": False,
+                    "soft_deadline_changed": False,
+                    "hard_deadline_changed": False,
+                    "old_soft_deadline_ts": None,
+                    "old_hard_deadline_ts": None,
+                }
 
                 if deadline:
                     # Сохраняем старые значения дедлайнов
@@ -349,37 +423,33 @@ class DatabaseManager:
                 logger.error(f"Ошибка получения предмета {subject_id}: {e}")
                 return None
 
-    async def delete_outdated_tasks(self, current_sheet_row_ids: list[int]):
-        """Удалить дедлайны, которых нет в текущих данных Google Sheets"""
+    async def delete_outdated_tasks(
+        self, current_sheet_row_ids: list[int], source_sheet: str | None = None
+    ):
+        """Delete missing tasks from one successfully read sheet."""
+        if not source_sheet:
+            raise ValueError("source_sheet обязателен для безопасного удаления")
         async with self.async_session() as session:
             try:
                 stmt = select(Task).where(
-                    ~Task.sheet_row_id.in_(current_sheet_row_ids)
+                    Task.source_sheet == source_sheet,
+                    ~Task.sheet_row_id.in_(current_sheet_row_ids),
                 )
                 result = await session.execute(stmt)
                 outdated_deadlines = result.scalars().all()
 
                 if outdated_deadlines:
-                    # Подсчет уведомлений
-                    deadline_ids = [deadline.id for deadline in outdated_deadlines]
-                    notifications_stmt = select(
-                        func.count(ScheduledNotification.id)
-                    ).where(
-                        and_(
-                            ScheduledNotification.deadline_id.in_(deadline_ids),
-                            ScheduledNotification.status == "scheduled",
+                    await session.execute(
+                        delete(Task).where(
+                            Task.id.in_(
+                                [deadline.id for deadline in outdated_deadlines]
+                            )
                         )
                     )
-                    notifications_result = await session.execute(notifications_stmt)
-                    total_notifications = notifications_result.scalar() or 0
-
-                    # Удаляем дедлайны (уведомления удалятся автоматически из-за каскада)
-                    for deadline in outdated_deadlines:
-                        await session.delete(deadline)
                     await session.commit()
 
                     logger.info(
-                        f"Удалено {len(outdated_deadlines)} устаревших дедлайнов. Отменено {total_notifications} уведомлений"
+                        f"Удалено {len(outdated_deadlines)} заданий листа {source_sheet}"
                     )
 
             except Exception as e:
@@ -409,7 +479,16 @@ class DatabaseManager:
                 user = result.scalar_one_or_none()
                 if not user:
                     return False
+                changed = user.timezone != timezone_name
                 user.timezone = timezone_name
+                if changed:
+                    session.add(
+                        UserActionEvent(
+                            user_id=tg_user_id,
+                            event_name="settings_changed",
+                            details={"setting": "timezone"},
+                        )
+                    )
                 await session.commit()
                 return True
             except Exception as e:
@@ -451,19 +530,17 @@ class DatabaseManager:
         """Получить настройки уведомлений пользователя"""
         async with self.async_session() as session:
             try:
+                await session.execute(
+                    insert(UserNotificationSettings)
+                    .values(user_id=user_id)
+                    .on_conflict_do_nothing(constraint="unique_user_settings")
+                )
+                await session.commit()
                 stmt = select(UserNotificationSettings).where(
                     UserNotificationSettings.user_id == user_id
                 )
                 result = await session.execute(stmt)
-                settings = result.scalar_one_or_none()
-
-                if not settings:
-                    settings = await self.create_user_notification_settings(user_id)
-                    session.add(settings)
-                    await session.commit()
-                    await session.refresh(settings)
-
-                return settings
+                return result.scalar_one()
 
             except Exception as e:
                 logger.error(
@@ -472,7 +549,10 @@ class DatabaseManager:
                 raise
 
     async def update_user_notification_settings(
-        self, user_id: int, settings_data: dict
+        self,
+        user_id: int,
+        settings_data: dict,
+        audit_details: dict[str, int | str | bool] | None = None,
     ) -> UserNotificationSettings:
         """Обновить настройки уведомлений пользователя"""
         async with self.async_session() as session:
@@ -487,11 +567,22 @@ class DatabaseManager:
                     settings = await self.create_user_notification_settings(user_id)
                     session.add(settings)
 
+                changed = False
                 for key, value in settings_data.items():
                     if hasattr(settings, key):
+                        changed = changed or getattr(settings, key) != value
                         setattr(settings, key, value)
 
                 settings.last_modified = utc_now()
+
+                if changed and audit_details is not None:
+                    session.add(
+                        UserActionEvent(
+                            user_id=user_id,
+                            event_name="settings_changed",
+                            details=audit_details,
+                        )
+                    )
 
                 await session.commit()
                 await session.refresh(settings)
@@ -522,30 +613,59 @@ class DatabaseManager:
                 raise
 
     async def get_scheduled_notifications_for_delivery(
-        self, time_window_minutes: int = 5
+        self, time_window_minutes: int = 5, batch_size: int = 100
     ) -> list[ScheduledNotification]:
-        """Получить уведомления для отправки в указанном временном окне.
-        Включает как 'scheduled', так и 'failed' для повторной попытки доставки."""
+        """Atomically claim a delivery batch so concurrent workers cannot duplicate it."""
         async with self.async_session() as session:
             try:
                 now = datetime.now(UTC)
                 window_end = now + timedelta(minutes=time_window_minutes)
+                stale_claim = now - timedelta(minutes=10)
 
                 stmt = (
                     select(ScheduledNotification)
-                    .join(User)  # Добавляем join с User
+                    .join(User)
+                    .join(Task, ScheduledNotification.deadline_id == Task.id)
+                    .join(Subject, Task.subject_id == Subject.id)
                     .where(
                         and_(
-                            ScheduledNotification.status.in_(["scheduled", "failed"]),
-                            ScheduledNotification.planned_delivery_time <= window_end,
-                            User.is_active  # Проверяем активность пользователя
+                            User.is_active,
+                            Task.is_archived.is_(False),
+                            Subject.is_active,
+                            Subject.is_archived.is_(False),
+                            or_(
+                                and_(
+                                    ScheduledNotification.status == "scheduled",
+                                    ScheduledNotification.planned_delivery_time
+                                    <= window_end,
+                                ),
+                                and_(
+                                    ScheduledNotification.status == "retry",
+                                    or_(
+                                        ScheduledNotification.next_attempt_at.is_(None),
+                                        ScheduledNotification.next_attempt_at <= now,
+                                    ),
+                                ),
+                                and_(
+                                    ScheduledNotification.status == "processing",
+                                    ScheduledNotification.claimed_at < stale_claim,
+                                ),
+                            ),
                         )
                     )
                     .order_by(ScheduledNotification.planned_delivery_time)
+                    .limit(batch_size)
+                    .with_for_update(skip_locked=True)
                 )
 
                 result = await session.execute(stmt)
-                return list(result.scalars().all())
+                notifications = list(result.scalars().all())
+                for notification in notifications:
+                    notification.status = "processing"
+                    notification.claimed_at = now
+                    notification.attempt_count += 1
+                await session.commit()
+                return notifications
 
             except Exception as e:
                 logger.error(f"Ошибка получения запланированных уведомлений: {e}")
@@ -566,9 +686,18 @@ class DatabaseManager:
                 if not notification:
                     return False
 
+                if status == "failed":
+                    status = "dead" if notification.attempt_count >= 5 else "retry"
                 notification.status = status
-                if error_message:
-                    pass
+                notification.last_error = error_message
+                if status == "sent":
+                    notification.sent_at = utc_now()
+                    notification.next_attempt_at = None
+                elif status == "retry":
+                    delay_minutes = min(60, 2 ** max(notification.attempt_count - 1, 0))
+                    notification.next_attempt_at = utc_now() + timedelta(
+                        minutes=delay_minutes
+                    )
 
                 notification.updated_at = utc_now()
 
@@ -582,16 +711,48 @@ class DatabaseManager:
                 )
                 return False
 
-    async def cancel_scheduled_notifications_for_task(
-        self, deadline_id: int
-    ) -> int:
+    async def update_notification_statuses(
+        self,
+        notification_ids: list[int],
+        status: str,
+        error_message: str | None = None,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        if not notification_ids:
+            return
+        now = utc_now()
+        values: dict[str, Any] = {
+            "status": status,
+            "updated_at": now,
+            "last_error": error_message,
+        }
+        if status == "sent":
+            values.update(sent_at=now, next_attempt_at=None)
+        elif status == "retry":
+            values["next_attempt_at"] = now + timedelta(
+                seconds=retry_after_seconds or 60
+            )
+        async with self.async_session() as session:
+            await session.execute(
+                update(ScheduledNotification)
+                .where(
+                    ScheduledNotification.id.in_(notification_ids),
+                    ScheduledNotification.status == "processing",
+                )
+                .values(**values)
+            )
+            await session.commit()
+
+    async def cancel_scheduled_notifications_for_task(self, deadline_id: int) -> int:
         """Отменить все запланированные уведомления для задачи"""
         async with self.async_session() as session:
             try:
                 stmt = select(ScheduledNotification).where(
                     and_(
                         ScheduledNotification.deadline_id == deadline_id,
-                        ScheduledNotification.status == "scheduled",
+                        ScheduledNotification.status.in_(
+                            ["scheduled", "processing", "retry"]
+                        ),
                     )
                 )
                 result = await session.execute(stmt)
@@ -608,9 +769,7 @@ class DatabaseManager:
 
             except Exception as e:
                 await session.rollback()
-                logger.error(
-                    f"Ошибка отмены уведомлений для задачи {deadline_id}: {e}"
-                )
+                logger.error(f"Ошибка отмены уведомлений для задачи {deadline_id}: {e}")
                 return 0
 
     async def cleanup_old_notifications(self, days_old: int = 30) -> int:

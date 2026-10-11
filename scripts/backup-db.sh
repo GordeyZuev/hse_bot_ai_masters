@@ -6,12 +6,8 @@
 
 set -e  # Остановить выполнение при любой ошибке
 
-# Загружаем переменные окружения из .env файла
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-if [ -f "$PROJECT_DIR/src/config/.env" ]; then
-    export $(grep -v '^#' "$PROJECT_DIR/src/config/.env" | xargs)
-fi
 
 # Конфигурация
 BACKUP_DIR="$PROJECT_DIR/backups"
@@ -35,32 +31,17 @@ check_container() {
     fi
 }
 
-# Функция для получения переменных окружения из .env файла
-load_env_vars() {
-    local env_file="$PROJECT_DIR/src/config/.env"
-    if [ -f "$env_file" ]; then
-        # Экспортируем переменные из .env файла
-        set -o allexport
-        source "$env_file"
-        set +o allexport
-    fi
-    
-    # Установка значений по умолчанию, если переменные не заданы
-    export POSTGRES_DB="${POSTGRES_DB:-hse_bot_db}"
-    export POSTGRES_USER="${POSTGRES_USER:-postgres}"
-    export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-password}"
-}
-
 # Функция для создания бэкапа
 create_backup() {
-    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
     local backup_filename="hse_bot_db_backup_${timestamp}.sql"
     local backup_path="$BACKUP_DIR/$backup_filename"
     
     log "Начало создания бэкапа: $backup_filename"
     
     # Создание бэкапа с помощью pg_dump внутри контейнера
-    if docker exec "$CONTAINER_NAME" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" > "$backup_path"; then
+    if docker exec "$CONTAINER_NAME" sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$backup_path"; then
         log "Бэкап успешно создан: $backup_path"
         
         # Сжатие бэкапа
@@ -84,23 +65,29 @@ rotate_backups() {
     log "Начало ротации бэкапов (хранить последние $retention_days дней)"
     
     # Удаление бэкапов старше retention_days дней
-    find "$BACKUP_DIR" -name "hse_bot_db_backup_*.sql.gz" -type f -mtime +$retention_days -delete 2>/dev/null || true
-    find "$BACKUP_DIR" -name "hse_bot_db_backup_*.sql" -type f -mtime +$retention_days -delete 2>/dev/null || true
+    find "$BACKUP_DIR" -name "hse_bot_db_backup_*.sql.gz" -type f -mtime +"$retention_days" -delete 2>/dev/null || true
+    find "$BACKUP_DIR" -name "hse_bot_db_backup_*.sql" -type f -mtime +"$retention_days" -delete 2>/dev/null || true
     
     # Подсчет количества оставшихся бэкапов
-    local backup_count=$(find "$BACKUP_DIR" -name "hse_bot_db_backup_*" -type f | wc -l)
+    local backup_count
+    backup_count=$(find "$BACKUP_DIR" -name "hse_bot_db_backup_*" -type f | wc -l)
     log "Ротация завершена. Осталось бэкапов: $backup_count"
 }
 
 # Функция для проверки размера бэкапа
 check_backup_size() {
     local backup_file="$1"
-    local min_size_bytes=1024  # Минимальный размер 1KB
+    local min_size_bytes=1  # Пустая новая БД тоже даёт маленький, но валидный дамп.
     
     if [ -f "$backup_file" ]; then
-        local file_size=$(wc -c < "$backup_file" 2>/dev/null || echo "0")
+        local file_size
+        file_size=$(wc -c < "$backup_file" 2>/dev/null || echo "0")
         if [ "$file_size" -lt "$min_size_bytes" ]; then
             log "ПРЕДУПРЕЖДЕНИЕ: Размер бэкапа подозрительно мал ($file_size байт)"
+            return 1
+        fi
+        if [[ "$backup_file" == *.gz ]] && ! gzip -t "$backup_file"; then
+            log "ОШИБКА: Сжатый бэкап повреждён"
             return 1
         fi
         log "Размер бэкапа: $file_size байт"
@@ -139,9 +126,6 @@ main() {
         send_notification "Docker не установлен" "error"
         exit 1
     fi
-    
-    # Загрузка переменных окружения
-    load_env_vars
     
     # Проверка контейнера
     check_container

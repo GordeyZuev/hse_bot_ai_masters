@@ -29,4 +29,3 @@ async def cmd_workshop(message: Message, db_user):
 def register_workshop_handlers(dp):
     """Регистрация handlers для команды workshop"""
     dp.include_router(router)
-

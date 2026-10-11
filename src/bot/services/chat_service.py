@@ -1,4 +1,3 @@
-
 import contextlib
 
 from aiogram import Bot
@@ -25,7 +24,9 @@ class ChatService:
             chat_member = await bot.get_chat_member(chat_id, user_id)
             return chat_member.status in ["administrator", "creator"]
         except Exception as e:
-            logger.error(f"Ошибка проверки админа чата {chat_id}, пользователь {user_id}: {e}")
+            logger.error(
+                f"Ошибка проверки админа чата {chat_id}, пользователь {user_id}: {e}"
+            )
             return False
 
     async def bot_can_manage_topics(self, bot: Bot, chat_id: int) -> bool:
@@ -38,10 +39,14 @@ class ChatService:
                 return bool(bot_member.can_manage_topics)
             return False
         except Exception as e:
-            logger.error(f"Ошибка проверки прав бота на управление топиками в чате {chat_id}: {e}")
+            logger.error(
+                f"Ошибка проверки прав бота на управление топиками в чате {chat_id}: {e}"
+            )
             return False
 
-    async def get_topic_title(self, bot: Bot, chat_id: int, message_thread_id: int | None) -> str | None:
+    async def get_topic_title(
+        self, bot: Bot, chat_id: int, message_thread_id: int | None
+    ) -> str | None:
         """Попробовать получить название топика по его message_thread_id.
 
         Возвращает строку названия или None, если получить нельзя/метода нет.
@@ -51,18 +56,27 @@ class ChatService:
         try:
             # Bot API 6.3+: getForumTopic через high-level
             if hasattr(bot, "get_forum_topic"):
-                topic = await bot.get_forum_topic(chat_id=chat_id, message_thread_id=message_thread_id)
+                topic = await bot.get_forum_topic(
+                    chat_id=chat_id, message_thread_id=message_thread_id
+                )
                 title = (
                     getattr(topic, "name", None)
                     or getattr(topic, "title", None)
-                    or (getattr(topic, "forum_topic", None) and getattr(topic.forum_topic, "name", None))
+                    or (
+                        getattr(topic, "forum_topic", None)
+                        and getattr(topic.forum_topic, "name", None)
+                    )
                 )
                 if title:
                     return str(title)
 
             # Fallback 1: низкоуровневый вызов через Bot.call_api
             try:
-                raw = await bot.call_api("getForumTopic", chat_id=chat_id, message_thread_id=message_thread_id)
+                raw = await bot.call_api(
+                    "getForumTopic",
+                    chat_id=chat_id,
+                    message_thread_id=message_thread_id,
+                )
                 if isinstance(raw, dict):
                     title = raw.get("name") or raw.get("title")
                     if title:
@@ -72,10 +86,13 @@ class ChatService:
 
             # Fallback 2: прямой вызов через session.api.request
             try:
-                raw2 = await bot.session.api.request("getForumTopic", {
-                    "chat_id": chat_id,
-                    "message_thread_id": message_thread_id,
-                })
+                raw2 = await bot.session.api.request(
+                    "getForumTopic",
+                    {
+                        "chat_id": chat_id,
+                        "message_thread_id": message_thread_id,
+                    },
+                )
                 if isinstance(raw2, dict):
                     title = raw2.get("name") or raw2.get("title")
                     if title:
@@ -84,9 +101,10 @@ class ChatService:
                 logger.debug(f"getForumTopic via session.api.request failed: {e_req}")
 
         except Exception as e:
-            logger.warning(f"Не удалось получить название топика {message_thread_id} чата {chat_id}: {e}")
+            logger.warning(
+                f"Не удалось получить название топика {message_thread_id} чата {chat_id}: {e}"
+            )
         return None
-
 
     async def setup_chat_group(
         self,
@@ -123,7 +141,7 @@ class ChatService:
                             stmt = select(ChatTopic).where(
                                 and_(
                                     ChatTopic.chat_id == chat_id,
-                                    ChatTopic.topic_id == topic_id
+                                    ChatTopic.topic_id == topic_id,
                                 )
                             )
                             result = await session.execute(stmt)
@@ -145,20 +163,27 @@ class ChatService:
 
                 # Валидация режима
                 if mode == "multi" and topic_id is None:
-                    return False, "В multi-mode нельзя настраивать общий чат (topic_id обязателен)"
+                    return (
+                        False,
+                        "В multi-mode нельзя настраивать общий чат (topic_id обязателен)",
+                    )
 
                 # Получаем информацию о чате
                 try:
                     chat_info = await bot.get_chat(chat_id)
                     chat_type = chat_info.type
                     chat_title = getattr(chat_info, "title", None)
-                    logger.debug(f"Получена информация о чате {chat_id}: тип={chat_type}, название={chat_title}")
+                    logger.debug(
+                        f"Получена информация о чате {chat_id}: тип={chat_type}, название={chat_title}"
+                    )
                 except Exception as e:
                     logger.error(f"Ошибка получения информации о чате {chat_id}: {e}")
                     return False, "Не удалось получить информацию о чате"
 
                 # Проверяем существование предмета
-                stmt = select(Subject).where(Subject.id == subject_id, Subject.is_active)
+                stmt = select(Subject).where(
+                    Subject.id == subject_id, Subject.is_active
+                )
                 result = await session.execute(stmt)
                 subject = result.scalar_one_or_none()
 
@@ -210,7 +235,10 @@ class ChatService:
                     if existing_topics:
                         # В single-mode должен быть только один топик - обновляем его
                         if len(existing_topics) > 1:
-                            return False, "В single-mode может быть только один топик. Переключите режим или удалите лишние топики."
+                            return (
+                                False,
+                                "В single-mode может быть только один топик. Переключите режим или удалите лишние топики.",
+                            )
                         # Обновляем существующий топик (независимо от его topic_id)
                         # В single-mode всегда обновляем существующий топик, даже если вызывается из другого топика
                         chat_topic = existing_topics[0]
@@ -224,7 +252,9 @@ class ChatService:
                         # Обновляем название топика, если оно было передано
                         if topic_id is not None:
                             try:
-                                topic_title = await self.get_topic_title(bot, chat_id, topic_id)
+                                topic_title = await self.get_topic_title(
+                                    bot, chat_id, topic_id
+                                )
                                 if topic_title:
                                     chat_topic.topic_title = topic_title
                             except Exception:
@@ -235,7 +265,9 @@ class ChatService:
                         topic_title = None
                         if topic_id is not None:
                             with contextlib.suppress(Exception):
-                                topic_title = await self.get_topic_title(bot, chat_id, topic_id)
+                                topic_title = await self.get_topic_title(
+                                    bot, chat_id, topic_id
+                                )
 
                         chat_topic = ChatTopic(
                             chat_id=chat_id,
@@ -270,7 +302,9 @@ class ChatService:
 
                 logger.debug(f"Чат {chat_id} создан с названием: {chat_title}")
 
-                logger.info(f"(C) {chat_id} - Настроен на предмет: «{subject.name}» (mode={mode})")
+                logger.info(
+                    f"(C) {chat_id} - Настроен на предмет: «{subject.name}» (mode={mode})"
+                )
                 return True, f"Чат успешно настроен на предмет «{subject.name}»!"
 
             except Exception as e:
@@ -285,7 +319,9 @@ class ChatService:
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
-    async def get_chat_topic(self, chat_id: int, topic_id: int | None = None) -> ChatTopic | None:
+    async def get_chat_topic(
+        self, chat_id: int, topic_id: int | None = None
+    ) -> ChatTopic | None:
         """Получить настройки топика чата"""
         async with db_manager.async_session() as session:
             stmt = (
@@ -294,7 +330,9 @@ class ChatService:
                 .where(
                     and_(
                         ChatTopic.chat_id == chat_id,
-                        ChatTopic.topic_id == topic_id if topic_id is not None else ChatTopic.topic_id.is_(None)
+                        ChatTopic.topic_id == topic_id
+                        if topic_id is not None
+                        else ChatTopic.topic_id.is_(None),
                     )
                 )
             )
@@ -372,13 +410,12 @@ class ChatService:
                     chat_topic = topics[0]
                 else:
                     # В multi-mode используем topic_id
-                    stmt = (
-                        select(ChatTopic)
-                        .where(
-                            and_(
-                                ChatTopic.chat_id == chat_id,
-                                ChatTopic.topic_id == topic_id if topic_id is not None else ChatTopic.topic_id.is_(None)
-                            )
+                    stmt = select(ChatTopic).where(
+                        and_(
+                            ChatTopic.chat_id == chat_id,
+                            ChatTopic.topic_id == topic_id
+                            if topic_id is not None
+                            else ChatTopic.topic_id.is_(None),
                         )
                     )
                     result = await session.execute(stmt)
@@ -392,10 +429,26 @@ class ChatService:
                     return False, "У вас нет прав для изменения настроек"
 
                 # Вычисляем финальные значения
-                final_reminder1_offset = reminder1_offset if reminder1_offset is not None else chat_topic.reminder1_offset
-                final_reminder1_unit = reminder1_unit if reminder1_unit is not None else chat_topic.reminder1_unit
-                final_reminder2_offset = reminder2_offset if reminder2_offset is not None else chat_topic.reminder2_offset
-                final_reminder2_unit = reminder2_unit if reminder2_unit is not None else chat_topic.reminder2_unit
+                final_reminder1_offset = (
+                    reminder1_offset
+                    if reminder1_offset is not None
+                    else chat_topic.reminder1_offset
+                )
+                final_reminder1_unit = (
+                    reminder1_unit
+                    if reminder1_unit is not None
+                    else chat_topic.reminder1_unit
+                )
+                final_reminder2_offset = (
+                    reminder2_offset
+                    if reminder2_offset is not None
+                    else chat_topic.reminder2_offset
+                )
+                final_reminder2_unit = (
+                    reminder2_unit
+                    if reminder2_unit is not None
+                    else chat_topic.reminder2_unit
+                )
 
                 # Проверяем, что первое и второе уведомления не настроены одинаково
                 if (
@@ -419,7 +472,9 @@ class ChatService:
                 # Явное изменение топика (включая установку на общий чат = None)
                 if topic_id_set:
                     chat_topic.topic_id = topic_id
-                    chat_topic.topic_title = topic_title if topic_id is not None else None
+                    chat_topic.topic_title = (
+                        topic_title if topic_id is not None else None
+                    )
 
                 # Обновляем название чата, если оно изменилось
                 try:
@@ -428,7 +483,9 @@ class ChatService:
                     if new_chat_title and new_chat_title != chat_group.chat_title:
                         chat_group.chat_title = new_chat_title
                 except Exception as e:
-                    logger.debug(f"Не удалось обновить chat_title для чата {chat_id}: {e}")
+                    logger.debug(
+                        f"Не удалось обновить chat_title для чата {chat_id}: {e}"
+                    )
 
                 await session.commit()
 
@@ -437,7 +494,10 @@ class ChatService:
                     from src.bot.services.chat_notification_scheduler_service import (
                         chat_notification_scheduler_service,
                     )
-                    await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(chat_topic)
+
+                    await chat_notification_scheduler_service.reschedule_notifications_for_chat_settings_update(
+                        chat_topic
+                    )
 
                 return True, "Настройки успешно обновлены"
 
@@ -446,7 +506,9 @@ class ChatService:
                 logger.error(f"Ошибка обновления настроек чата {chat_id}: {e}")
                 return False, "Произошла ошибка при обновлении настроек"
 
-    async def toggle_chat_active(self, chat_id: int, user_id: int, bot: Bot, topic_id: int | None = None) -> tuple[bool, str]:
+    async def toggle_chat_active(
+        self, chat_id: int, user_id: int, bot: Bot, topic_id: int | None = None
+    ) -> tuple[bool, str]:
         """Переключить активность уведомлений в чате/топике"""
         async with db_manager.async_session() as session:
             try:
@@ -458,10 +520,7 @@ class ChatService:
                 # Получаем топик в текущей сессии с учетом режима
                 if chat_group.mode == "single":
                     # В single-mode игнорируем topic_id и получаем единственный топик
-                    stmt = (
-                        select(ChatTopic)
-                        .where(ChatTopic.chat_id == chat_id)
-                    )
+                    stmt = select(ChatTopic).where(ChatTopic.chat_id == chat_id)
                     result = await session.execute(stmt)
                     topics = list(result.scalars().all())
                     if not topics:
@@ -471,13 +530,12 @@ class ChatService:
                     chat_topic = topics[0]
                 else:
                     # В multi-mode используем topic_id
-                    stmt = (
-                        select(ChatTopic)
-                        .where(
-                            and_(
-                                ChatTopic.chat_id == chat_id,
-                                ChatTopic.topic_id == topic_id if topic_id is not None else ChatTopic.topic_id.is_(None)
-                            )
+                    stmt = select(ChatTopic).where(
+                        and_(
+                            ChatTopic.chat_id == chat_id,
+                            ChatTopic.topic_id == topic_id
+                            if topic_id is not None
+                            else ChatTopic.topic_id.is_(None),
                         )
                     )
                     result = await session.execute(stmt)
@@ -577,8 +635,14 @@ class ChatService:
                 logger.error(f"Ошибка подсчета активных чатов: {e}")
                 return 0
 
-
-    async def change_chat_subject(self, bot: Bot, chat_id: int, new_subject_id: int, user_id: int, topic_id: int | None = None) -> tuple[bool, str]:
+    async def change_chat_subject(
+        self,
+        bot: Bot,
+        chat_id: int,
+        new_subject_id: int,
+        user_id: int,
+        topic_id: int | None = None,
+    ) -> tuple[bool, str]:
         """Смена дисциплины чата/топика"""
         try:
             async with db_manager.async_session() as session:
@@ -610,7 +674,9 @@ class ChatService:
                         .where(
                             and_(
                                 ChatTopic.chat_id == chat_id,
-                                ChatTopic.topic_id == topic_id if topic_id is not None else ChatTopic.topic_id.is_(None)
+                                ChatTopic.topic_id == topic_id
+                                if topic_id is not None
+                                else ChatTopic.topic_id.is_(None),
                             )
                         )
                     )
@@ -630,7 +696,9 @@ class ChatService:
                     return False, "❌ Дисциплина не найдена"
 
                 # Сохраняем старое название для лога
-                old_subject_name = chat_topic.subject.name if chat_topic.subject else "—"
+                old_subject_name = (
+                    chat_topic.subject.name if chat_topic.subject else "—"
+                )
 
                 # Обновляем дисциплину
                 chat_topic.subject_id = new_subject_id
@@ -644,12 +712,14 @@ class ChatService:
                     f"Дисциплина чата {chat_id} (топик {topic_id}) изменена с '{old_subject_name}' на '{new_subject.name}'"
                 )
 
-                return True, f"✅ Дисциплина изменена с '{old_subject_name}' на '{new_subject.name}'"
+                return (
+                    True,
+                    f"✅ Дисциплина изменена с '{old_subject_name}' на '{new_subject.name}'",
+                )
 
         except Exception as e:
             logger.error(f"Ошибка смены дисциплины чата {chat_id}: {e}")
             return False, "❌ Произошла ошибка при смене дисциплины"
-
 
     async def update_chat_title(self, chat_id: int, chat_title: str | None) -> bool:
         """Обновить название чата"""
@@ -705,7 +775,9 @@ class ChatService:
                             if chat_group:
                                 chat_group.chat_title = chat_title
                     except Exception as e:
-                        logger.warning(f"Не удалось обновить chat_title для чата {chat_id}: {e}")
+                        logger.warning(
+                            f"Не удалось обновить chat_title для чата {chat_id}: {e}"
+                        )
 
                 await session.commit()
                 logger.info(f"Чат {chat_id} активирован ({len(topics)} топиков)")
@@ -714,7 +786,9 @@ class ChatService:
             logger.error(f"Ошибка активации чата {chat_id}: {e}")
             return False
 
-    async def switch_chat_mode(self, chat_id: int, new_mode: str, user_id: int, bot: Bot) -> tuple[bool, str]:
+    async def switch_chat_mode(
+        self, chat_id: int, new_mode: str, user_id: int, bot: Bot
+    ) -> tuple[bool, str]:
         """Переключить режим чата (single ↔ multi)"""
         try:
             async with db_manager.async_session() as session:
@@ -747,15 +821,23 @@ class ChatService:
 
                 mode_name = "single" if new_mode == "single" else "multi"
                 if topics:
-                    return True, f"✅ Режим изменен на {mode_name}. Все настройки топиков удалены. Настройте чат заново."
+                    return (
+                        True,
+                        f"✅ Режим изменен на {mode_name}. Все настройки топиков удалены. Настройте чат заново.",
+                    )
                 else:
-                    return True, f"✅ Режим изменен на {mode_name}. Настройте чат заново."
+                    return (
+                        True,
+                        f"✅ Режим изменен на {mode_name}. Настройте чат заново.",
+                    )
 
         except Exception as e:
             logger.error(f"Ошибка переключения режима чата {chat_id}: {e}")
             return False, "❌ Произошла ошибка при переключении режима"
 
-    async def migrate_chat_id(self, old_chat_id: int, new_chat_id: int, bot: Bot | None = None) -> bool:
+    async def migrate_chat_id(
+        self, old_chat_id: int, new_chat_id: int, bot: Bot | None = None
+    ) -> bool:
         """Обновить ID чата при миграции группы в супергруппу
 
         Args:
@@ -779,7 +861,9 @@ class ChatService:
                 # Проверяем, не существует ли уже новый чат
                 new_chat_group = await session.get(ChatGroup, new_chat_id)
                 if new_chat_group:
-                    logger.warning(f"Чат {new_chat_id} уже существует, пропускаем миграцию")
+                    logger.warning(
+                        f"Чат {new_chat_id} уже существует, пропускаем миграцию"
+                    )
                     return False
 
                 # Обновляем информацию о чате, если есть доступ к боту
@@ -789,7 +873,9 @@ class ChatService:
                         chat_info = await bot.get_chat(new_chat_id)
                         chat_title = getattr(chat_info, "title", chat_title)
                     except Exception as e:
-                        logger.debug(f"Не удалось получить информацию о новом чате {new_chat_id}: {e}")
+                        logger.debug(
+                            f"Не удалось получить информацию о новом чате {new_chat_id}: {e}"
+                        )
 
                 # Обновляем ChatGroup: меняем chat_id и chat_type
                 old_chat_group.chat_id = new_chat_id

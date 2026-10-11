@@ -5,12 +5,13 @@ Revises: 011
 Create Date: 2025-11-03 00:00:00.000000
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy import inspect
 
-from alembic import op
+from alembic import context, op
 
 
 # revision identifiers, used by Alembic.
@@ -22,6 +23,26 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    if context.is_offline_mode():
+        op.create_table(
+            "task_user_status",
+            sa.Column(
+                "user_id",
+                sa.BigInteger(),
+                sa.ForeignKey("users.tg_user_id", ondelete="CASCADE"),
+                primary_key=True,
+                nullable=False,
+            ),
+            sa.Column(
+                "deadline_id",
+                sa.Integer(),
+                sa.ForeignKey("deadlines.id", ondelete="CASCADE"),
+                primary_key=True,
+                nullable=False,
+            ),
+        )
+        op.create_index("ix_tus_deadline_id", "task_user_status", ["deadline_id"])
+        return
     # Проверяем существование таблицы
     conn = op.get_bind()
     inspector = inspect(conn)
@@ -63,25 +84,36 @@ def upgrade() -> None:
         if "tasks" in tables and "deadlines" not in tables:
             foreign_keys = inspector.get_foreign_keys("task_user_status")
             for fk in foreign_keys:
-                constrained_cols = [col["name"] for col in fk.get("constrained_columns", [])]
-                if "deadline_id" in constrained_cols and fk.get("referred_table") == "deadlines":
+                constrained_cols = [
+                    col["name"] for col in fk.get("constrained_columns", [])
+                ]
+                if (
+                    "deadline_id" in constrained_cols
+                    and fk.get("referred_table") == "deadlines"
+                ):
                     # FK ссылается на несуществующую таблицу deadlines, обновляем на tasks
                     fk_name = fk.get("name")
                     if fk_name:
-                        op.drop_constraint(fk_name, "task_user_status", type_="foreignkey")
+                        op.drop_constraint(
+                            fk_name, "task_user_status", type_="foreignkey"
+                        )
                         op.create_foreign_key(
                             None,
                             "task_user_status",
                             "tasks",
                             ["deadline_id"],
                             ["id"],
-                            ondelete="CASCADE"
+                            ondelete="CASCADE",
                         )
                     break
 
 
 def downgrade() -> None:
     """Downgrade schema."""
+    if context.is_offline_mode():
+        op.drop_index("ix_tus_deadline_id", table_name="task_user_status")
+        op.drop_table("task_user_status")
+        return
     # Проверяем существование перед удалением
     conn = op.get_bind()
     inspector = inspect(conn)
@@ -93,5 +125,3 @@ def downgrade() -> None:
         if "ix_tus_deadline_id" in indexes:
             op.drop_index("ix_tus_deadline_id", table_name="task_user_status")
         op.drop_table("task_user_status")
-
-

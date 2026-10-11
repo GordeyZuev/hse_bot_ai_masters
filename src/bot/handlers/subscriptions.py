@@ -1,4 +1,6 @@
 # ruff: noqa: ARG001
+from html import escape
+
 from aiogram import F, Router
 from aiogram.enums import ButtonStyle
 from aiogram.filters import Command, and_f
@@ -74,7 +76,11 @@ async def show_subjects_for_year(
             builder.button(text=button_text, callback_data=callback_data)
 
         builder.row()
-        builder.button(text="🔙 Сохранить и выйти", callback_data="back_to_year_choice", style=ButtonStyle.SUCCESS)
+        builder.button(
+            text="🔙 Сохранить и выйти",
+            callback_data="back_to_year_choice",
+            style=ButtonStyle.SUCCESS,
+        )
         builder.adjust(1)
 
         await state.update_data(year=year)
@@ -92,8 +98,6 @@ async def process_toggle_subscription(
     callback: CallbackQuery, db_user, state: FSMContext
 ):
     """Обработка переключения подписки на предмет"""
-    await callback.answer()
-
     try:
         subject_id = int(callback.data.split("_")[-1])
 
@@ -163,7 +167,9 @@ async def cmd_unsubscribe_all(event: Message | CallbackQuery, db_user):
 
         builder = InlineKeyboardBuilder()
         builder.button(
-            text="✅ Да, отписаться от всего", callback_data="execute_unsuball", style=ButtonStyle.DANGER
+            text="✅ Да, отписаться от всего",
+            callback_data="execute_unsuball",
+            style=ButtonStyle.DANGER,
         )
         builder.button(text="❌ Отмена", callback_data="quick_subjects")
         builder.adjust(1)
@@ -182,12 +188,11 @@ async def cmd_unsubscribe_all(event: Message | CallbackQuery, db_user):
 @router.callback_query(F.data == "execute_unsuball")
 async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
     """Выполнение отписки от всех предметов"""
-    await callback.answer()
-
     try:
         success, message_text = await subscription_service.unsubscribe_user_from_all(
             db_user.tg_user_id
         )
+        await callback.answer(message_text, show_alert=not success)
 
         text = f"🗑 <b>Отписка от всех предметов</b>\n\n{message_text}"
 
@@ -196,7 +201,9 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
         builder.adjust(1)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup())
+        await safe_edit_message(
+            callback.message, text, reply_markup=builder.as_markup()
+        )
 
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
@@ -204,13 +211,10 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
         await callback.answer("Произошла ошибка", show_alert=True)
 
 
-
-
 # Обработчики навигации
 @router.callback_query(F.data == "back_to_year_choice")
 async def back_to_year_choice(callback: CallbackQuery, db_user, state: FSMContext):
     """Возврат к выбору курса"""
-    await callback.answer()
     await cmd_subjects(callback, db_user, state)
 
 
@@ -224,7 +228,9 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
 
     builder = InlineKeyboardBuilder()
     builder.button(text="📖 Дисциплины", callback_data="quick_subjects")
-    builder.button(text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY)
+    builder.button(
+        text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY
+    )
     builder.button(text="⚙️ Настройки", callback_data="quick_settings")
     builder.button(text="❓ Помощь", callback_data="quick_help")
 
@@ -232,7 +238,11 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
 
     if is_admin(callback.from_user.id):
         builder.row()
-        builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel", style=ButtonStyle.PRIMARY)
+        builder.button(
+            text="👨‍💼 Админ-панель",
+            callback_data="admin_panel",
+            style=ButtonStyle.PRIMARY,
+        )
         builder.adjust(2, 2, 1)
     else:
         builder.adjust(2, 2)
@@ -243,7 +253,6 @@ async def back_to_menu(callback: CallbackQuery, state: FSMContext):
 def register_subscription_handlers(dp):
     """Регистрация handlers для подписок"""
     dp.include_router(router)
-
 
 
 @router.message(and_f(Command("subjects"), F.chat.type == "private"))
@@ -259,24 +268,36 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
         edit_mode = False
 
     try:
-        subscriptions = await subscription_service.get_user_subscriptions(db_user.tg_user_id)
+        subscriptions = await subscription_service.get_user_subscriptions(
+            db_user.tg_user_id
+        )
         by_year: dict[int, list] = {}
         for s in subscriptions:
             by_year.setdefault(s.year, []).append(s)
 
         text_lines = ["📖  <b>Ваши дисциплины</b>", ""]
         if subscriptions:
-            subjects_sorted_all = sorted(subscriptions, key=lambda x: (x.year or 0, x.name))
+            subjects_sorted_all = sorted(
+                subscriptions, key=lambda x: (x.year or 0, x.name)
+            )
             for subj in subjects_sorted_all:
-                text_lines.append(f"🔹 <b>{subj.name}</b>")
-                if subj.wiki_url:
-                    text_lines.append(f'• <a href="{subj.wiki_url}">ФКН Wiki</a>')
-                if subj.vk_playlist_url:
-                    text_lines.append(f'• <a href="{subj.vk_playlist_url}">VK Video</a>')
-                if subj.yt_playlist_url:
-                    text_lines.append(f'• <a href="{subj.yt_playlist_url}">YouTube</a>')
+                text_lines.append(f"🔹 <b>{escape(subj.name)}</b>")
+                if subj.leap_url:
+                    text_lines.append(
+                        f'• <a href="{escape(subj.leap_url, quote=True)}">LEAP</a>'
+                    )
+                if subj.youtube_url:
+                    text_lines.append(
+                        f'• <a href="{escape(subj.youtube_url, quote=True)}">YouTube</a>'
+                    )
+                if subj.yandex_disk_url:
+                    text_lines.append(
+                        f'• <a href="{escape(subj.yandex_disk_url, quote=True)}">Яндекс Диск</a>'
+                    )
                 text_lines.append("")
-            text_lines.append("Если хотите изменить подписки, перейдите в разделы ниже.")
+            text_lines.append(
+                "Если хотите изменить подписки, перейдите в разделы ниже."
+            )
         else:
             text_lines.append("У вас пока нет подписок на предметы.")
             text_lines.append("")
@@ -288,12 +309,25 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
         builder = InlineKeyboardBuilder()
         builder.button(text="1️⃣ Первый курс", callback_data="subjects_year_1")
         builder.button(text="2️⃣ Второй курс", callback_data="subjects_year_2")
+        for subject in sorted(subscriptions, key=lambda s: (s.year or 0, s.name)):
+            builder.button(
+                text=f"📖 {subject.name[:45]}",
+                callback_data=f"subject_info_{subject.id}",
+            )
         builder.row()
-        builder.button(text="🗑 Отписаться от всего", callback_data="confirm_unsuball", style=ButtonStyle.DANGER)
+        builder.button(
+            text="🗑 Отписаться от всего",
+            callback_data="confirm_unsuball",
+            style=ButtonStyle.DANGER,
+        )
         builder.button(text="🔙 Назад", callback_data="back_to_menu")
-        builder.adjust(2, 1)
+        builder.adjust(2, *([1] * len(subscriptions)), 1, 1)
     except Exception as e:
-        user_id = event.from_user.id if isinstance(event, CallbackQuery) else (event.from_user.id if event.from_user else 0)
+        user_id = (
+            event.from_user.id
+            if isinstance(event, CallbackQuery)
+            else (event.from_user.id if event.from_user else 0)
+        )
         logger.error(f"(U) {user_id} - подготовка раздела дисциплин: {e}")
         text = "Произошла ошибка при загрузке дисциплин."
         builder = InlineKeyboardBuilder()
@@ -301,13 +335,26 @@ async def cmd_subjects(event: Message | CallbackQuery, db_user, state: FSMContex
         builder.adjust(1)
 
     if edit_mode:
-        await safe_edit_message(message, text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+        await safe_edit_message(
+            message,
+            text,
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
     else:
-        await message.answer(text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+        await message.answer(
+            text,
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
 
 
 @router.callback_query(F.data.startswith("subjects_year_"))
-async def subjects_year_to_subscribe(callback: CallbackQuery, db_user, state: FSMContext):
+async def subjects_year_to_subscribe(
+    callback: CallbackQuery, db_user, state: FSMContext
+):
     """При выборе курса в разделе Дисциплины переходим к управлению подписками (как раньше)."""
     await callback.answer()
 
@@ -317,18 +364,21 @@ async def subjects_year_to_subscribe(callback: CallbackQuery, db_user, state: FS
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
         logger.error(f"(U) {user_id} - переход к управлению подписками: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при загрузке дисциплин.")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при загрузке дисциплин."
+        )
 
 
 @router.callback_query(F.data.startswith("subject_info_"))
 async def show_subject_info(callback: CallbackQuery, db_user):
-    """Карточка дисциплины: модули + ссылки (wiki/vk/youtube)."""
+    """Карточка дисциплины с точными модулями и источниками записей."""
     await callback.answer()
 
     try:
         subject_id = int(callback.data.split("_")[-1])
         async with db_manager.async_session() as session:
             from sqlalchemy import select
+
             stmt = select(Subject).where(Subject.id == subject_id)
             result = await session.execute(stmt)
             subject = result.scalar_one_or_none()
@@ -337,30 +387,38 @@ async def show_subject_info(callback: CallbackQuery, db_user):
             await safe_edit_message(callback.message, "Дисциплина не найдена.")
             return
 
-        modules_text = None
-        if subject.start_module and subject.end_module:
-            if subject.start_module == subject.end_module:
-                modules_text = f"{subject.start_module}"
-            else:
-                modules_text = f"{subject.start_module}-{subject.end_module}"
-
-        text = (
-            f"🔹 <b>{subject.name}</b> (курс {subject.year})\n"
-            + (f"Модули: {modules_text}\n\n" if modules_text else "\n")
+        modules_text = ", ".join(str(module) for module in (subject.modules or []))
+        text = f"🔹 <b>{escape(subject.name)}</b>\n"
+        if subject.year:
+            text += f"Курс: {subject.year}\n"
+        if modules_text:
+            text += f"Модули: {modules_text}\n"
+        text += (
+            "\nВыберите источник записей:"
+            if any((subject.leap_url, subject.youtube_url, subject.yandex_disk_url))
+            else "\nЗаписи пока не добавлены."
         )
 
-        if subject.wiki_url:
-            text += f'• <a href="{subject.wiki_url}">ФКН Wiki</a>\n'
-        if subject.vk_playlist_url:
-            text += f'• <a href="{subject.vk_playlist_url}">VK Video</a>\n'
-        if subject.yt_playlist_url:
-            text += f'• <a href="{subject.yt_playlist_url}">YouTube</a>\n'
-
         builder = InlineKeyboardBuilder()
+        if subject.leap_url:
+            builder.button(text="🎓 LEAP", url=subject.leap_url)
+        if subject.youtube_url:
+            builder.button(text="▶️ YouTube", url=subject.youtube_url)
+        if subject.yandex_disk_url:
+            builder.button(text="💾 Яндекс Диск", url=subject.yandex_disk_url)
         builder.button(text="🔙 Назад", callback_data="quick_subjects")
+        builder.adjust(2, 1)
 
-        await safe_edit_message(callback.message, text, reply_markup=builder.as_markup(), parse_mode="HTML", disable_web_page_preview=True)
+        await safe_edit_message(
+            callback.message,
+            text,
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
     except Exception as e:
         user_id = callback.from_user.id if callback.from_user else 0
         logger.error(f"(U) {user_id} - показ карточки дисциплины: {e}")
-        await safe_edit_message(callback.message, "Произошла ошибка при показе дисциплины.")
+        await safe_edit_message(
+            callback.message, "Произошла ошибка при показе дисциплины."
+        )

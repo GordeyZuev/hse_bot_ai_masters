@@ -11,6 +11,7 @@
 - [Настройка окружения](#-настройка-окружения)
 - [Режимы работы](#-режимы-работы)
 - [Развертывание](#-развертывание)
+- [Обновление до 1.1.4](#обновление-до-114)
 - [Проверка работы](#-проверка-работы)
 - [Мониторинг и обслуживание](#-мониторинг-и-обслуживание)
 - [Настройка для продакшена](#-настройка-для-продакшена)
@@ -50,22 +51,14 @@ make setup
 make install
 ```
 
-5. **Запустите:**
+5. **Разверните текущий checkout:**
 ```bash
-# С помощью Makefile (рекомендуется)
-make run
-
-# Или напрямую
-docker-compose up -d --build
+make deploy
 ```
 
 6. **Проверьте работу:**
 ```bash
-# С помощью Makefile
-make logs
-
-# Или напрямую
-docker-compose logs -f app
+docker compose logs -f app
 ```
 
 ### 🐍 Локальный запуск (для разработки)
@@ -177,8 +170,8 @@ brew install git nano htop curl wget make uv
 # Проверка Docker
 docker --version
 
-# Проверка docker-compose
-docker-compose --version
+# Проверка docker compose
+docker compose version
 
 # Проверка uv
 uv --version
@@ -218,7 +211,9 @@ make format         # Отформатировать код
 
 # Обслуживание
 make clean          # Очистить временные файлы
-make update         # Обновить проект (остановить, git pull, перезапустить)
+make deploy         # Развернуть текущий checkout без git pull
+make update         # Получить новый код и развернуть его
+make migrate        # Только миграции; бот должен быть остановлен
 make clean-docker   # Очистить неиспользуемые Docker образы и контейнеры
 make db             # Подключиться к базе данных PostgreSQL
 ```
@@ -323,11 +318,11 @@ hse_bot_ai_masters/
 # Telegram Bot Token (получить у @BotFather)
 BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
 
-# ID администраторов (через запятую)
-ADMIN_IDS=123456789,987654321
+# ID администраторов
+ADMINS=[123456789,987654321]
 
 # Часовой пояс
-TIMEZONE=Europe/Moscow
+TZ=Europe/Moscow
 
 # Уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 LOG_LEVEL=INFO
@@ -336,12 +331,12 @@ LOG_LEVEL=INFO
 # БАЗА ДАННЫХ
 # ===========================================
 
-# URL подключения к PostgreSQL
-# Для Docker (автоматически):
-DATABASE_URL=postgresql+asyncpg://postgres:secure_password@db:5432/hse_bot_db
-
-# Для локального запуска:
-# DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/hse_bot_db
+# Приложение само собирает DATABASE_URL из этих переменных
+POSTGRES_DB=hse_bot_db
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=change_me
+DB_HOST=db
+DB_PORT=5432
 
 # ===========================================
 # GOOGLE SHEETS
@@ -351,44 +346,21 @@ DATABASE_URL=postgresql+asyncpg://postgres:secure_password@db:5432/hse_bot_db
 GOOGLE_SHEETS_URL=https://docs.google.com/spreadsheets/d/your_sheet_id/edit
 
 # Путь к файлу Service Account (относительно src/config/)
-GOOGLE_CREDENTIALS_PATH=src/config/creds.json
+GOOGLE_CREDS_FILE=src/config/creds.json
 
-# ===========================================
-# ПЛАНИРОВЩИК
-# ===========================================
+# Экспериментальный Rich-экран выключен по умолчанию
+RICH_MESSAGES_ENABLED=false
+LOG_RETENTION_DAYS=30
+EVENT_RETENTION_DAYS=365
 
-# Интервал синхронизации (часы)
-SYNC_INTERVAL_HOURS=1
-
-# Интервал проверки уведомлений (минуты)
-NOTIFICATION_CHECK_MINUTES=15  # отправка по кратным 15 минутам (UTC)
-
-# ===========================================
-# ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ
-# ===========================================
-
-# Размер батча для уведомлений
-NOTIFICATION_BATCH_SIZE=50
-
-# Количество попыток отправки
-NOTIFICATION_RETRY_ATTEMPTS=3
-
-# Размер пула соединений с БД
-DB_POOL_SIZE=10
-
-# Максимальное переполнение пула
-DB_MAX_OVERFLOW=20
-
-# ===========================================
-# ВНЕШНИЕ ССЫЛКИ (опционально)
-# ===========================================
+# Необязательный прокси только для Telegram; пусто = прямое соединение
+BOT_PROXY=
 
 # Ссылка на Wiki ФКН
 FCS_WIKI_URL=https://wiki.cs.hse.ru/
-
-# Прямая ссылка на Google Sheets
-GOOGLE_SHEETS_LINK=https://docs.google.com/spreadsheets/d/your_sheet_id/edit
 ```
+
+Для локального запуска установите `DB_HOST=localhost`. Не коммитьте `.env`, токен, пароль БД и `creds.json`; полный актуальный шаблон — [`src/config/.env.example`](../src/config/.env.example). Если указываете `BOT_PROXY`, храните его учётные данные как секрет и не выводите URL целиком в логи.
 
 ### 🔑 Google Service Account
 
@@ -512,35 +484,23 @@ nano src/config/.env  # отредактируйте настройки
 # Добавление Google Service Account
 # Поместите creds.json в src/config/
 
-# Запуск через Makefile
-make run
-
-# Или вручную
-docker-compose up -d --build
+# Развертывание текущего checkout через Makefile
+make deploy
 ```
 
 #### Ручное развертывание
 
 ```bash
-# Остановка существующих контейнеров
-docker-compose down
-
-# Обновление кода (если используется git)
-git pull
-
-# Пересборка и запуск (с использованием кэша - быстро)
-docker-compose build
-docker-compose up -d
-
-# Или для полной пересборки без кэша (медленно, только если нужно)
-docker-compose build --no-cache
-docker-compose up -d
-
-# Ожидание готовности БД
-sleep 10
-
-# Применение миграций
-docker exec hse_bot_app uv run python main.py migrate
+# При обновлении до этих команд выполните git pull --ff-only.
+# Сборка до изменения запущенного приложения.
+docker compose --env-file src/config/.env config -q
+docker compose --env-file src/config/.env build migrate
+docker compose --env-file src/config/.env up -d --wait db
+./scripts/backup-db.sh
+docker compose --env-file src/config/.env stop app
+docker compose --env-file src/config/.env run --rm migrate
+docker compose --env-file src/config/.env up -d --no-deps app
+docker compose ps
 ```
 
 #### Автоматическое развертывание через скрипт
@@ -548,8 +508,14 @@ docker exec hse_bot_app uv run python main.py migrate
 Используйте скрипт `scripts/deploy.sh` для автоматического развертывания:
 
 ```bash
-# Обычное развертывание с использованием кэша (быстро)
+# Развертывание текущего checkout с кэшем (без git pull)
 ./scripts/deploy.sh
+
+# Получение коммита из Git и развертывание
+./scripts/deploy.sh --pull
+
+# Миграции без запуска приложения (бот предварительно остановлен)
+./scripts/deploy.sh --migrate-only
 
 # Полная пересборка без кэша (медленно, только если нужно)
 ./scripts/deploy.sh --no-cache
@@ -557,13 +523,16 @@ docker exec hse_bot_app uv run python main.py migrate
 ./scripts/deploy.sh -n
 ```
 
-Скрипт автоматически:
-- Останавливает контейнеры
-- Обновляет код из git (если доступно)
-- Пересобирает контейнеры с использованием кэша Docker
-- Запускает контейнеры
-- Выполняет миграции БД
-- Показывает статус контейнеров
+`--pull` обновляет код; без него скрипт не обращается к Git. Скрипт проверяет
+Compose-конфигурацию, собирает образ и создаёт резервную копию БД,
+останавливает старое приложение, применяет миграции и запускает новое. Если
+обновление кода, сборка или бэкап завершаются ошибкой, старый контейнер
+продолжает работать. Ошибка миграции оставит приложение остановленным: сначала
+исправьте схему/код, затем повторите деплой; не запускайте старый образ поверх
+частично обновлённой схемы.
+Требуется Docker Compose plugin (`docker compose`). После обновления проверьте
+логи и сценарии в Telegram: успешная команда `up` сама по себе не доказывает
+работу polling.
 
 ### 🐍 Локальное развертывание
 
@@ -615,43 +584,49 @@ uv --version
 uv sync
 ```
 
-4. **Пересоберите и запустите контейнеры:**
+4. **Обновите контейнеры:**
 ```bash
-docker-compose build --no-cache
-docker-compose up -d
-
-# Примените миграции (если нужно)
-docker exec hse_bot_app uv run python main.py migrate
+make update
 ```
+
+### Обновление до 1.1.4
+
+Это чек-лист для существующей установки после v1.1.3. Версия 1.1.4 ещё готовится; не используйте этот раздел как подтверждение опубликованного релиза.
+
+1. Выполните `make check` и `make sync-dry`: второй пункт должен завершиться без ошибок строк Sheets. Проверьте, что `POSTGRES_PASSWORD` в production `.env` не равен примеру `change_me`; на уже созданной БД смена пароля требует отдельного изменения роли PostgreSQL. Убедитесь, что `src/config/creds.json` доступен и не попадает в Git.
+   На Linux проверьте, что каталог `logs/` доступен на запись, а `src/config/creds.json` — на чтение пользователю контейнера `app` (UID 1000); скрипт создаёт каталог до запуска Compose, но не меняет владельца существующих файлов.
+2. Сделайте резервную копию PostgreSQL и сохраните текущий `.env` и Google-credentials отдельно от репозитория.
+3. Обновите код и зависимости. Для Docker используйте `make update` (чистый Git checkout) либо `make deploy` (уже проверенный текущий checkout); для локального запуска выполните `uv sync --frozen`.
+4. **До запуска бота** примените миграции: локально `uv run python main.py migrate`; Docker-команды `make deploy`/`make update` сами останавливают старую версию и запускают миграции. `make migrate` допустим только при уже остановленном боте и не запускает его после завершения.
+5. Проверьте `uv run alembic current`: ожидаемая ревизия — `020`. `alembic check` игнорирует только две исторические колонки `deadline_display_mode` в настройках пользователя и темах чатов: их данные сохраняются, остальные расхождения схемы по-прежнему считаются ошибкой.
+6. Проверьте `/deadlines` в обычном режиме, отметку и возврат задания, `/settings`, подписки и логи. Только после этого по желанию включите `RICH_MESSAGES_ENABLED=true` и проверьте Rich на тестовом пользователе. При ошибке Rich должен появиться обычный список.
+7. Проверьте, что в `logs/app_jsonl_*.log` появляются валидные JSONL-записи, а `user_action_events` пополняется после действий. Это журнал событий для будущей аналитики, не готовая аналитическая панель. События старше `EVENT_RETENTION_DAYS` (по умолчанию 365) и файлы логов старше `LOG_RETENTION_DAYS` (по умолчанию 30) удаляются ежедневной задачей; текст сообщений и URL в событиях не хранятся. События сообщений и callback-кнопок сохраняют тип/команду, технический callback (не более 128 символов), контекст сообщения и исход обработки. Проверьте `/logs 2026-10-11` и `/events 2026-10-11` в личном чате администратора; кнопка «События» находится внутри «Статистики». Эти архивы содержат пользовательские ID и остаются в Telegram-чате после отправки: обращайтесь с ними как с конфиденциальными данными.
+
+`BOT_PROXY` необязателен и влияет только на соединение Telegram; не добавляйте его, если прямое подключение работает. Если отдельный запуск миграции завершился ошибкой, не запускайте приложение поверх старой схемы — сначала разберите причину.
 
 #### Обычное обновление
 
 С помощью Makefile (рекомендуется, если `make` установлен):
 ```bash
+make deploy
+
+# Если сначала нужно получить новый коммит из Git:
 make update
 ```
 
 Или вручную:
 ```bash
-# Остановка сервисов
-docker-compose down
-
-# Обновление кода
-git pull
-
-# Пересборка и запуск (с использованием кэша - быстро)
-docker-compose build
-docker-compose up -d
-
-# Или для полной пересборки без кэша (медленно, только если нужно)
-# docker-compose build --no-cache
-# docker-compose up -d
-
-# Применение миграций
-docker exec hse_bot_app uv run python main.py migrate
+git pull --ff-only
+docker compose --env-file src/config/.env config -q
+docker compose --env-file src/config/.env build migrate
+docker compose --env-file src/config/.env up -d --wait db
+./scripts/backup-db.sh
+docker compose --env-file src/config/.env stop app
+docker compose --env-file src/config/.env run --rm migrate
+docker compose --env-file src/config/.env up -d --no-deps app
 ```
 
-**💡 Совет:** Используйте `docker-compose build` без `--no-cache` для обычных обновлений - это значительно быстрее благодаря кэшированию слоёв Docker. Используйте `--no-cache` только если нужно гарантировать полную чистую пересборку (например, при проблемах с зависимостями).
+**💡 Совет:** Используйте `docker compose build` без `--no-cache` для обычных обновлений - это значительно быстрее благодаря кэшированию слоёв Docker. Используйте `--no-cache` только если нужно гарантировать полную чистую пересборку (например, при проблемах с зависимостями).
 
 **Примечание:** Если при обновлении вы получили новые зависимости или изменилась структура проекта, выполните команды из раздела "Подготовка сервера (первый раз)" выше.
 
@@ -677,7 +652,9 @@ make format         # Отформатировать код
 
 # Обслуживание
 make clean          # Очистить временные файлы
-make update         # Обновить проект (остановить, git pull, перезапустить)
+make deploy         # Развернуть текущий checkout без git pull
+make update         # Получить новый код и развернуть его
+make migrate        # Только миграции; бот должен быть остановлен
 make clean-docker   # Очистить неиспользуемые Docker образы и контейнеры
 make db             # Подключиться к базе данных PostgreSQL
 ```
@@ -688,71 +665,71 @@ make db             # Подключиться к базе данных PostgreS
 
 ```bash
 # Статус всех контейнеров
-docker-compose ps
+docker compose ps
 
 # Детальная информация
-docker-compose ps --services
+docker compose ps --services
 ```
 
 ### 📊 Проверка логов
 
 ```bash
 # Логи приложения
-docker-compose logs -f app
+docker compose logs -f app
 
 # Логи базы данных
-docker-compose logs -f db
+docker compose logs -f db
 
 # Логи всех сервисов
-docker-compose logs -f
+docker compose logs -f
 
 # Последние 100 строк логов
-docker-compose logs --tail=100 app
+docker compose logs --tail=100 app
 ```
 
 ### 🗄️ Проверка базы данных
 
 ```bash
 # Подключение к БД (или используйте: make db)
-docker-compose exec db psql -U postgres -d hse_bot_db
+docker compose exec db psql -U postgres -d hse_bot_db
 # Или через Makefile:
 make db
 
 # Проверка таблиц
-docker-compose exec db psql -U postgres -d hse_bot_db -c "\dt"
+docker compose exec db psql -U postgres -d hse_bot_db -c "\dt"
 
 # Проверка пользователей
-docker-compose exec db psql -U postgres -d hse_bot_db -c "SELECT COUNT(*) FROM users;"
+docker compose exec db psql -U postgres -d hse_bot_db -c "SELECT COUNT(*) FROM users;"
 
 # Проверка заданий/дедлайнов
-docker-compose exec db psql -U postgres -d hse_bot_db -c "SELECT COUNT(*) FROM tasks;"
+docker compose exec db psql -U postgres -d hse_bot_db -c "SELECT COUNT(*) FROM tasks;"
 ```
 
 ### 🤖 Проверка работы бота
 
 ```bash
 # Поиск сообщений о запуске бота
-docker-compose logs app | grep "Bot started"
+docker compose logs app | grep "Bot started"
 
 # Проверка планировщика
-docker-compose logs app | grep "scheduler"
+docker compose logs app | grep "scheduler"
 
 # Проверка синхронизации
-docker-compose logs app | grep "sync"
+docker compose logs app | grep "sync"
 ```
 
 ### 🌐 Проверка внешних подключений
 
 ```bash
 # Тест подключения к Google Sheets
-docker-compose exec app python -c "
+docker compose exec app python -c "
 from src.core.sync.gsheets_syncer import sheets_manager
 import asyncio
 asyncio.run(sheets_manager.test_connection())
 "
 
 # Тест Telegram API
-docker-compose exec app python -c "
+docker compose exec app python -c "
 import os
 from aiogram import Bot
 import asyncio
@@ -789,29 +766,29 @@ du -sh backups/
 
 ```bash
 # Перезапуск приложения
-docker-compose restart app
+docker compose restart app
 
 # Перезапуск всех сервисов
-docker-compose restart
+docker compose restart
 
 # Остановка всех сервисов
-docker-compose down
+docker compose down
 
 # Запуск в фоновом режиме
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 📝 Управление логами
 
 ```bash
 # Просмотр логов в реальном времени
-docker-compose logs -f app
+docker compose logs -f app
 
-# Очистка старых логов
-docker-compose exec app find logs/ -name "*.log" -mtime +7 -delete
+# Проверка файлов старше срока хранения (очистка выполняется ежедневной задачей)
+docker compose exec app find logs/ -name "*.log" -mtime +30 -print
 
-# Ротация логов (если настроена)
-docker-compose exec app logrotate -f /etc/logrotate.conf
+# Размеры активных файлов и архивов
+docker compose exec app ls -lh logs/
 ```
 
 ### 🗄️ Управление базой данных
@@ -823,8 +800,9 @@ docker-compose exec app logrotate -f /etc/logrotate.conf
 # Восстановление из бэкапа
 ./scripts/restore-db.sh backups/latest.sql.gz
 
-# Применение миграций (если нужно)
-docker exec hse_bot_app python main.py migrate
+# Только миграции: предварительно остановите приложение.
+docker compose --env-file src/config/.env stop app
+make migrate
 
 # Проверка статуса миграций (если нужно)
 docker exec hse_bot_app alembic current
@@ -928,19 +906,15 @@ sudo systemctl reload nginx
 **Использованные оптимизации:**
 1. **Кэширование слоёв Docker** - зависимости устанавливаются отдельно от кода, что позволяет кэшировать их при изменении только кода
 2. **`.dockerignore`** - исключает ненужные файлы (логи, кэш, git, и т.д.) из контекста сборки
-3. **BuildKit** (опционально) - автоматически включается в `deploy.sh` для параллельной сборки и улучшенного кэширования, если доступен buildx
-4. **Многоуровневая структура Dockerfile** - оптимизированный порядок команд для максимального кэширования
+3. **Порядок слоёв Dockerfile** - зависимости собираются до копирования исходного кода
 
 **Как это работает:**
 - При изменении только кода приложения, слои с зависимостями остаются в кэше
 - При изменении `pyproject.toml` или `uv.lock`, зависимости переустанавливаются, но системные пакеты остаются в кэше
 - При первой сборке всё устанавливается с нуля
-- При последующих сборках используйте `docker-compose build` без `--no-cache` для максимальной скорости
+- При последующих сборках используйте `docker compose build` без `--no-cache` для максимальной скорости
 
-**Примеры скорости сборки:**
-- Первая сборка: ~3-5 минут (установка всех зависимостей)
-- Повторная сборка после изменения кода: ~30-60 секунд (только копирование кода)
-- Повторная сборка без изменений: ~5-10 секунд (только проверка слоёв)
+Фактическая скорость зависит от сервера, сетевого доступа и состояния кэша.
 
 **Использование:**
 ```bash
@@ -951,31 +925,11 @@ sudo systemctl reload nginx
 ./scripts/deploy.sh --no-cache
 
 # Ручная сборка
-docker-compose build        # с кэшем (быстро)
-docker-compose build --no-cache  # без кэша (медленно)
+docker compose build        # с кэшем (быстро)
+docker compose build --no-cache  # без кэша (медленно)
 ```
 
-**Установка buildx (опционально, для дополнительного ускорения):**
-
-BuildKit автоматически используется, если доступен buildx. Для установки:
-
-```bash
-# Проверка наличия buildx
-docker buildx version
-
-# Установка buildx (если не установлен)
-# Для Docker версии 23.0+ buildx обычно входит в комплект
-# Для старых версий:
-mkdir -p ~/.docker/cli-plugins
-curl -SL https://github.com/docker/buildx/releases/download/v0.12.1/buildx-v0.12.1.linux-amd64 -o ~/.docker/cli-plugins/docker-buildx
-chmod +x ~/.docker/cli-plugins/docker-buildx
-
-# Создание builder
-docker buildx create --name mybuilder --use
-docker buildx inspect --bootstrap
-```
-
-**Примечание:** Скрипт `deploy.sh` автоматически определяет доступность buildx и использует BuildKit только если он доступен. Если buildx не установлен, сборка всё равно работает, просто без дополнительных оптимизаций BuildKit.
+Скрипт вызывает `docker compose build migrate`; отдельной настройки buildx в нём нет.
 
 #### Настройка Docker
 
@@ -1117,13 +1071,13 @@ gsutil cp gs://your-bucket/hse-bot-backups/latest.sql.gz backups/
 
 ```bash
 # Проверка логов
-docker-compose logs app
+docker compose logs app
 
 # Проверка конфигурации
-docker-compose config
+docker compose config
 
 # Пересборка без кэша
-docker-compose build --no-cache
+docker compose build --no-cache
 
 # Проверка ресурсов
 docker system df
@@ -1134,42 +1088,42 @@ docker system prune  # Очистка неиспользуемых ресурс�
 
 ```bash
 # Проверка статуса БД
-docker-compose exec db pg_isready -U postgres
+docker compose exec db pg_isready -U postgres
 
 # Проверка переменных окружения
-docker-compose exec app env | grep DATABASE_URL
+docker compose exec app env | grep DATABASE_URL
 
 # Ручное подключение к БД
-docker-compose exec db psql -U postgres -d hse_bot_db
+docker compose exec db psql -U postgres -d hse_bot_db
 
 # Проверка логов БД
-docker-compose logs db
+docker compose logs db
 ```
 
 #### Проблемы с миграциями
 
 ```bash
 # Проверка статуса миграций
-docker-compose exec app alembic current
+docker compose exec app alembic current
 
-# Применение миграций вручную
-docker-compose exec app alembic upgrade head
+# Применение миграций: make deploy (если бот работает) или make migrate
+# (если бот уже остановлен). Не применяйте их через работающий app-контейнер.
 
-# Откат миграций (осторожно!)
-docker-compose exec app alembic downgrade -1
+# Откат части миграций не поддерживается: восстановление БД — только
+# из проверенного бэкапа после анализа последствий.
 
 # Создание новой миграции
-docker-compose exec app alembic revision --autogenerate -m "description"
+docker compose exec app alembic revision --autogenerate -m "description"
 ```
 
 #### Проблемы с Google Sheets
 
 ```bash
 # Проверка файла creds
-docker-compose exec app ls -la /app/src/config/creds.json
+docker compose exec app ls -la /app/src/config/creds.json
 
 # Тест подключения
-docker-compose exec app python -c "
+docker compose exec app python -c "
 from src.core.sync.gsheets_syncer import sheets_manager
 import asyncio
 asyncio.run(sheets_manager.test_connection())
@@ -1183,13 +1137,13 @@ asyncio.run(sheets_manager.test_connection())
 
 ```bash
 # Проверка планировщика
-docker-compose logs app | grep "scheduler"
+docker compose logs app | grep "scheduler"
 
 # Проверка уведомлений
-docker-compose logs app | grep "notification"
+docker compose logs app | grep "notification"
 
 # Ручная отправка уведомлений
-docker-compose exec app python -c "
+docker compose exec app python -c "
 from src.bot.services.scheduled_notification_sender import scheduled_notification_sender
 from src.bot.bot import hse_bot
 import asyncio
@@ -1218,25 +1172,25 @@ netstat -tulpn | grep :8080  # Adminer
 
 ```bash
 # Поиск ошибок
-docker-compose logs app | grep -i error
+docker compose logs app | grep -i error
 
 # Поиск предупреждений
-docker-compose logs app | grep -i warning
+docker compose logs app | grep -i warning
 
 # Статистика логов
-docker-compose logs app | wc -l
+docker compose logs app | wc -l
 ```
 
 #### Проверка базы данных
 
 ```bash
 # Размер базы данных
-docker-compose exec db psql -U postgres -d hse_bot_db -c "
+docker compose exec db psql -U postgres -d hse_bot_db -c "
 SELECT pg_size_pretty(pg_database_size('hse_bot_db'));
 "
 
 # Размер таблиц
-docker-compose exec db psql -U postgres -d hse_bot_db -c "
+docker compose exec db psql -U postgres -d hse_bot_db -c "
 SELECT 
     schemaname,
     tablename,
@@ -1247,7 +1201,7 @@ ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 "
 
 # Статистика таблиц
-docker-compose exec db psql -U postgres -d hse_bot_db -c "
+docker compose exec db psql -U postgres -d hse_bot_db -c "
 SELECT 
     schemaname,
     tablename,
@@ -1264,32 +1218,32 @@ FROM pg_stat_user_tables;
 
 ```bash
 # Остановка всех сервисов
-docker-compose down
+docker compose down
 
 # Восстановление из бэкапа
 ./scripts/restore-db.sh --force --drop-existing backups/latest.sql.gz
 
 # Запуск сервисов
-docker-compose up -d
+docker compose up -d
 
 # Проверка работы
-docker-compose logs -f app
+docker compose logs -f app
 ```
 
 #### Восстановление конфигурации
 
 ```bash
 # Остановка сервисов
-docker-compose down
+docker compose down
 
 # Восстановление конфигурации
 tar -xzf config-backup-20240101.tar.gz
 
 # Проверка конфигурации
-docker-compose config
+docker compose config
 
 # Запуск сервисов
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 📞 Получение помощи
@@ -1302,16 +1256,16 @@ cat > system-report.txt << EOF
 === SYSTEM INFO ===
 $(uname -a)
 $(docker --version)
-$(docker-compose --version)
+$(docker compose version)
 
 === CONTAINER STATUS ===
-$(docker-compose ps)
+$(docker compose ps)
 
 === RECENT LOGS ===
-$(docker-compose logs --tail=50 app)
+$(docker compose logs --tail=50 app)
 
 === DATABASE STATUS ===
-$(docker-compose exec db psql -U postgres -d hse_bot_db -c "SELECT version();")
+$(docker compose exec db psql -U postgres -d hse_bot_db -c "SELECT version();")
 
 === DISK USAGE ===
 $(df -h)

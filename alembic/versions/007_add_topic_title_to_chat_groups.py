@@ -5,6 +5,7 @@ Revises: 004
 Create Date: 2025-10-28 13:48:30.000000
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -27,5 +28,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema."""
     op.drop_column("chat_groups", "topic_title")
-
-

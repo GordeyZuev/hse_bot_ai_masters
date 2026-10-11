@@ -20,6 +20,7 @@ async def cmd_start(message: Message, db_user):
 
         if message.chat.type in ["group", "supergroup"]:
             from src.bot.handlers.group_chat import handle_start_in_group
+
             await handle_start_in_group(message, db_user, user_name)
         else:
             await handle_start_in_private(message, db_user, user_name)
@@ -40,7 +41,11 @@ async def handle_start_in_private(message: Message, db_user, user_name: str):
 
         builder = InlineKeyboardBuilder()
         builder.button(text="📖 Дисциплины", callback_data="quick_subjects")
-        builder.button(text="📅 Дедлайны", callback_data="quick_deadlines", style=ButtonStyle.PRIMARY)
+        builder.button(
+            text="📅 Дедлайны",
+            callback_data="quick_deadlines",
+            style=ButtonStyle.PRIMARY,
+        )
         builder.button(text="⚙️ Настройки", callback_data="quick_settings")
         builder.button(text="❓ Помощь", callback_data="quick_help")
 
@@ -48,7 +53,11 @@ async def handle_start_in_private(message: Message, db_user, user_name: str):
 
         if is_admin(db_user.tg_user_id):
             builder.row()
-            builder.button(text="👨‍💼 Админ-панель", callback_data="admin_panel", style=ButtonStyle.PRIMARY)
+            builder.button(
+                text="👨‍💼 Админ-панель",
+                callback_data="admin_panel",
+                style=ButtonStyle.PRIMARY,
+            )
             builder.adjust(2, 2, 1)
         else:
             builder.adjust(2, 2)

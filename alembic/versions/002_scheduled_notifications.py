@@ -5,12 +5,12 @@ Revises: 001
 Create Date: 2025-01-09 12:00:00.000000
 
 """
-import contextlib
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 
 # revision identifiers, used by Alembic.
@@ -153,8 +153,18 @@ def upgrade() -> None:
         WHERE tg_user_id NOT IN (SELECT user_id FROM user_notification_settings)
     """)
 
-    with contextlib.suppress(Exception):
-        op.add_column("chat_groups", sa.Column("topic_title", sa.Text(), nullable=True))
+    # Some installations already had chat groups when this migration was added,
+    # while a clean install creates them in migration 004.  Never probe schema
+    # compatibility by swallowing a failed DDL statement on PostgreSQL: that
+    # aborts the whole transaction even if Python catches the exception.
+    if not context.is_offline_mode():
+        inspector = sa.inspect(op.get_bind())
+        if "chat_groups" in inspector.get_table_names() and "topic_title" not in {
+            column["name"] for column in inspector.get_columns("chat_groups")
+        }:
+            op.add_column(
+                "chat_groups", sa.Column("topic_title", sa.Text(), nullable=True)
+            )
 
     # ### end Alembic commands ###
 
@@ -180,7 +190,11 @@ def downgrade() -> None:
     # Remove settings_version column from users
     op.drop_column("users", "settings_version")
 
-    with contextlib.suppress(Exception):
-        op.drop_column("chat_groups", "topic_title")
+    if not context.is_offline_mode():
+        inspector = sa.inspect(op.get_bind())
+        if "chat_groups" in inspector.get_table_names() and "topic_title" in {
+            column["name"] for column in inspector.get_columns("chat_groups")
+        }:
+            op.drop_column("chat_groups", "topic_title")
 
     # ### end Alembic commands ###

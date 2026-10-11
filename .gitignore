@@ -147,9 +147,6 @@ config/creds.json
 .DS_Store
 Thumbs.db
 
-# Docker
-.dockerignore
-
 # Database
 *.db
 *.sqlite

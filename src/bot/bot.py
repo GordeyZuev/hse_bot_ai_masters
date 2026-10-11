@@ -3,8 +3,15 @@ import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllChatAdministrators,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+)
 from dotenv import load_dotenv
 
 from src.bot.handlers import register_handlers
@@ -30,8 +37,10 @@ class HSEBot:
         if not self.bot_token:
             raise ValueError("BOT_TOKEN не найден в переменных окружения")
 
+        proxy = (os.getenv("BOT_PROXY") or "").strip() or None
         self.bot = Bot(
             token=self.bot_token,
+            session=AiohttpSession(proxy=proxy) if proxy else None,
             default=DefaultBotProperties(parse_mode=ParseMode.HTML),
         )
 
@@ -40,16 +49,54 @@ class HSEBot:
 
         logger.info("Бот инициализирован")
 
+    async def setup_commands(self) -> None:
+        """Register small, context-aware command menus."""
+        await self.bot.set_my_commands(
+            [
+                BotCommand(command="deadlines", description="Ближайшие дедлайны"),
+                BotCommand(command="subjects", description="Дисциплины и подписки"),
+                BotCommand(command="settings", description="Настройки"),
+                BotCommand(command="help", description="Помощь"),
+            ],
+            scope=BotCommandScopeAllPrivateChats(),
+        )
+        await self.bot.set_my_commands(
+            [
+                BotCommand(command="info", description="Дедлайны группы"),
+                BotCommand(command="help", description="Помощь", is_ephemeral=True),
+            ],
+            scope=BotCommandScopeAllGroupChats(),
+        )
+        await self.bot.set_my_commands(
+            [
+                BotCommand(
+                    command="setup_discipline",
+                    description="Выбрать дисциплину",
+                    is_ephemeral=True,
+                ),
+                BotCommand(
+                    command="chat_settings",
+                    description="Настройки группы",
+                    is_ephemeral=True,
+                ),
+                BotCommand(command="info", description="Дедлайны группы"),
+            ],
+            scope=BotCommandScopeAllChatAdministrators(),
+        )
+
     async def setup(self, with_scheduler: bool = False):
         """Настройка бота перед запуском"""
         try:
             await db_manager.ensure_initialized()
             logger.info("База данных инициализирована")
 
-            try:
-                await data_syncer.sync_subjects()
-            except Exception as e:
-                logger.warning(f"Старт бота: не удалось синхронизировать дисциплины: {e}")
+            if not with_scheduler:
+                try:
+                    await data_syncer.sync_subjects()
+                except Exception as e:
+                    logger.warning(
+                        f"Старт бота: не удалось синхронизировать дисциплины: {e}"
+                    )
 
             register_middlewares(self.dp)
             logger.info("Middleware зарегистрированы")
@@ -60,6 +107,9 @@ class HSEBot:
             register_user_events_handlers(self.dp)
             register_chat_events_handlers(self.dp)
             logger.info("Event services зарегистрированы")
+
+            await self.setup_commands()
+            logger.info("Контекстные команды зарегистрированы")
 
             if with_scheduler:
                 hse_scheduler.set_bot(self.bot)

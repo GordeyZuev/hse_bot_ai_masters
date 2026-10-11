@@ -1,15 +1,19 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
+from html import escape
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 
 from src.bot.services.chat_service import chat_service
+from src.bot.services.rate_limiter import telegram_rate_limiter
 from src.core.database import db_manager
-from src.core.models import ChatScheduledNotification, ChatTopic, Task
+from src.core.models import ChatScheduledNotification, ChatTopic, Subject, Task
 from src.utils import get_logger, safe_send_message
+from src.utils.telegram_text import SAFE_MESSAGE_LENGTH
 
 
 logger = get_logger()
@@ -28,35 +32,36 @@ class ChatNotificationSender:
         try:
             logger.info("[SYSTEM] Проверка уведомлений для чатов")
 
-            # Получаем уведомления для отправки (в течение ближайших 5 минут)
-            notifications = await self._get_scheduled_notifications_for_delivery()
+            deadline = asyncio.get_running_loop().time() + 120
+            while True:
+                notifications = await self._get_scheduled_notifications_for_delivery()
+                if not notifications:
+                    break
 
-            if not notifications:
-                logger.info("[SYSTEM] Нет уведомлений для чатов")
-                return stats
-
-            # Группируем уведомления по чатам и топикам
-            chat_topic_notifications = self._group_notifications_by_chat_topic(notifications)
-            logger.debug(
-                f"Группировка уведомлений по чатам и топикам: chat_topics={len(chat_topic_notifications)}"
-            )
-
-            # Обрабатываем чаты и топики батчами
-            batch_size = 5
-            chat_topic_items = list(chat_topic_notifications.items())
-
-            for i in range(0, len(chat_topic_items), batch_size):
-                batch = chat_topic_items[i : i + batch_size]
-
-                # Обрабатываем батч параллельно
-                tasks = []
-                for (chat_id, topic_id), topic_notifs in batch:
-                    task = self._process_chat_notifications(
-                        bot, chat_id, topic_id, topic_notifs, stats
+                chat_topic_notifications = self._group_notifications_by_chat_topic(
+                    notifications
+                )
+                chat_topic_items = list(chat_topic_notifications.items())
+                for i in range(0, len(chat_topic_items), 5):
+                    batch = chat_topic_items[i : i + 5]
+                    results = await asyncio.gather(
+                        *(
+                            self._process_chat_notifications(
+                                bot, chat_id, topic_id, topic_notifs, stats
+                            )
+                            for (chat_id, topic_id), topic_notifs in batch
+                        ),
+                        return_exceptions=True,
                     )
-                    tasks.append(task)
-
-                await asyncio.gather(*tasks, return_exceptions=True)
+                    for error in results:
+                        if isinstance(error, BaseException):
+                            logger.error(f"Ошибка пачки напоминаний для чатов: {error}")
+                if asyncio.get_running_loop().time() >= deadline:
+                    logger.warning(
+                        "[SYSTEM] Достигнут лимит времени отправки в чаты; остаток "
+                        "очереди будет обработан следующим запуском"
+                    )
+                    break
 
             return stats
 
@@ -64,33 +69,66 @@ class ChatNotificationSender:
             logger.error(f"Ошибка отправки уведомлений в чаты: {e}")
             return stats
 
-    async def _get_scheduled_notifications_for_delivery(self) -> list[ChatScheduledNotification]:
+    async def _get_scheduled_notifications_for_delivery(
+        self,
+    ) -> list[ChatScheduledNotification]:
         """Получить уведомления для отправки"""
         async with db_manager.async_session() as session:
             now = datetime.now(UTC)
             time_window = now + timedelta(minutes=5)
+            stale_claim = now - timedelta(minutes=10)
 
-            logger.debug(f"Поиск уведомлений для чатов: now={now}, window={time_window}")
+            logger.debug(
+                f"Поиск уведомлений для чатов: now={now}, window={time_window}"
+            )
 
             stmt = (
                 select(ChatScheduledNotification)
                 .join(ChatTopic)
+                .join(Task, ChatScheduledNotification.deadline_id == Task.id)
+                .join(Subject, Task.subject_id == Subject.id)
                 .options(
                     selectinload(ChatScheduledNotification.chat_topic),
-                    selectinload(ChatScheduledNotification.task)
+                    selectinload(ChatScheduledNotification.task),
                 )
                 .where(
                     and_(
-                        ChatScheduledNotification.status == "scheduled",
-                        ChatScheduledNotification.planned_delivery_time <= time_window,
                         ChatTopic.is_active,
+                        Task.is_archived.is_(False),
+                        Subject.is_active,
+                        Subject.is_archived.is_(False),
+                        or_(
+                            and_(
+                                ChatScheduledNotification.status == "scheduled",
+                                ChatScheduledNotification.planned_delivery_time
+                                <= time_window,
+                            ),
+                            and_(
+                                ChatScheduledNotification.status == "retry",
+                                or_(
+                                    ChatScheduledNotification.next_attempt_at.is_(None),
+                                    ChatScheduledNotification.next_attempt_at <= now,
+                                ),
+                            ),
+                            and_(
+                                ChatScheduledNotification.status == "processing",
+                                ChatScheduledNotification.claimed_at < stale_claim,
+                            ),
+                        ),
                     )
                 )
                 .order_by(ChatScheduledNotification.planned_delivery_time)
+                .limit(100)
+                .with_for_update(skip_locked=True)
             )
 
             result = await session.execute(stmt)
             notifications = list(result.scalars().all())
+            for notification in notifications:
+                notification.status = "processing"
+                notification.claimed_at = now
+                notification.attempt_count += 1
+            await session.commit()
             logger.debug(f"Найдено {len(notifications)} активных уведомлений для чатов")
             return notifications
 
@@ -114,7 +152,38 @@ class ChatNotificationSender:
         chat_id: int,
         topic_id: int | None,
         notifications: list[ChatScheduledNotification],
-        stats: dict[str, int]
+        stats: dict[str, int],
+    ):
+        """Keep each group message bounded while preserving per-task grouping."""
+        by_task = list(self._group_notifications_by_deadline(notifications).values())
+        batches: list[list[ChatScheduledNotification]] = []
+        group: list[ChatScheduledNotification] = []
+        for task_group in by_task:
+            candidate = group + task_group
+            text = self._format_multiple_notifications(
+                self._group_notifications_by_deadline(candidate)
+            )
+            if group and len(text) > SAFE_MESSAGE_LENGTH:
+                batches.append(group)
+                group = list(task_group)
+            else:
+                group = candidate
+        if group:
+            batches.append(group)
+        for index, group in enumerate(batches):
+            if index:
+                await asyncio.sleep(3)  # Telegram allows about 20 group messages/min.
+            await self._process_chat_notification_batch(
+                bot, chat_id, topic_id, group, stats
+            )
+
+    async def _process_chat_notification_batch(
+        self,
+        bot: Bot,
+        chat_id: int,
+        topic_id: int | None,
+        notifications: list[ChatScheduledNotification],
+        stats: dict[str, int],
     ):
         """Обработать уведомления для одного чата и топика"""
         batch_text = None
@@ -128,10 +197,14 @@ class ChatNotificationSender:
                 return
 
             # Группируем уведомления по задачам
-            deadline_notifications = self._group_notifications_by_deadline(notifications)
+            deadline_notifications = self._group_notifications_by_deadline(
+                notifications
+            )
 
             # Формируем единое сообщение (как в scheduled_notification_sender)
             batch_text = self._format_multiple_notifications(deadline_notifications)
+            if len(batch_text) > SAFE_MESSAGE_LENGTH:
+                raise ValueError("Chat notification exceeds Telegram message limit")
 
             # Получаем topic_id для отправки в топик
             message_thread_id = chat_topic.topic_id
@@ -150,6 +223,15 @@ class ChatNotificationSender:
                 stats["total_processed"] += len(notifications)
                 await self._mark_notifications_as_failed(list(notifications))
 
+        except TelegramRetryAfter as e:
+            logger.warning(
+                f"(C) {chat_id} (topic: {topic_id}) - RetryAfter {e.retry_after}с"
+            )
+            await self._mark_notifications_as_failed(
+                list(notifications), str(e), int(e.retry_after) + 1
+            )
+            stats["failed"] += len(notifications)
+            stats["total_processed"] += len(notifications)
         except Exception as e:
             # Проверяем, является ли это ошибкой миграции или отсутствия чата
             from aiogram.exceptions import TelegramBadRequest
@@ -159,7 +241,9 @@ class ChatNotificationSender:
             if isinstance(e, TelegramBadRequest):
                 err_msg = str(e).lower()
                 if "chat not found" in err_msg or "chat not exist" in err_msg:
-                    logger.warning(f"(C) {chat_id} (topic: {topic_id}) - чат недоступен, деактивируем")
+                    logger.warning(
+                        f"(C) {chat_id} (topic: {topic_id}) - чат недоступен, деактивируем"
+                    )
                     await chat_service.deactivate_chat(chat_id)
                     await self._mark_notifications_as_failed(list(notifications))
                     stats["failed"] += len(notifications)
@@ -167,10 +251,14 @@ class ChatNotificationSender:
                     return
 
                 # Пытаемся обработать миграцию
-                new_chat_id = await TelegramErrorHandler.handle_chat_migration(e, chat_id, bot)
+                new_chat_id = await TelegramErrorHandler.handle_chat_migration(
+                    e, chat_id, bot
+                )
                 if new_chat_id:
                     # Повторяем отправку с новым ID чата (если текст уже сформирован)
-                    logger.info(f"(C) {chat_id} → {new_chat_id} - Чат мигрирован, повторная отправка")
+                    logger.info(
+                        f"(C) {chat_id} → {new_chat_id} - Чат мигрирован, повторная отправка"
+                    )
                     try:
                         if batch_text and message_thread_id is not None:
                             sent_ok = await self._safe_send_batch(
@@ -179,12 +267,18 @@ class ChatNotificationSender:
                             if sent_ok:
                                 stats["sent"] += len(notifications)
                                 stats["total_processed"] += len(notifications)
-                                await self._mark_notifications_as_sent(list(notifications))
+                                await self._mark_notifications_as_sent(
+                                    list(notifications)
+                                )
                                 return
                             else:
-                                logger.error(f"(C) {new_chat_id} - Повторная отправка после миграции не удалась")
+                                logger.error(
+                                    f"(C) {new_chat_id} - Повторная отправка после миграции не удалась"
+                                )
                     except Exception as retry_error:
-                        logger.error(f"(C) {new_chat_id} - Ошибка повторной отправки после миграции: {retry_error}")
+                        logger.error(
+                            f"(C) {new_chat_id} - Ошибка повторной отправки после миграции: {retry_error}"
+                        )
 
                     # Если повторная отправка не удалась — отмечаем как failed
                     await self._mark_notifications_as_failed(list(notifications))
@@ -214,6 +308,7 @@ class ChatNotificationSender:
     ) -> bool:
         if not text.strip():
             return False
+        await telegram_rate_limiter.acquire()
         return await safe_send_message(
             bot,
             chat_id=chat_id,
@@ -260,25 +355,31 @@ class ChatNotificationSender:
             n0 = notifs[0]
             deadline = n0.task
             hw_name = deadline.hw_name or "Без названия"
+            if len(hw_name) > 160:
+                hw_name = f"{hw_name[:159]}…"
 
             # Не показываем нумерацию если дедлайн один
             if total_deadlines == 1:
-                lines.append(f"<b>{hw_name}</b>\n")
+                lines.append(f"<b>{escape(hw_name)}</b>\n")
             else:
-                lines.append(f"<b>{idx}. {hw_name}</b>\n")
+                lines.append(f"<b>{idx}. {escape(hw_name)}</b>\n")
 
             has_any_deadline = False
 
             # Мягкий дедлайн (если есть и актуален)
             if deadline.soft_deadline_ts and deadline.soft_deadline_ts >= now:
-                soft_str = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name="Europe/Moscow")
+                soft_str = format_deadline_tg_time(
+                    deadline.soft_deadline_ts, tz_name="Europe/Moscow"
+                )
                 remain = format_time_remaining(deadline.soft_deadline_ts, now)
                 lines.append(f"• 🟡 {soft_str} {remain}\n")
                 has_any_deadline = True
 
             # Жёсткий дедлайн (если есть и актуален)
             if deadline.hard_deadline_ts and deadline.hard_deadline_ts >= now:
-                hard_str = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name="Europe/Moscow")
+                hard_str = format_deadline_tg_time(
+                    deadline.hard_deadline_ts, tz_name="Europe/Moscow"
+                )
                 remain = format_time_remaining(deadline.hard_deadline_ts, now)
                 lines.append(f"• 🔴 {hard_str} {remain}\n")
                 has_any_deadline = True
@@ -286,11 +387,15 @@ class ChatNotificationSender:
             # Если нет актуальных дедлайнов, но есть прошедшие - показываем их
             if not has_any_deadline:
                 if deadline.soft_deadline_ts:
-                    soft_str = format_deadline_tg_time(deadline.soft_deadline_ts, tz_name="Europe/Moscow")
+                    soft_str = format_deadline_tg_time(
+                        deadline.soft_deadline_ts, tz_name="Europe/Moscow"
+                    )
                     lines.append(f"• 🟡 {soft_str} <i>(прошёл)</i>\n")
                     has_any_deadline = True
                 if deadline.hard_deadline_ts:
-                    hard_str = format_deadline_tg_time(deadline.hard_deadline_ts, tz_name="Europe/Moscow")
+                    hard_str = format_deadline_tg_time(
+                        deadline.hard_deadline_ts, tz_name="Europe/Moscow"
+                    )
                     lines.append(f"• 🔴 {hard_str} <i>(прошёл)</i>\n")
                     has_any_deadline = True
 
@@ -302,15 +407,13 @@ class ChatNotificationSender:
 
         # Добавляем надпись в конце сообщения
         from src.bot.texts import CHAT_DEADLINE_FOOTER
+
         lines.append(CHAT_DEADLINE_FOOTER)
 
         return "".join(lines).strip()
 
     async def _send_chat_notification(
-        self,
-        bot: Bot,
-        chat_id: int,
-        notifications: list[ChatScheduledNotification]
+        self, bot: Bot, chat_id: int, notifications: list[ChatScheduledNotification]
     ) -> bool:
         """Отправить уведомление в чат"""
         if not notifications:
@@ -335,7 +438,7 @@ class ChatNotificationSender:
             is_group_chat=True,
             reply_markup=keyboard,
             parse_mode="HTML",
-            message_thread_id=message_thread_id
+            message_thread_id=message_thread_id,
         )
 
     def _format_chat_notification_message(
@@ -355,8 +458,8 @@ class ChatNotificationSender:
 
         # Формируем текст
         text = f"{deadline_emoji} <b>Напоминание о дедлайне</b>\n\n"
-        text += f"📚 <b>Предмет:</b> {subject.name}\n"
-        text += f"📝 <b>Задание:</b> {deadline.hw_name or 'Не указано'}\n"
+        text += f"📚 <b>Предмет:</b> {escape(subject.name)}\n"
+        text += f"📝 <b>Задание:</b> {escape(deadline.hw_name or 'Не указано')}\n"
         text += f"⏰ <b>Дедлайн ({deadline_text}):</b> "
 
         if deadline_type == "soft":
@@ -365,33 +468,43 @@ class ChatNotificationSender:
             deadline_ts = deadline.hard_deadline_ts
 
         from src.utils.notification_formatting import format_deadline_tg_time
+
         formatted_time = format_deadline_tg_time(deadline_ts, tz_name="Europe/Moscow")
         text += f"{formatted_time}\n"
 
         if deadline.note:
-            text += f"📄 <b>Примечание:</b> {deadline.note}\n"
+            text += f"📄 <b>Примечание:</b> {escape(deadline.note)}\n"
 
         if deadline.source_link:
-            text += f"🔗 <b>Ссылка:</b> {deadline.source_link}\n"
+            text += f"🔗 <b>Ссылка:</b> {escape(deadline.source_link)}\n"
 
         # Добавляем надпись в конце сообщения
         from src.bot.texts import CHAT_DEADLINE_FOOTER
+
         text += CHAT_DEADLINE_FOOTER
 
         return text
 
-    def _create_chat_notification_keyboard(self, deadline: Task) -> InlineKeyboardMarkup:
+    def _create_chat_notification_keyboard(
+        self, deadline: Task
+    ) -> InlineKeyboardMarkup:
         """Создать клавиатуру для уведомления"""
         keyboard = InlineKeyboardMarkup(inline_keyboard=[])
 
         if deadline.source_link:
-            keyboard.inline_keyboard.append([
-                InlineKeyboardButton(text="🔗 Открыть ссылку", url=deadline.source_link)
-            ])
+            keyboard.inline_keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text="🔗 Открыть ссылку", url=deadline.source_link
+                    )
+                ]
+            )
 
         return keyboard
 
-    async def _mark_notifications_as_sent(self, notifications: list[ChatScheduledNotification]):
+    async def _mark_notifications_as_sent(
+        self, notifications: list[ChatScheduledNotification]
+    ):
         """Отметить уведомления как отправленные"""
         notification_ids = [n.id for n in notifications]
         if not notification_ids:
@@ -399,14 +512,28 @@ class ChatNotificationSender:
 
         async with db_manager.async_session() as session:
             from sqlalchemy import update
+
             await session.execute(
                 update(ChatScheduledNotification)
-                .where(ChatScheduledNotification.id.in_(notification_ids))
-                .values(status="sent", updated_at=datetime.now(UTC))
+                .where(
+                    ChatScheduledNotification.id.in_(notification_ids),
+                    ChatScheduledNotification.status == "processing",
+                )
+                .values(
+                    status="sent",
+                    sent_at=datetime.now(UTC),
+                    next_attempt_at=None,
+                    updated_at=datetime.now(UTC),
+                )
             )
             await session.commit()
 
-    async def _mark_notifications_as_failed(self, notifications: list[ChatScheduledNotification]):
+    async def _mark_notifications_as_failed(
+        self,
+        notifications: list[ChatScheduledNotification],
+        error: str | None = None,
+        retry_after_seconds: int | None = None,
+    ):
         """Отметить уведомления как неудачные"""
         notification_ids = [n.id for n in notifications]
         if not notification_ids:
@@ -414,11 +541,45 @@ class ChatNotificationSender:
 
         async with db_manager.async_session() as session:
             from sqlalchemy import update
-            await session.execute(
-                update(ChatScheduledNotification)
-                .where(ChatScheduledNotification.id.in_(notification_ids))
-                .values(status="failed", updated_at=datetime.now(UTC))
+
+            max_attempt = max(
+                notification.attempt_count for notification in notifications
             )
+            dead_ids = [n.id for n in notifications if n.attempt_count >= 5]
+            retry_ids = [n.id for n in notifications if n.attempt_count < 5]
+            now = datetime.now(UTC)
+            if dead_ids:
+                await session.execute(
+                    update(ChatScheduledNotification)
+                    .where(
+                        ChatScheduledNotification.id.in_(dead_ids),
+                        ChatScheduledNotification.status == "processing",
+                    )
+                    .values(
+                        status="dead",
+                        updated_at=now,
+                        last_error=error,
+                        next_attempt_at=None,
+                    )
+                )
+            if retry_ids:
+                await session.execute(
+                    update(ChatScheduledNotification)
+                    .where(
+                        ChatScheduledNotification.id.in_(retry_ids),
+                        ChatScheduledNotification.status == "processing",
+                    )
+                    .values(
+                        status="retry",
+                        updated_at=now,
+                        last_error=error,
+                        next_attempt_at=now
+                        + timedelta(
+                            seconds=retry_after_seconds
+                            or min(3600, 60 * 2 ** max(max_attempt - 1, 0))
+                        ),
+                    )
+                )
             await session.commit()
 
 

@@ -9,6 +9,7 @@ from .models import (
     Task,
     TaskUserStatus,
     User,
+    UserActionEvent,
     UserNotificationSettings,
 )
 
@@ -24,5 +25,6 @@ __all__ = [
     "Task",
     "TaskUserStatus",
     "User",
+    "UserActionEvent",
     "UserNotificationSettings",
 ]

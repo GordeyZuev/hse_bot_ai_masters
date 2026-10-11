@@ -93,7 +93,11 @@ class NotificationService:
                 }
 
             # Обновляем настройки
-            await db_manager.update_user_notification_settings(user_id, settings_data)
+            await db_manager.update_user_notification_settings(
+                user_id,
+                settings_data,
+                audit_details={"setting": f"reminder_{notification_number}"},
+            )
 
             # Перепланируем уведомления пользователя
             rescheduled_count = await notification_scheduler_service.reschedule_notifications_for_user_settings_change(
@@ -119,7 +123,14 @@ class NotificationService:
         """Включить/отключить все уведомления пользователя"""
         try:
             settings_data = {"is_active": is_enabled}
-            await db_manager.update_user_notification_settings(user_id, settings_data)
+            await db_manager.update_user_notification_settings(
+                user_id,
+                settings_data,
+                audit_details={
+                    "setting": "notifications_enabled",
+                    "enabled": is_enabled,
+                },
+            )
 
             if is_enabled:
                 # Если включаем уведомления, перепланируем их
@@ -140,7 +151,9 @@ class NotificationService:
                     stmt = select(ScheduledNotification).where(
                         and_(
                             ScheduledNotification.user_id == user_id,
-                            ScheduledNotification.status == "scheduled",
+                            ScheduledNotification.status.in_(
+                                ["scheduled", "processing", "retry"]
+                            ),
                         )
                     )
                     result = await session.execute(stmt)
@@ -179,7 +192,14 @@ class NotificationService:
                 "sleep_start_time": sleep_start,
                 "sleep_end_time": sleep_end,
             }
-            await db_manager.update_user_notification_settings(user_id, settings_data)
+            await db_manager.update_user_notification_settings(
+                user_id,
+                settings_data,
+                audit_details={
+                    "setting": "sleep_time",
+                    "enabled": bool(sleep_start and sleep_end),
+                },
+            )
 
             if sleep_start is None or sleep_end is None:
                 logger.info(f"(U) {user_id} - Время сна сброшено")
@@ -187,13 +207,13 @@ class NotificationService:
             else:
                 start_str = sleep_start.strftime("%H:%M")
                 end_str = sleep_end.strftime("%H:%M")
-                logger.info(
-                    f"(U) {user_id} - Время сна: {start_str} - {end_str}"
-                )
+                logger.info(f"(U) {user_id} - Время сна: {start_str} - {end_str}")
                 return True, f"Время сна установлено: {start_str} - {end_str}"
 
         except Exception as e:
-            logger.error(f"Ошибка установки времени сна для пользователя {user_id}: {e}")
+            logger.error(
+                f"Ошибка установки времени сна для пользователя {user_id}: {e}"
+            )
             return False, "Произошла ошибка при установке времени сна"
 
     async def toggle_deadline_update_notifications(
@@ -202,7 +222,11 @@ class NotificationService:
         """Включить/отключить уведомления об обновлении дедлайнов"""
         try:
             settings_data = {"enable_deadline_update_notifications": is_enabled}
-            await db_manager.update_user_notification_settings(user_id, settings_data)
+            await db_manager.update_user_notification_settings(
+                user_id,
+                settings_data,
+                audit_details={"setting": "deadline_updates", "enabled": is_enabled},
+            )
 
             status_text_log = "Включены" if is_enabled else "Отключены"
             status_text_user = "включены" if is_enabled else "отключены"

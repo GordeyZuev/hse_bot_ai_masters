@@ -148,14 +148,14 @@ def test_rich_completed_task_has_clear_reverse_action() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("was_done", "expected_method", "expected_answer"),
+    ("was_done", "expected_method"),
     [
-        (False, "set_done", "✅ Задание отмечено выполненным"),
-        (True, "set_not_done", "↩️ Задание возвращено в работу"),
+        (False, "set_done"),
+        (True, "set_not_done"),
     ],
 )
 async def test_rich_set_changes_status_and_refreshes_message(
-    monkeypatch, was_done, expected_method, expected_answer
+    monkeypatch, was_done, expected_method
 ) -> None:
     calls = []
 
@@ -166,7 +166,7 @@ async def test_rich_set_changes_status_and_refreshes_message(
         data = f"rich_set_2_{'work' if was_done else 'done'}_15_1_h0"
         message = FakeMessage()
 
-        async def answer(self, text, **kwargs):
+        async def answer(self, text=None, **kwargs):
             calls.append(("answer", text, kwargs))
 
     async def get_deadlines(*_args, **_kwargs):
@@ -192,7 +192,7 @@ async def test_rich_set_changes_status_and_refreshes_message(
     await tasks.callback_rich_set(FakeCallback(), SimpleNamespace(tg_user_id=123))
 
     assert (expected_method,) in calls
-    assert ("answer", expected_answer, {}) in calls
+    assert ("answer", None, {}) in calls
     assert (
         "refresh",
         {"hide_done": False, "edit": True, "page": 1, "open_task_id": 2},
@@ -210,7 +210,7 @@ async def test_repeated_rich_button_never_reverses_the_action(monkeypatch) -> No
         data = "rich_set_2_done_7_0_h0"
         message = FakeMessage()
 
-        async def answer(self, text, **_kwargs):
+        async def answer(self, text=None, **_kwargs):
             calls.append(("answer", text))
 
     async def get_deadlines(*_args, **_kwargs):
@@ -236,6 +236,6 @@ async def test_repeated_rich_button_never_reverses_the_action(monkeypatch) -> No
 
     assert calls == [
         ("set_done",),
-        ("answer", "Задание уже выполнено"),
+        ("answer", None),
         ("refresh",),
     ]

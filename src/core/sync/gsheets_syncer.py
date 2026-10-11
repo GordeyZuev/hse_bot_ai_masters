@@ -24,9 +24,6 @@ class AsyncGoogleSheetsManager:
 
     def __init__(self):
         self.sheet_url = os.getenv("GOOGLE_SHEETS_URL")
-        if not self.sheet_url:
-            raise ValueError("GOOGLE_SHEETS_URL не найден в переменных окружения")
-
         self.creds_file = os.getenv("GOOGLE_CREDS_FILE", "src/config/creds.json")
         self.client_manager = AsyncioGspreadClientManager(self.get_credentials)
 
@@ -42,6 +39,8 @@ class AsyncGoogleSheetsManager:
     async def get_sheet_data(self, sheet_name: str) -> list[dict[str, Any]]:
         """Асинхронное получение данных из листа"""
         try:
+            if not self.sheet_url:
+                raise ValueError("GOOGLE_SHEETS_URL не найден в переменных окружения")
             client = await self.client_manager.authorize()
             spreadsheet = await client.open_by_url(self.sheet_url)
             worksheet = await spreadsheet.worksheet(sheet_name)

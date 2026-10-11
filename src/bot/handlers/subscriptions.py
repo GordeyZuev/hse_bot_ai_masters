@@ -119,7 +119,7 @@ async def process_toggle_subscription(
             )
 
         if success:
-            await callback.answer(f"✅ {message_text}", show_alert=True)
+            await callback.answer()
             # Обновляем интерфейс
             data = await state.get_data()
             year = data.get("year", 1)
@@ -192,7 +192,10 @@ async def execute_unsubscribe_all(callback: CallbackQuery, db_user):
         success, message_text = await subscription_service.unsubscribe_user_from_all(
             db_user.tg_user_id
         )
-        await callback.answer(message_text, show_alert=not success)
+        if success:
+            await callback.answer()
+        else:
+            await callback.answer(message_text, show_alert=True)
 
         text = f"🗑 <b>Отписка от всех предметов</b>\n\n{message_text}"
 

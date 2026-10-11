@@ -13,7 +13,7 @@ async def test_old_quick_button_cannot_reverse_newer_status(monkeypatch) -> None
         data = "quick_set_42_done_7_h0_p0"
         message = SimpleNamespace()
 
-        async def answer(self, text, **_kwargs):
+        async def answer(self, text=None, **_kwargs):
             calls.append(("answer", text))
 
     async def get_deadlines(*_args, **_kwargs):
@@ -37,7 +37,7 @@ async def test_old_quick_button_cannot_reverse_newer_status(monkeypatch) -> None
     await tasks.callback_quick_set(FakeCallback(), SimpleNamespace(tg_user_id=1))
     assert calls == [
         ("set_done",),
-        ("answer", "Задание уже выполнено"),
+        ("answer", None),
         ("refresh",),
     ]
 
@@ -50,7 +50,7 @@ async def test_old_card_button_cannot_reverse_newer_status(monkeypatch) -> None:
         data = "task_card_set_42_done_7_0_h0"
         message = SimpleNamespace()
 
-        async def answer(self, text, **_kwargs):
+        async def answer(self, text=None, **_kwargs):
             calls.append(("answer", text))
 
     async def card_payload(*_args, **_kwargs):
@@ -74,7 +74,7 @@ async def test_old_card_button_cannot_reverse_newer_status(monkeypatch) -> None:
     await tasks.callback_task_card_set(FakeCallback(), SimpleNamespace(tg_user_id=1))
     assert calls == [
         ("set_done",),
-        ("answer", "Задание уже выполнено"),
+        ("answer", None),
         ("refresh",),
     ]
 
@@ -87,7 +87,7 @@ async def test_old_subject_button_cannot_reverse_newer_status(monkeypatch) -> No
         data = "subject_task_set_42_done_5_7_h0"
         message = SimpleNamespace()
 
-        async def answer(self, text, **_kwargs):
+        async def answer(self, text=None, **_kwargs):
             calls.append(("answer", text))
 
     async def get_deadlines(*_args, **_kwargs):
@@ -117,6 +117,6 @@ async def test_old_subject_button_cannot_reverse_newer_status(monkeypatch) -> No
     await tasks.callback_subject_task_set(FakeCallback(), SimpleNamespace(tg_user_id=1))
     assert calls == [
         ("set_done",),
-        ("answer", "Задание уже выполнено"),
+        ("answer", None),
         ("refresh",),
     ]

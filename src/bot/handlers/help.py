@@ -1,5 +1,3 @@
-import os
-
 from aiogram import F, Router
 from aiogram.filters import Command, and_f
 from aiogram.types import CallbackQuery, Message
@@ -57,9 +55,7 @@ async def callback_help(callback: CallbackQuery, db_user):
 async def send_help_message(message: Message, db_user, edit_mode: bool = False):
     """Отправка сообщения с помощью"""
     try:
-        fcs_wiki_url = os.getenv("FCS_WIKI_URL", "https://wiki.cs.hse.ru")
-
-        text = HELP_TEXT.format(fcs_wiki_url=fcs_wiki_url)
+        text = HELP_TEXT
         if is_admin(db_user.tg_user_id):
             text += ADMIN_HELP_TEXT
 

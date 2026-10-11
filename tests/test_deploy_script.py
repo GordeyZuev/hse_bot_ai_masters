@@ -17,6 +17,7 @@ def _fake_deploy(
     dirty_tree: bool = False,
     has_creds: bool = True,
     app_exists: bool = True,
+    compose_v1: bool = False,
 ):
     project = tmp_path / "project"
     scripts = project / "scripts"
@@ -36,6 +37,8 @@ def _fake_deploy(
     (scripts / "backup-db.sh").chmod(0o755)
     (binaries / "docker").write_text(
         '#!/usr/bin/env bash\necho "docker $*" >> "$CALLS"\n'
+        'if [[ "$*" == "compose version" && "${COMPOSE_V1:-}" == "1" ]]; '
+        "then exit 1; fi\n"
         'if [[ "$*" == *" ps --status ${APP_STATUS:-running} -q app"* && '
         '"${APP_RUNNING:-}" == "1" ]]; then echo app-id; fi\n'
         'if [[ "$*" == *" ps -a -q app"* && '
@@ -59,6 +62,7 @@ def _fake_deploy(
         "APP_RUNNING": "1" if app_running else "0",
         "APP_STATUS": app_status or "running",
         "APP_EXISTS": "1" if app_exists else "0",
+        "COMPOSE_V1": "1" if compose_v1 else "0",
         "DIRTY_TREE": "1" if dirty_tree else "0",
     }
     result = subprocess.run(
@@ -158,3 +162,11 @@ def test_migrate_only_refuses_restarting_app(tmp_path) -> None:
         calls[-1]
         == "docker compose --env-file src/config/.env ps --status restarting -q app"
     )
+
+
+def test_update_refuses_legacy_compose_before_pull_or_build(tmp_path) -> None:
+    result, calls = _fake_deploy(tmp_path, args=("--pull",), compose_v1=True)
+
+    assert result.returncode != 0
+    assert "Docker Compose plugin" in result.stderr
+    assert calls == ["docker compose version"]

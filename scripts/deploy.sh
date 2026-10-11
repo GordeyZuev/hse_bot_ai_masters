@@ -8,7 +8,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 if ! docker compose version >/dev/null 2>&1; then
-    echo "❌ Требуется Docker Compose plugin (команда 'docker compose')." >&2
+    echo "❌ Требуется Docker Compose plugin (docker compose). docker-compose v1 несовместим с пересозданием контейнеров на этом сервере." >&2
     exit 1
 fi
 if [[ ! -f src/config/.env ]]; then

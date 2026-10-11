@@ -74,12 +74,6 @@ async def _set_task_status(
     raise ValueError("Unknown task status target")
 
 
-def _task_status_answer(target: str, changed: bool) -> str:
-    if target == "done":
-        return "✅ Задание отмечено выполненным" if changed else "Задание уже выполнено"
-    return "↩️ Задание возвращено в работу" if changed else "Задание уже в работе"
-
-
 def _format_single_deadline(
     data: dict,
     deadline_numbers: dict[int, int],
@@ -610,14 +604,14 @@ async def callback_task_card_set(callback: CallbackQuery, db_user):
         await callback.answer("Задание больше не доступно", show_alert=True)
         return
     try:
-        changed = await _set_task_status(
+        await _set_task_status(
             db_user.tg_user_id, task_id, target, surface="compact_card"
         )
     except Exception:
         logger.exception("Не удалось изменить отметку задания")
         await callback.answer("Не удалось изменить отметку", show_alert=True)
         return
-    await callback.answer(_task_status_answer(target, changed))
+    await callback.answer()
     updated = await _task_card_payload(db_user, task_id, days, page, hide_done)
     if updated is not None:
         text, markup, _is_done = updated
@@ -993,14 +987,14 @@ async def callback_subject_task_set(callback: CallbackQuery, db_user):
         )
         return
     try:
-        changed = await _set_task_status(
+        await _set_task_status(
             db_user.tg_user_id, deadline_id, target, surface="compact_subject"
         )
     except Exception:
         logger.exception("Не удалось изменить отметку задания")
         await callback.answer("Не удалось изменить отметку", show_alert=True)
         return
-    await callback.answer(_task_status_answer(target, changed))
+    await callback.answer()
 
     # Перерисовать экран предмета
     await show_subject_task_checks(callback, db_user, subject_id, days, hide_done)
@@ -1038,14 +1032,14 @@ async def callback_quick_set(callback: CallbackQuery, db_user):
         )
         return
     try:
-        changed = await _set_task_status(
+        await _set_task_status(
             db_user.tg_user_id, deadline_id, target, surface="compact"
         )
     except Exception:
         logger.exception("Не удалось изменить отметку задания")
         await callback.answer("Не удалось изменить отметку", show_alert=True)
         return
-    await callback.answer(_task_status_answer(target, changed))
+    await callback.answer()
 
     # quick_toggle вызывается только из режима отметки, всегда возвращаемся туда
     await send_deadlines_list_for_checking(
@@ -1092,9 +1086,7 @@ async def callback_rich_set(callback: CallbackQuery, db_user):
             )
             await callback.answer("Задание больше не доступно.", show_alert=True)
             return
-        changed = await _set_task_status(
-            db_user.tg_user_id, deadline_id, target, surface="rich"
-        )
+        await _set_task_status(db_user.tg_user_id, deadline_id, target, surface="rich")
     except Exception:
         logger.exception(
             f"(U) {db_user.tg_user_id} - Не удалось изменить отметку ДЗ {deadline_id}"
@@ -1103,7 +1095,7 @@ async def callback_rich_set(callback: CallbackQuery, db_user):
             "Не удалось обновить отметку. Попробуйте позже.", show_alert=True
         )
         return
-    await callback.answer(_task_status_answer(target, changed))
+    await callback.answer()
     await send_deadlines_list(
         callback.message,
         db_user,
